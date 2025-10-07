@@ -1,0 +1,11 @@
+/* Baskerville Frontend Styles */
+
+.baskerville-container {
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.baskerville-content {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+}
