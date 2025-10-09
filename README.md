@@ -1,5 +1,4 @@
-# baskerville_plugin
-Baskerville Wordpress Plugin
+# Baskerville Wordpress Plugin
 
 ## Building
 

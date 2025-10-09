@@ -30,9 +30,11 @@ class Baskerville {
     private $core;
     private $admin;
     private $had_cookie_on_arrival = false;
+    private $current_visit_key = null;
 
     public function __construct() {
         add_action('init', array($this, 'init'));
+        add_action('template_redirect', [$this, 'early_throttle_bad_bots'], -1000);
         add_action('plugins_loaded', array($this, 'load_classes'));
         add_action('rest_api_init', array($this, 'register_rest_routes'));
         add_action('baskerville_cleanup_stats', array($this, 'cleanup_old_stats'));
@@ -42,6 +44,163 @@ class Baskerville {
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
     }
+
+    // ---- FAST CACHE (APCu + file fallback) ----
+    private function cacheDir(): string {
+        $dir = WP_CONTENT_DIR . '/cache/baskerville';
+        if (!is_dir($dir)) { @wp_mkdir_p($dir); }
+        if (!is_dir($dir)) {
+            $dir = rtrim(sys_get_temp_dir(), '/').'/baskerville-cache';
+            if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+        }
+        return $dir;
+    }
+    private function cachePath(string $key): string {
+        return $this->cacheDir() . '/' . sha1($key) . '.cache';
+    }
+    private function cacheGet(string $key) {
+        if (function_exists('apcu_fetch')) {
+            $ok = false; $val = apcu_fetch($key, $ok);
+            return $ok ? $val : false;
+        }
+        $p = $this->cachePath($key);
+        if (!is_file($p)) return false;
+        $raw = @file_get_contents($p);
+        if ($raw === false) return false;
+        $row = json_decode($raw, true);
+        if (!$row || !isset($row['exp']) || $row['exp'] < time()) { @unlink($p); return false; }
+        return $row['val'];
+    }
+    private function cacheSet(string $key, $val, int $ttl): bool {
+        if (function_exists('apcu_store')) return (bool) apcu_store($key, $val, $ttl);
+        $p = $this->cachePath($key);
+        $row = json_encode(['val'=>$val, 'exp'=>time()+$ttl], JSON_UNESCAPED_SLASHES);
+        return (bool) @file_put_contents($p, $row, LOCK_EX);
+    }
+    private function cacheInc(string $key, int $ttl): int {
+        if (function_exists('apcu_inc')) {
+            $ok = false; $n = apcu_inc($key, 1, $ok, $ttl);
+            if (!$ok) { apcu_add($key, 1, $ttl); $n = 1; }
+            return (int)$n;
+        }
+        $p = $this->cachePath($key);
+        $n = 1; $now = time(); $exp = $now + $ttl;
+        $fp = @fopen($p, 'c+');
+        if (!$fp) { @file_put_contents($p, json_encode(['val'=>1,'exp'=>$exp]), LOCK_EX); return 1; }
+        @flock($fp, LOCK_EX);
+        $raw = stream_get_contents($fp);
+        $row = $raw ? json_decode($raw, true) : null;
+        if ($row && !empty($row['exp']) && $row['exp'] >= $now && isset($row['val'])) {
+            $n = (int)$row['val'] + 1;
+        }
+        ftruncate($fp, 0); rewind($fp);
+        fwrite($fp, json_encode(['val'=>$n,'exp'=>$exp]));
+        @flock($fp, LOCK_UN); fclose($fp);
+        return $n;
+    }
+    private function cacheDel(string $key): void {
+        if (function_exists('apcu_delete')) { apcu_delete($key); return; }
+        $p = $this->cachePath($key); if (is_file($p)) @unlink($p);
+    }
+
+    // ---- ARRIVAL COOKIE CHECK (по «сырому» заголовку) ----
+    private function arrival_has_valid_cookie(): bool {
+        $hdr = $_SERVER['HTTP_COOKIE'] ?? '';
+        if ($hdr === '' || strpos($hdr, 'baskerville_id=') === false) return false;
+        // вытащим именно то значение, что прислал клиент
+        if (!preg_match('~(?:^|;\s*)baskerville_id=([^;]+)~i', $hdr, $m)) return false;
+        $raw = urldecode($m[1]);
+        $parts = explode('.', $raw);
+        if (count($parts) !== 3) return false;
+        [$token, $ts, $sig] = $parts;
+        if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
+        $calc = hash_hmac('sha256', $token . '.' . (int)$ts, $this->cookie_secret());
+        if (!hash_equals($calc, $sig)) return false;
+        // та же «валидность 90 дней», что и в get_cookie_id()
+        if ((int)$ts < time() - 60*60*24*90) return false;
+        return true;
+    }
+
+    // ---- Known good crawlers, чтобы не банить Google/Bing и т.п. ----
+    private function is_good_crawler_ua(string $ua): bool {
+        $ua = strtolower($ua);
+        foreach (['googlebot','bingbot','duckduckbot','applebot','yandexbot','baiduspider',
+                  'facebookexternalhit','twitterbot','linkedinbot','slackbot','discordbot'] as $g) {
+            if (strpos($ua, $g) !== false) return true;
+        }
+        return false;
+    }
+
+    // ---- Признак «это публичная HTML-страница» (как в log_page_visit) ----
+    private function is_public_html_request(): bool {
+        if (is_admin()) return false;
+        if (defined('REST_REQUEST') && REST_REQUEST) return false;
+        if (wp_doing_ajax()) return false;
+        if (is_feed() || is_trackback()) return false;
+        $uri = $_SERVER['REQUEST_URI'] ?? '';
+        if (strpos($uri, '/wp-json/') === 0) return false;
+        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+        if ($accept && !preg_match('~text/html|application/xhtml\+xml|\*/\*~i', $accept)) return false;
+        $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        if (!in_array($method, ['GET','HEAD'], true)) return false;
+        return true;
+    }
+
+    // ---- BAN helpers ----
+    private function banKey(string $ip): string { return 'bask:ban:'.$ip; }
+    private function isBanned(string $ip): bool { return (bool) $this->cacheGet($this->banKey($ip)); }
+    private function banIp(string $ip, int $minutes): void {
+        $this->cacheSet($this->banKey($ip), 1, max(1,$minutes)*60);
+    }
+
+    // ---- РАННЯЯ ОТСЕЧКА ----
+    public function early_throttle_bad_bots(): void {
+        if (!$this->is_public_html_request()) return;
+
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        if (!$ip) return;
+
+        // Уже забанен? Рубим без обращения к БД.
+        if ($this->isBanned($ip)) {
+            if (!headers_sent()) {
+                header('HTTP/1.1 403 Forbidden');
+                header('Content-Type: text/plain; charset=UTF-8');
+                header('Cache-Control: no-store');
+            }
+            echo "Forbidden";
+            exit;
+        }
+
+        // Считаем ТОЛЬКО те хиты, где клиент НЕ прислал валидную baskerville_id
+        // (т.е. curl/python-скрипт, не поддерживающий cookie)
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        if ($this->arrival_has_valid_cookie() || $this->is_good_crawler_ua($ua)) {
+            return; // человек (или хороший краулер) — не считаем в «безкукиные»
+        }
+
+        // Порог и окно
+        $windowSec = (int) get_option('baskerville_nocookie_window_sec', 60);
+        $threshold = (int) get_option('baskerville_nocookie_threshold', 10);
+        $banMin    = (int) get_option('baskerville_nocookie_ban_minutes', 10);
+
+        // Минутный бакет по IP
+        $bucket = 'bask:nocookie:'.$ip.':'.floor(time() / max(1,$windowSec));
+        $hits   = $this->cacheInc($bucket, $windowSec + 10); // немного больше окна
+
+        if ($hits > $threshold) {
+            $this->banIp($ip, $banMin);
+            if (!headers_sent()) {
+                header('HTTP/1.1 403 Forbidden');
+                header('Content-Type: text/plain; charset=UTF-8');
+                header('Retry-After: '.($banMin*60));
+                header('Cache-Control: no-store');
+                header('X-Baskerville-Reason: nocookie-burst');
+            }
+            echo "Forbidden";
+            exit;
+        }
+    }
+
 
     public function handle_widget_toggle() {
         if (!isset($_GET['baskerville_debug'])) return;
@@ -110,10 +269,51 @@ class Baskerville {
         // Детектор «бурстов» без JS: много HTML-хитов за короткое окно — mark as bad_bot
         $this->maybe_mark_ip_as_bad_bot_on_burst($ip, $classification);
 
-        // Сохраняем как page-ивент
         $cookie_id = $this->get_cookie_id();
-        $this->save_visit_stats($ip, $cookie_id ?? '', $evaluation, $classification, $ua, 'page');
+        $visit_key = $this->make_visit_key($ip, $cookie_id);
+        $this->current_visit_key = $visit_key;
+
+        // короткая кука на всякий случай (если кэш/инлайновый скрипт не увидит PHP-переменную)
+        setcookie('baskerville_visit_key', $visit_key, [
+          'expires'  => time()+300, 'path'=>'/', 'secure'=>is_ssl(), 'httponly'=>false, 'samesite'=>'Lax'
+        ]);
+
+        $this->save_visit_stats($ip, $cookie_id ?? '', $evaluation, $classification, $ua, 'page', $visit_key);
     }
+
+    private function make_visit_key(string $ip, ?string $bid): string {
+        return hash('sha256', $ip.'|'.$bid.'|'.microtime(true).'|'.bin2hex(random_bytes(8)));
+    }
+
+    private function maybe_upgrade_schema() {
+        global $wpdb;
+        $t = $wpdb->prefix . 'baskerville_stats';
+
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'had_fp'");
+        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN had_fp TINYINT(1) NOT NULL DEFAULT 0"); }
+
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'fp_received_at'");
+        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN fp_received_at DATETIME NULL"); }
+
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'visit_count'");
+        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN visit_count INT(11) NOT NULL DEFAULT 1"); }
+
+        $idx_any    = $wpdb->get_var("SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='{$t}' AND index_name='visit_key' LIMIT 1");
+        $idx_unique = $wpdb->get_var("SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='{$t}' AND index_name='visit_key' AND non_unique=0 LIMIT 1");
+        if ($idx_any && !$idx_unique) { $wpdb->query("DROP INDEX visit_key ON $t"); }
+        if (!$idx_unique) { $wpdb->query("ALTER TABLE $t ADD UNIQUE KEY visit_key (visit_key)"); }
+
+
+        $idx = $wpdb->get_results("SHOW INDEX FROM $t WHERE Key_name='idx_burst'");
+        if (!$idx) {
+            $wpdb->query("CREATE INDEX idx_burst ON $t (ip, event_type, had_fp, timestamp_utc)");
+        }
+
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'fingerprint_hash'");
+        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN fingerprint_hash VARCHAR(64) NULL"); $wpdb->query("CREATE INDEX fingerprint_hash ON $t (fingerprint_hash)"); }
+
+    }
+
 
     private function looks_like_browser_ua(string $ua): bool {
         $ua = strtolower($ua);
@@ -121,19 +321,20 @@ class Baskerville {
         return (bool) preg_match('~(mozilla/|chrome/|safari/|firefox/|edg/|opera|opr/)~i', $ua);
     }
 
-    /** Если с IP слишком много page-хитов в узком окне — помечаем как bad_bot */
+    /** Если с IP слишком много page-хитов БЕЗ FP за короткое окно — помечаем как bad_bot */
     private function maybe_mark_ip_as_bad_bot_on_burst(string $ip, array &$classification): void {
         global $wpdb;
         $table = $wpdb->prefix . 'baskerville_stats';
 
-        // Порог/окно — можно вынести в options
         $window_sec = (int) get_option('baskerville_nojs_window_sec', 60);
         $threshold  = (int) get_option('baskerville_nojs_threshold', 20);
 
-        // Считаем только page-ивенты за окно
+        // считаем ТОЛЬКО page-записи без полученного FP (had_fp=0) за последнее окно
         $cnt = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table
-             WHERE ip=%s AND event_type='page'
+             WHERE ip=%s
+               AND event_type='page'
+               AND had_fp=0
                AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)",
             $ip, $window_sec
         ));
@@ -142,7 +343,7 @@ class Baskerville {
             $classification = [
                 'classification' => 'bad_bot',
                 'reason' => sprintf('Excessive no-JS page hits: %d in %ds', $cnt, $window_sec),
-                'risk_score' => max(50, (int)($classification['risk_score'] ?? 0)), // повышаем риск
+                'risk_score' => max(50, (int)($classification['risk_score'] ?? 0)),
                 'details' => [
                     'has_cookie' => (bool)$this->get_cookie_id(),
                     'is_ai_bot'  => false,
@@ -200,37 +401,36 @@ class Baskerville {
             ensureWidgets();
           }
 
-          // ==== дальше — твой существующий код сбора fingerprint и отправки ====
-
+          // === утилиты ===
           const hash = async (str) => {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(str);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+            const enc = new TextEncoder();
+            const data = enc.encode(str);
+            const buf = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
           };
 
           const canvasFingerprint = () => {
             try {
-              const canvas = document.createElement('canvas');
-              const ctx = canvas.getContext('2d');
+              const c = document.createElement('canvas');
+              const ctx = c.getContext('2d');
               ctx.textBaseline = 'top';
               ctx.font = '14px Arial';
               ctx.fillStyle = '#f60';
               ctx.fillRect(0, 0, 100, 100);
               ctx.fillStyle = '#069';
               ctx.fillText('Baskerville canvas test', 10, 50);
-              return canvas.toDataURL();
+              return c.toDataURL();
             } catch { return 'unsupported'; }
           };
 
           const webglFingerprint = () => {
             try {
-              const canvas = document.createElement('canvas');
-              const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+              const c = document.createElement('canvas');
+              const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
               if (!gl) return 'no-webgl';
-              const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-              const vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : 'unknown';
-              const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'unknown';
+              const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+              const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : 'unknown';
+              const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
               const exts = (gl.getSupportedExtensions && gl.getSupportedExtensions()) || [];
               return { vendor, renderer, extCount: exts.length };
             } catch { return 'unsupported'; }
@@ -238,7 +438,8 @@ class Baskerville {
 
           const audioFingerprint = async () => {
             try {
-              const ctx = window.OfflineAudioContext ? new OfflineAudioContext(1, 44100, 44100) : new (window.AudioContext || window.webkitAudioContext)();
+              const Ctx = window.OfflineAudioContext || window.AudioContext || window.webkitAudioContext;
+              const ctx = new Ctx(1, 44100, 44100);
               return { sampleRate: ctx.sampleRate };
             } catch { return 'unsupported'; }
           };
@@ -249,8 +450,8 @@ class Baskerville {
                 Math.acos(0.123),
                 Math.tan(0.5),
                 Math.log(42),
-                Math.sin(Math.PI / 3),
-              ].map(x => x.toPrecision(15)).join(',');
+                Math.sin(Math.PI/3),
+              ].map(x=>x.toPrecision(15)).join(',');
             } catch { return 'unsupported'; }
           };
 
@@ -269,7 +470,8 @@ class Baskerville {
               const permissions = {};
               if (navigator.permissions?.query) {
                 for (const n of ['notifications','clipboard-read']) {
-                  try { permissions[n] = (await navigator.permissions.query({name:n})).state; } catch { permissions[n] = 'unknown'; }
+                  try { permissions[n] = (await navigator.permissions.query({name:n})).state; }
+                  catch { permissions[n] = 'unknown'; }
                 }
               }
 
@@ -280,8 +482,16 @@ class Baskerville {
                 timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
                 language: navigator.language,
                 languages: navigator.languages,
-                touchSupport: { touchEvent: 'ontouchstart' in window, maxTouchPoints: navigator.maxTouchPoints || 0 },
-                device: { platform: navigator.platform, memory: navigator.deviceMemory || 'unknown', cores: navigator.hardwareConcurrency || 'unknown', webdriver: navigator.webdriver || false },
+                touchSupport: {
+                  touchEvent: 'ontouchstart' in window,
+                  maxTouchPoints: navigator.maxTouchPoints || 0
+                },
+                device: {
+                  platform: navigator.platform,
+                  memory: navigator.deviceMemory || 'unknown',
+                  cores: navigator.hardwareConcurrency || 'unknown',
+                  webdriver: navigator.webdriver || false
+                },
                 quirks: { canvas, webgl, audio, mathQuirk },
                 dpr: window.devicePixelRatio || 1,
                 colorDepth: screen.colorDepth || null,
@@ -312,7 +522,9 @@ class Baskerville {
               const fingerprintHash = await hash(concat);
 
               if (SHOW_WIDGET) {
-                const formatValue = (v) => v==null ? 'null' : (typeof v==='string' && v.length>50 ? v.slice(0,47)+'…' : (typeof v==='object' ? JSON.stringify(v) : String(v)));
+                const formatValue = (v) => v==null ? 'null'
+                  : (typeof v==='string' && v.length>50 ? v.slice(0,47)+'…'
+                     : (typeof v==='object' ? JSON.stringify(v) : String(v)));
                 const el = document.getElementById('fingerprint-data');
                 if (el) el.innerHTML = `
                   <div style="margin-bottom:6px;"><span style="color:#FFA500;">Hash:</span> ${fingerprintHash.slice(0,16)}...</div>
@@ -326,21 +538,39 @@ class Baskerville {
                 `;
               }
 
-              const payload = { fingerprint: fp, fingerprintHash, url: location.href, ts: Date.now() };
+              function readCookie(name){
+                const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/([.$?*|{}()[\]\\/+^])/g,'\\$1')+'=([^;]*)'));
+                return m ? decodeURIComponent(m[1]) : null;
+              }
+
+              const payload = {
+                  fingerprint: fp,
+                  fingerprintHash,
+                  url: location.href,
+                  referrer: document.referrer || null,
+                  ts: Date.now(),
+                  visitKey: readCookie('baskerville_visit_key') || null
+              };
 
               const send = async () => {
                 try {
-                  const res = await fetch(REST_URL, { method:'POST', headers:{'Content-Type':'application/json','X-WP-Nonce':WP_NONCE}, body:JSON.stringify(payload), keepalive:true });
+                  const res = await fetch(REST_URL, {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json','X-WP-Nonce': WP_NONCE},
+                    body: JSON.stringify(payload),
+                    keepalive: true
+                  });
                   if (res.ok) {
                     const result = await res.json();
-                    if (SHOW_WIDGET && result.ok) {
+                    if (SHOW_WIDGET && result?.ok) {
                       const scoreEl = document.getElementById('score-data');
                       if (scoreEl) {
-                        const scoreColor = result.score >= 60 ? '#ff6b6b' : result.score >= 40 ? '#ffa726' : '#4CAF50';
+                        const sc = result.score ?? 0;
+                        const scoreColor = sc >= 60 ? '#ff6b6b' : sc >= 40 ? '#ffa726' : '#4CAF50';
                         const map = (c)=>({human:['#4CAF50','👤','HUMAN'],bad_bot:['#ff6b6b','🚫','BAD BOT'],ai_bot:['#ff9800','🤖','AI BOT'],bot:['#673AB7','🕷️','BOT']})[c]||['#757575','❓','UNKNOWN'];
                         const [color,icon,label] = map(result.classification?.classification);
                         scoreEl.innerHTML = `
-                          <div style="margin-bottom:8px;"><span style="color:${scoreColor};font-size:24px;font-weight:bold;">${result.score}/100</span></div>
+                          <div style="margin-bottom:8px;"><span style="color:${scoreColor};font-size:24px;font-weight:bold;">${sc}/100</span></div>
                           <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Action:</span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
                           <div style="margin-bottom:8px;padding:4px 8px;background:rgba(0,0,0,.2);border-left:3px solid ${color};border-radius:4px;">
                             <span style="color:${color};font-weight:bold;">${icon} ${label}</span>
@@ -360,10 +590,15 @@ class Baskerville {
                   } catch {}
                 }
               };
-              ('requestIdleCallback' in window) ? requestIdleCallback(send, {timeout:2000}) : setTimeout(send, 1000);
+
+              ('requestIdleCallback' in window)
+                ? requestIdleCallback(send, {timeout: 2000})
+                : setTimeout(send, 1000);
+
             } catch (e) {
               const el = document.getElementById('fingerprint-data');
               if (el) el.innerHTML = `<div style="color:#ff6b6b;">Error: ${e.message}</div>`;
+              // не бросаем дальше — просто молча
             }
           })();
         })();
@@ -376,6 +611,7 @@ class Baskerville {
         require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
         $this->core = new Baskerville_Core();
+        $this->maybe_upgrade_schema();
 
         if (is_admin()) {
             $this->admin = new Baskerville_Admin();
@@ -455,6 +691,36 @@ class Baskerville {
             update_option('baskerville_cookie_secret', $secret, true);
         }
         return $secret;
+    }
+
+
+    private function update_visit_stats_by_key(string $visit_key, array $evaluation, array $classification, ?string $fp_hash = null): bool {
+        global $wpdb;
+        $t = $wpdb->prefix.'baskerville_stats';
+        $data = [
+            'score'                 => (int)$evaluation['score'],
+            'classification'        => (string)$classification['classification'],
+            'evaluation_json'       => json_encode($evaluation),
+            'score_reasons'         => implode('; ', $evaluation['reasons'] ?? []),
+            'classification_reason' => (string)($classification['reason'] ?? ''),
+            'had_fp'                => 1,
+            'fp_received_at'        => current_time('mysql', true),
+        ];
+        if ($fp_hash) { $data['fingerprint_hash'] = $fp_hash; }
+
+        $ok = $wpdb->update(
+            $t,
+            $data,
+            ['visit_key' => $visit_key],
+            array_merge(['%d','%s','%s','%s','%s','%d','%s'], $fp_hash ? ['%s'] : []),
+            ['%s']
+        );
+        if ($ok === false) {
+            error_log('Baskerville: update by visit_key failed - '.$wpdb->last_error);
+            return false;
+        }
+        // $ok===0 — запись могла не найдено/не изменилось; считаем «не найдено»
+        return $ok > 0;
     }
 
 
@@ -671,6 +937,18 @@ class Baskerville {
         $is_windows = (bool)preg_match('~windows nt~i', $ua);
         $is_mac = (bool)preg_match('~mac os x~i', $ua);
 
+
+        $dpr = null;
+        $webglExtCount = 0;
+        $pluginsCount = 0;
+        $maxTouchPoints = 0;
+        $outerToInner = 0.0;
+        $viewportToScreen = 0.0;
+        $lang = '';
+        $acceptLang = strtolower($svh['accept_language'] ?? '');
+        $hasDST = null;
+
+
         $has_js_fp = !empty($fp);
 
         $ua_server = strtolower($svh['user_agent'] ?? '');
@@ -729,17 +1007,6 @@ class Baskerville {
             if ($is_mac && $dpr < 2 && preg_match('~\bMacintosh\b~i', $fp['userAgent'] ?? '')) {
                 // Современные маки почти всегда DPR=2 (Retina)
                 $score += 5;  $reasons[] = 'Mac UA but DPR<2';
-            }
-
-            $ua_server = strtolower($svh['user_agent'] ?? '');
-            if (preg_match('~(curl|wget|python-requests|go-http-client|okhttp|node-fetch|postmanruntime)~', $ua_server)) {
-                $score += 30; $reasons[] = 'Non-browser HTTP client';
-            }
-            if (empty($svh['accept_language'])) {
-                $score += 5;  $reasons[] = 'Missing Accept-Language';
-            }
-            if (preg_match('~chrome/~i', $ua_server) && empty($svh['sec_ch_ua'])) {
-                $score += 5;  $reasons[] = 'Missing Client Hints for Chrome-like UA';
             }
 
             // 3) Viewport vs Screen
@@ -830,73 +1097,135 @@ class Baskerville {
             return new WP_REST_Response(['error' => 'empty_payload'], 400);
         }
 
-        // augment with server-side info
-        $server_info = [
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
-            'headers' => [
-                'accept' => $_SERVER['HTTP_ACCEPT'] ?? null,
-                'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
-                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
-                'sec_ch_ua' => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
-            ],
-            'server_time' => current_time('mysql')
+        // server context
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        $headers = [
+            'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
+            'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
+            'user_agent'      => $_SERVER['HTTP_USER_AGENT'] ?? null,
+            'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
         ];
 
-        $cookie_id = $this->get_cookie_id();
+        $cookie_id = $this->get_cookie_id(); // HttpOnly cookie: ок — читаем на сервере
         $cookie_id_log = $cookie_id ? substr($cookie_id, 0, 8) . '…' : 'none';
 
+        // оценка/классификация
         try {
-            $evaluation     = $this->baskerville_score_fp($body, ['headers' => $server_info['headers']]);
-            $classification = $this->classify_client($body, ['headers' => $server_info['headers']]);
-
-            error_log('Baskerville evaluation result: ' . json_encode($evaluation));
-            error_log('Baskerville classification result: ' . json_encode($classification));
+            $evaluation     = $this->baskerville_score_fp($body, ['headers' => $headers]);
+            $classification = $this->classify_client($body, ['headers' => $headers]);
         } catch (Exception $e) {
             error_log('Baskerville evaluation error: ' . $e->getMessage());
             $evaluation = ['score' => 0, 'action' => 'error', 'reasons' => ['evaluation_error']];
             $classification = ['classification' => 'unknown', 'reason' => 'Classification error', 'risk_score' => 0];
         }
 
-        $log = [
-            'id' => $cookie_id_log,
-            'score' => $evaluation['score'],
-            'action' => $evaluation['action'],
-            'reasons' => $evaluation['reasons'],
-            'classification' => $classification['classification'],
-            'classification_reason' => $classification['reason'],
-            'ua' => $body['fingerprint']['userAgent'] ?? 'unknown',
-            'screen' => $body['fingerprint']['screen'] ?? 'unknown',
-            'viewport' => $body['fingerprint']['viewport'] ?? 'unknown',
-            'dpr' => $body['fingerprint']['dpr'] ?? 'unknown',
-            'platform' => $body['fingerprint']['device']['platform'] ?? 'unknown',
-            'webdriver' => $body['fingerprint']['device']['webdriver'] ?? false,
-        ];
+        // --- сначала пробуем по visit_key из клиента ---
+        $fp_hash   = isset($body['fingerprintHash']) ? substr($body['fingerprintHash'], 0, 64) : null;
+        $visit_key = isset($body['visitKey']) ? preg_replace('~[^a-f0-9]~i', '', (string)$body['visitKey']) : '';
 
-        error_log('Baskerville FP Summary: ' . json_encode($log));
+        if ($visit_key) {
+            $updated = $this->update_visit_stats_by_key($visit_key, $evaluation, $classification, $fp_hash);
+            if ($updated) {
+                return new WP_REST_Response([
+                    'ok'             => true,
+                    'score'          => (int)($evaluation['score'] ?? 0),
+                    'action'         => $evaluation['action'] ?? 'allow',
+                    'why'            => $evaluation['reasons'] ?? [],
+                    'classification' => $classification,
+                ], 200);
+            }
+        }
+        // --- если не получилось — идём в fallback по ip+baskerville_id+окно ---
 
-        // Save visit statistics to database
-        $save_result = $this->save_visit_stats(
-            $server_info['ip'],
-            $cookie_id ?? '',
-            $evaluation,
-            $classification,
-            $server_info['headers']['user_agent'] ?? '',
-            'fp'
-        );
 
-        if ($save_result === false) {
-            error_log('Baskerville: Failed to save visit statistics to database');
+        // === ВАРИАНТ B: прикрепляем FP к последнему page-хиту без FP ===
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        // окно, в течение которого считаем, что FP относится к данному page-хиту (в секундах)
+        $attach_window_sec = (int) get_option('baskerville_fp_attach_window_sec', 180);
+
+        // подстраховка: фиксируем TZ в UTC, чтобы сравнение с timestamp_utc было консистентным
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        // находим последний page-хит без FP за окно
+        $row_id = null;
+        if ($ip && $cookie_id) {
+            $row_id = $wpdb->get_var($wpdb->prepare(
+                "SELECT id
+                   FROM $table
+                  WHERE ip=%s
+                    AND baskerville_id=%s
+                    AND event_type='page'
+                    AND had_fp=0
+                    AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)
+                  ORDER BY timestamp_utc DESC
+                  LIMIT 1",
+                $ip, $cookie_id, $attach_window_sec
+            ));
         }
 
+        // значения для записи
+        $score   = (int)($evaluation['score'] ?? 0);
+        $cls     = (string)($classification['classification'] ?? 'unknown');
+        $why     = implode('; ', $evaluation['reasons'] ?? []);
+        $cls_r   = (string)($classification['reason'] ?? '');
+        $eval_js = json_encode($evaluation);
+        $fp_hash = isset($body['fingerprintHash']) ? substr($body['fingerprintHash'], 0, 64) : null;
 
+        if ($row_id) {
+            // Обновляем существующий page-хит: помечаем had_fp=1 и актуализируем поля оценки
+            $wpdb->update(
+                $table,
+                [
+                    'score'                 => $score,
+                    'classification'        => $cls,
+                    'evaluation_json'       => $eval_js,
+                    'score_reasons'         => $why,
+                    'classification_reason' => $cls_r,
+                    'had_fp'                => 1,
+                    'fp_received_at'        => current_time('mysql', true),
+                    'fingerprint_hash'      => $fp_hash,
+                    // updated_at обновится триггером ON UPDATE CURRENT_TIMESTAMP
+                ],
+                ['id' => (int)$row_id],
+                ['%d','%s','%s','%s','%s','%d','%s','%s'],
+                ['%d']
+            );
+        } else {
+            // Фоллбек: page-хита нет (напр., SPA/браузер загрузил FP без полной навигации).
+            // Вставим 1 запись event_type='page' сразу с had_fp=1, чтобы не терять событие.
+            $visit_key = hash('sha256', ($ip ?? '') . '|' . ($cookie_id ?? '') . '|' . microtime(true) . '|' . wp_generate_uuid4());
+            $wpdb->insert(
+                $table,
+                [
+                    'visit_key'             => $visit_key,
+                    'ip'                    => $ip ?: '',
+                    'baskerville_id'        => $cookie_id ?: '',
+                    'timestamp_utc'         => current_time('mysql', true),
+                    'score'                 => $score,
+                    'classification'        => $cls,
+                    'user_agent'            => $headers['user_agent'] ?? '',
+                    'evaluation_json'       => $eval_js,
+                    'score_reasons'         => $why,
+                    'classification_reason' => $cls_r,
+                    'event_type'            => 'page',
+                    'had_fp'                => 1,
+                    'fp_received_at'        => current_time('mysql', true),
+                    'fingerprint_hash'      => $fp_hash,
+                ],
+                ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%d','%s','%s']
+            );
+        }
+
+        // ответ клиенту (без создания отдельной строки)
         return new WP_REST_Response([
-            'ok'    => true,
-            'score' => $evaluation['score'],
-            'action'=> $evaluation['action'],
-            'why'   => $evaluation['reasons'],
+            'ok'             => true,
+            'score'          => $score,
+            'action'         => $evaluation['action'] ?? 'allow',
+            'why'            => $evaluation['reasons'] ?? [],
             'classification' => $classification,
         ], 200);
-
     }
 
     public function create_stats_table() {
@@ -911,6 +1240,7 @@ class Baskerville {
           visit_key varchar(255) NOT NULL,
           ip varchar(45) NOT NULL,
           baskerville_id varchar(100) NOT NULL,
+          fingerprint_hash varchar(64) NULL,
           timestamp_utc datetime NOT NULL,
           score int(3) NOT NULL DEFAULT 0,
           classification varchar(50) NOT NULL DEFAULT 'unknown',
@@ -919,16 +1249,22 @@ class Baskerville {
           score_reasons text NOT NULL,
           classification_reason text NOT NULL,
           event_type varchar(16) NOT NULL DEFAULT 'fp',
+
+          had_fp tinyint(1) NOT NULL DEFAULT 0,
+          fp_received_at datetime NULL,
+          visit_count int(11) NOT NULL DEFAULT 1,
+
           created_at timestamp DEFAULT CURRENT_TIMESTAMP,
           updated_at timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
-          KEY visit_key (visit_key),
+          UNIQUE KEY visit_key (visit_key),
           KEY ip (ip),
           KEY baskerville_id (baskerville_id),
           KEY timestamp_utc (timestamp_utc),
           KEY classification (classification),
           KEY score (score),
-          KEY event_type (event_type)
+          KEY event_type (event_type),
+          KEY fingerprint_hash (fingerprint_hash)
         ) $charset_collate;";
 
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
@@ -1077,35 +1413,34 @@ class Baskerville {
         ];
     }
 
-    public function save_visit_stats($ip, $baskerville_id, $evaluation, $classification, $user_agent, $event_type = 'fp') {
+    public function save_visit_stats($ip, $baskerville_id, $evaluation, $classification, $user_agent, $event_type = 'fp', $visit_key = null) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'baskerville_stats';
 
-        $visit_key = hash('sha256', $ip.'|'.$baskerville_id.'|'.microtime(true).'|'.wp_generate_uuid4());
+        $visit_key = $visit_key ?: $this->make_visit_key($ip, $baskerville_id);
 
         $data = [
             'visit_key' => $visit_key,
             'ip' => $ip,
             'baskerville_id' => $baskerville_id,
             'timestamp_utc' => current_time('mysql', true),
-            'score' => $evaluation['score'],
-            'classification' => $classification['classification'],
+            'score' => (int)$evaluation['score'],
+            'classification' => (string)$classification['classification'],
             'user_agent' => $user_agent,
             'evaluation_json' => json_encode($evaluation),
-            'score_reasons' => implode('; ', $evaluation['reasons']),
-            'classification_reason' => $classification['reason'],
-            'event_type' => $event_type, // <— NEW
+            'score_reasons' => implode('; ', $evaluation['reasons'] ?? []),
+            'classification_reason' => (string)($classification['reason'] ?? ''),
+            'event_type' => $event_type,
+            // had_fp/visit_count — оставляем дефолты из схемы (had_fp=0, visit_count=1)
         ];
+        $fmt = ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s'];
 
-        $result = $wpdb->insert($table_name, $data,
-            ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s']
-        );
-
-        if ($result === false) {
-            error_log('Baskerville: Failed to save visit stats - ' . $wpdb->last_error);
+        $ok = $wpdb->insert($table_name, $data, $fmt);
+        if ($ok === false) {
+            error_log('Baskerville: insert failed - '.$wpdb->last_error);
             return false;
         }
-        return true;
+        return $visit_key;
     }
 
     public function handle_stats(WP_REST_Request $request) {
@@ -1491,6 +1826,7 @@ class Baskerville {
 
     public function activate() {
         $this->create_stats_table();
+        $this->maybe_upgrade_schema();
         if (!get_option('baskerville_retention_days')) {
             add_option('baskerville_retention_days', BASKERVILLE_DEFAULT_RETENTION_DAYS);
         }
@@ -1500,6 +1836,11 @@ class Baskerville {
         if (!wp_next_scheduled('baskerville_cleanup_stats')) {
             wp_schedule_event(time(), 'daily', 'baskerville_cleanup_stats');
         }
+
+        if (!get_option('baskerville_nocookie_window_sec'))   add_option('baskerville_nocookie_window_sec', 60);
+        if (!get_option('baskerville_nocookie_threshold'))    add_option('baskerville_nocookie_threshold', 10);
+        if (!get_option('baskerville_nocookie_ban_minutes'))  add_option('baskerville_nocookie_ban_minutes', 10);
+
         flush_rewrite_rules();
     }
 
