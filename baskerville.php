@@ -34,74 +34,162 @@ class Baskerville {
 
     public function __construct() {
         add_action('init', array($this, 'init'));
-        add_action('template_redirect', [$this, 'early_throttle_bad_bots'], -1000);
         add_action('plugins_loaded', array($this, 'load_classes'));
         add_action('rest_api_init', array($this, 'register_rest_routes'));
         add_action('baskerville_cleanup_stats', array($this, 'cleanup_old_stats'));
         add_action('send_headers', [$this, 'ensure_baskerville_cookie'], 0);
+
+        add_action('template_redirect', [$this, 'pre_db_firewall'], -1);
+
         add_action('template_redirect', [$this, 'log_page_visit'], 0);
         add_action('init', [$this, 'handle_widget_toggle'], 0);
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
     }
 
-    // ---- FAST CACHE (APCu + file fallback) ----
-    private function cacheDir(): string {
+
+    /* ===== Fast cache: APCu + file fallback ===== */
+
+    private function fc_has_apcu(): bool {
+        return function_exists('apcu_enabled') && apcu_enabled();
+    }
+    private function fc_key(string $key): string {
+        return 'baskerville:' . preg_replace('~[^a-z0-9:_-]~i','_', $key);
+    }
+    private function fc_dir(): string {
         $dir = WP_CONTENT_DIR . '/cache/baskerville';
-        if (!is_dir($dir)) { @wp_mkdir_p($dir); }
-        if (!is_dir($dir)) {
-            $dir = rtrim(sys_get_temp_dir(), '/').'/baskerville-cache';
-            if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
-        }
+        if (!is_dir($dir)) @wp_mkdir_p($dir);
         return $dir;
     }
-    private function cachePath(string $key): string {
-        return $this->cacheDir() . '/' . sha1($key) . '.cache';
+    private function fc_path(string $key): string {
+        return $this->fc_dir() . '/' . sha1($key) . '.cache';
     }
-    private function cacheGet(string $key) {
-        if (function_exists('apcu_fetch')) {
-            $ok = false; $val = apcu_fetch($key, $ok);
-            return $ok ? $val : false;
+    /** set arbitrary value with TTL */
+    private function fc_set(string $key, $value, int $ttl): bool {
+        $k = $this->fc_key($key);
+        if ($this->fc_has_apcu()) {
+            return apcu_store($k, $value, $ttl);
         }
-        $p = $this->cachePath($key);
-        if (!is_file($p)) return false;
+        $data = ['v'=>$value,'e'=>time()+$ttl];
+        return (bool) @file_put_contents($this->fc_path($k), serialize($data), LOCK_EX);
+    }
+    /** get arbitrary value or null */
+    private function fc_get(string $key) {
+        $k = $this->fc_key($key);
+        if ($this->fc_has_apcu()) {
+            $ok = false; $v = apcu_fetch($k, $ok);
+            return $ok ? $v : null;
+        }
+        $p = $this->fc_path($k);
+        if (!is_file($p)) return null;
         $raw = @file_get_contents($p);
-        if ($raw === false) return false;
-        $row = json_decode($raw, true);
-        if (!$row || !isset($row['exp']) || $row['exp'] < time()) { @unlink($p); return false; }
-        return $row['val'];
+        if ($raw === false) return null;
+        $data = @unserialize($raw);
+        if (!is_array($data) || ($data['e'] ?? 0) < time()) { @unlink($p); return null; }
+        return $data['v'] ?? null;
     }
-    private function cacheSet(string $key, $val, int $ttl): bool {
-        if (function_exists('apcu_store')) return (bool) apcu_store($key, $val, $ttl);
-        $p = $this->cachePath($key);
-        $row = json_encode(['val'=>$val, 'exp'=>time()+$ttl], JSON_UNESCAPED_SLASHES);
-        return (bool) @file_put_contents($p, $row, LOCK_EX);
-    }
-    private function cacheInc(string $key, int $ttl): int {
-        if (function_exists('apcu_inc')) {
-            $ok = false; $n = apcu_inc($key, 1, $ok, $ttl);
-            if (!$ok) { apcu_add($key, 1, $ttl); $n = 1; }
-            return (int)$n;
+    /** increment counter in fixed window; returns current value */
+    private function fc_inc_in_window(string $key, int $window_sec): int {
+        $k = $this->fc_key($key);
+        if ($this->fc_has_apcu()) {
+            // create-or-increment with window TTL
+            if (!apcu_exists($k)) {
+                apcu_add($k, 1, $window_sec);
+                return 1;
+            }
+            return (int) apcu_inc($k);
         }
-        $p = $this->cachePath($key);
-        $n = 1; $now = time(); $exp = $now + $ttl;
-        $fp = @fopen($p, 'c+');
-        if (!$fp) { @file_put_contents($p, json_encode(['val'=>1,'exp'=>$exp]), LOCK_EX); return 1; }
-        @flock($fp, LOCK_EX);
-        $raw = stream_get_contents($fp);
-        $row = $raw ? json_decode($raw, true) : null;
-        if ($row && !empty($row['exp']) && $row['exp'] >= $now && isset($row['val'])) {
-            $n = (int)$row['val'] + 1;
+        // file fallback
+        $p  = $this->fc_path($k);
+        $now= time();
+        $cnt= 0; $exp = $now + $window_sec;
+        if (is_file($p)) {
+            $raw = @file_get_contents($p);
+            $data= @unserialize($raw);
+            if (is_array($data) && ($data['e'] ?? 0) > $now) {
+                $cnt = (int)($data['v'] ?? 0);
+                $exp = (int)$data['e'];
+            }
         }
-        ftruncate($fp, 0); rewind($fp);
-        fwrite($fp, json_encode(['val'=>$n,'exp'=>$exp]));
-        @flock($fp, LOCK_UN); fclose($fp);
-        return $n;
+        $cnt++;
+        @file_put_contents($p, serialize(['v'=>$cnt, 'e'=>$exp]), LOCK_EX);
+        return $cnt;
     }
-    private function cacheDel(string $key): void {
-        if (function_exists('apcu_delete')) { apcu_delete($key); return; }
-        $p = $this->cachePath($key); if (is_file($p)) @unlink($p);
+    private function fc_delete(string $key): void {
+        $k = $this->fc_key($key);
+        if ($this->fc_has_apcu()) { apcu_delete($k); return; }
+        @unlink($this->fc_path($k));
     }
+
+    /* ===== Ban cache (no DB) ===== */
+    private function get_ban(string $ip): ?array {
+        return $this->fc_get("ban:{$ip}") ?: null;
+    }
+    private function set_ban(string $ip, string $reason, int $ttl, array $meta=[]): void {
+        $payload = array_merge(['reason'=>$reason,'until'=>time()+$ttl], $meta);
+        $this->fc_set("ban:{$ip}", $payload, $ttl);
+    }
+
+    /* ===== One-shot DB logging gate for blocks ===== */
+    private function blocklog_once(string $ip, string $reason, array $evaluation, array $classification, string $ua, int $gate_ttl=600): void {
+        $sig = md5($reason);
+        $k   = "blocklog:{$ip}:{$sig}";
+        if ($this->fc_get($k)) return; // already logged recently
+        $this->fc_set($k, 1, $gate_ttl);
+        $this->insert_block_row($ip, $evaluation, $classification, $ua, $reason);
+    }
+
+    private function insert_block_row(string $ip, array $evaluation, array $classification, string $ua, string $reason): void {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+        $cookie_id = $this->get_cookie_id() ?: '';
+        $visit_key = $this->make_visit_key($ip, $cookie_id);
+        $ok = $wpdb->insert(
+            $table,
+            [
+                'visit_key'             => $visit_key,
+                'ip'                    => $ip,
+                'baskerville_id'        => $cookie_id,
+                'timestamp_utc'         => current_time('mysql', true),
+                'score'                 => (int)($evaluation['score'] ?? 0),
+                'classification'        => (string)($classification['classification'] ?? 'unknown'),
+                'user_agent'            => $ua,
+                'evaluation_json'       => json_encode($evaluation),
+                'score_reasons'         => implode('; ', $evaluation['reasons'] ?? []),
+                'classification_reason' => (string)($classification['reason'] ?? ''),
+                'block_reason'          => mb_substr($reason, 0, 120),
+                'event_type'            => 'block',
+                'had_fp'                => 0,
+            ],
+            ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%d']
+        );
+        if ($ok === false) {
+            error_log('Baskerville: insert_block_row failed - '.$wpdb->last_error);
+        }
+    }
+
+    /* ===== send 403 and stop ===== */
+    private function send_403_and_exit(array $meta): void {
+        if (!headers_sent()) {
+            status_header(403);
+            nocache_headers();
+            header('Content-Type: text/plain; charset=UTF-8');
+            if (!empty($meta['reason'])) header('X-Baskerville-Reason: '.$meta['reason']);
+            if (isset($meta['score']))   header('X-Baskerville-Score: '.(int)$meta['score']);
+            if (!empty($meta['cls']))    header('X-Baskerville-Class: '.$meta['cls']);
+           if (!empty($meta['until'])) {
+               $until = (int)$meta['until'];
+               header('X-Baskerville-Until: '.gmdate('c', $until));
+               $retry = max(1, $until - time());
+               header('Retry-After: '.$retry);
+           }
+        }
+        echo "Forbidden\n";
+        exit;
+    }
+
+
+
 
     // ---- ARRIVAL COOKIE CHECK (по «сырому» заголовку) ----
     private function arrival_has_valid_cookie(): bool {
@@ -121,16 +209,6 @@ class Baskerville {
         return true;
     }
 
-    // ---- Known good crawlers, чтобы не банить Google/Bing и т.п. ----
-    private function is_good_crawler_ua(string $ua): bool {
-        $ua = strtolower($ua);
-        foreach (['googlebot','bingbot','duckduckbot','applebot','yandexbot','baiduspider',
-                  'facebookexternalhit','twitterbot','linkedinbot','slackbot','discordbot'] as $g) {
-            if (strpos($ua, $g) !== false) return true;
-        }
-        return false;
-    }
-
     // ---- Признак «это публичная HTML-страница» (как в log_page_visit) ----
     private function is_public_html_request(): bool {
         if (is_admin()) return false;
@@ -146,61 +224,298 @@ class Baskerville {
         return true;
     }
 
-    // ---- BAN helpers ----
-    private function banKey(string $ip): string { return 'bask:ban:'.$ip; }
-    private function isBanned(string $ip): bool { return (bool) $this->cacheGet($this->banKey($ip)); }
-    private function banIp(string $ip, int $minutes): void {
-        $this->cacheSet($this->banKey($ip), 1, max(1,$minutes)*60);
+    private function is_whitelisted_ip(string $ip): bool {
+        $raw = (string) get_option('baskerville_ip_whitelist', '');
+        if ($raw === '') return false;
+        foreach (preg_split('~[\s,]+~', $raw) as $w) {
+            if ($w !== '' && $w === $ip) return true;
+        }
+        return false;
     }
 
-    // ---- РАННЯЯ ОТСЕЧКА ----
-    public function early_throttle_bad_bots(): void {
+    private function verify_crawler_ip(string $ip, string $ua): array {
+        $ua = strtolower($ua);
+        $expect = null;
+
+        if (strpos($ua,'googlebot') !== false)     $expect = ['.googlebot.com','.google.com'];
+        elseif (strpos($ua,'bingbot') !== false)   $expect = ['.search.msn.com'];
+        elseif (strpos($ua,'applebot') !== false)  $expect = ['.applebot.apple.com'];
+        elseif (strpos($ua,'duckduckbot') !== false) $expect = ['.duckduckgo.com'];
+        else return ['claimed'=>false,'verified'=>false,'host'=>null];
+
+        // APCu/file cache key
+        $ck = 'rdns:'.$ip;
+        $cached = $this->fc_get($ck);
+        if (is_array($cached)) return $cached;
+
+        $host = gethostbyaddr($ip);
+        $ok = false;
+        if ($host && $host !== $ip) {
+            $suffix_ok = false;
+            foreach ($expect as $suf) {
+                if (substr($host, -strlen($suf)) === $suf) { $suffix_ok = true; break; }
+            }
+            if ($suffix_ok) {
+                // forward confirm
+                $ips = [];
+                foreach (['A','AAAA'] as $t) {
+                    $r = dns_get_record($host, constant('DNS_'.$t));
+                    if (is_array($r)) foreach ($r as $rec) {
+                        $ips[] = $rec['ip'] ?? $rec['ipv6'] ?? null;
+                    }
+                }
+                $ips = array_filter($ips);
+                $ok  = in_array($ip, $ips, true);
+            }
+        }
+
+        $res = ['claimed'=>true,'verified'=>$ok,'host'=>$host ?: null];
+        // cache 6h on pass, 1h on fail to recheck occasionally
+        $this->fc_set($ck, $res, $ok ? 6*3600 : 3600);
+        return $res;
+    }
+
+
+    public function get_block_reasons_breakdown($hours = 24, $limit = 10) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        $hours  = max(1, min(720, (int)$hours));
+        $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        $sql_total = "SELECT COUNT(*) FROM $table WHERE event_type='block' AND timestamp_utc >= %s";
+        $total = (int)$wpdb->get_var($wpdb->prepare($sql_total, $cutoff));
+
+        $sql = "
+          SELECT COALESCE(NULLIF(block_reason,''),'unspecified') AS reason, COUNT(*) AS cnt
+          FROM $table
+          WHERE event_type='block' AND timestamp_utc >= %s
+          GROUP BY reason
+          ORDER BY cnt DESC
+        ";
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+
+        // top-N + 'Other'
+        $items = [];
+        $acc = 0; $n = 0;
+        foreach ($rows as $r) {
+            $n++;
+            if ($n <= $limit) {
+                $c = (int)$r['cnt'];
+                $acc += $c;
+                $items[] = [
+                    'reason'  => $r['reason'],
+                    'count'   => $c,
+                    'percent' => $total ? round($c * 100 / $total, 1) : 0.0,
+                ];
+            }
+        }
+        if ($total > $acc) {
+            $rest = $total - $acc;
+            $items[] = [
+                'reason'  => 'other',
+                'count'   => $rest,
+                'percent' => $total ? round($rest * 100 / $total, 1) : 0.0,
+            ];
+        }
+
+        return ['total' => $total, 'items' => $items];
+    }
+
+
+    public function pre_db_firewall(): void {
         if (!$this->is_public_html_request()) return;
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         if (!$ip) return;
 
-        // Уже забанен? Рубим без обращения к БД.
-        if ($this->isBanned($ip)) {
-            if (!headers_sent()) {
-                header('HTTP/1.1 403 Forbidden');
-                header('Content-Type: text/plain; charset=UTF-8');
-                header('Cache-Control: no-store');
-            }
-            echo "Forbidden";
-            exit;
-        }
+        if ($this->is_whitelisted_ip($ip)) return; // <- не фильтруем белый список
 
-        // Считаем ТОЛЬКО те хиты, где клиент НЕ прислал валидную baskerville_id
-        // (т.е. curl/python-скрипт, не поддерживающий cookie)
+         // Считаем UA/headers СРАЗУ — нужно даже если бан уже в кэше
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
-        if ($this->arrival_has_valid_cookie() || $this->is_good_crawler_ua($ua)) {
-            return; // человек (или хороший краулер) — не считаем в «безкукиные»
-        }
+        $headers = [
+            'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
+            'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
+            'user_agent'      => $ua,
+            'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
+        ];
 
-        // Порог и окно
-        $windowSec = (int) get_option('baskerville_nocookie_window_sec', 60);
-        $threshold = (int) get_option('baskerville_nocookie_threshold', 10);
-        $banMin    = (int) get_option('baskerville_nocookie_ban_minutes', 10);
-
-        // Минутный бакет по IP
-        $bucket = 'bask:nocookie:'.$ip.':'.floor(time() / max(1,$windowSec));
-        $hits   = $this->cacheInc($bucket, $windowSec + 10); // немного больше окна
-
-        if ($hits > $threshold) {
-            $this->banIp($ip, $banMin);
-            if (!headers_sent()) {
-                header('HTTP/1.1 403 Forbidden');
-                header('Content-Type: text/plain; charset=UTF-8');
-                header('Retry-After: '.($banMin*60));
-                header('Cache-Control: no-store');
-                header('X-Baskerville-Reason: nocookie-burst');
+        // 0) Уже забанен? — отдадим 403 и разово прологируем (если ещё не логировали в этот gate)
+        if ($ban = $this->get_ban($ip)) {
+            // Если бан по ошибке поставлен verified-краулеру — снимаем и пропускаем
+            if (($ban['cls'] ?? '') === 'verified_bot') {
+                $this->fc_delete("ban:{$ip}");
+            } else {
+                $evaluation = ['score' => (int)($ban['score'] ?? 0), 'reasons' => ['cached-ban']];
+                $classification = [
+                    'classification' => (string)($ban['cls'] ?? 'bot'),
+                    'reason' => (string)($ban['reason'] ?? 'cached-ban'),
+                ];
+                $this->blocklog_once(
+                    $ip,
+                    (string)($ban['reason'] ?? 'cached-ban'),
+                    $evaluation,
+                    $classification,
+                    $ua,
+                    600
+                );
+                $this->send_403_and_exit($ban);
             }
-            echo "Forbidden";
-            exit;
         }
+
+
+        // Сбор контекста для правил
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $headers = [
+            'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
+            'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
+            'user_agent'      => $ua,
+            'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
+        ];
+        $client_cookie_header = $_SERVER['HTTP_COOKIE'] ?? '';
+//         $has_valid_cookie = (strpos($client_cookie_header, 'baskerville_id=') !== false) && ($this->get_cookie_id() !== null);
+
+        // Помощники
+        $looks_like_browser = $this->looks_like_browser_ua($ua);
+        $vc = $this->verify_crawler_ip($ip, $ua);
+        $verified_crawler = ($vc['claimed'] && $vc['verified']);
+
+        // 1) no-JS burst: считаем только страницы, для которых мы не видели FP "вскоре".
+        //    handle_fp() будет ставить метку fp_seen_ip:$ip на 180 сек.
+        $fp_seen_recent = (bool) $this->fc_get("fp_seen_ip:{$ip}");
+        if (!$fp_seen_recent) {
+            $window_sec = (int) get_option('baskerville_nojs_window_sec', 60);
+            $threshold  = (int) get_option('baskerville_nojs_threshold', 20);
+            $cnt = $this->fc_inc_in_window("nojs_cnt:{$ip}", $window_sec);
+            if ($cnt > $threshold && !$verified_crawler) {
+                // Вычислим оценку/классификацию по серверным заголовкам (без JS)
+                $evaluation     = $this->baskerville_score_fp(['fingerprint'=>[]], ['headers'=>$headers]);
+                $classification = $this->classify_client(['fingerprint'=>[]], ['headers'=>$headers]);
+
+                $reason = "nojs-burst>{$threshold}/{$window_sec}s";
+                // Сохраняем бан в кэше и разово логируем в БД (event_type=block)
+                $this->set_ban($ip, $reason, (int)get_option('baskerville_ban_ttl_sec', 600), [
+                    'score' => (int)($evaluation['score'] ?? 0),
+                    'cls'   => (string)($classification['classification'] ?? 'unknown')
+                ]);
+                $this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
+                $this->send_403_and_exit(['reason'=>$reason,'score'=>$evaluation['score']??null,'cls'=>$classification['classification']??null]);
+            }
+        }
+
+        // 2) Небраузерный UA (и не «хороший» краулер): агрессивный быстрый блок
+        $ua_l = strtolower($ua);
+        $nonbrowser_signatures = [
+            'curl','wget','python-requests','go-http-client','httpie','libcurl',
+            'java','okhttp','node-fetch','axios','aiohttp','urllib','postmanruntime',
+            'insomnia','restsharp','powershell','httpclient','http.rb','ruby','perl',
+            'traefik','kube-probe','healthcheck','pingdom','datadog','sumologic'
+        ];
+        $is_nonbrowser = false;
+        foreach ($nonbrowser_signatures as $sig) {
+            if (strpos($ua_l, $sig) !== false) { $is_nonbrowser = true; break; }
+        }
+
+
+        if ($is_nonbrowser && !$verified_crawler) {
+            $window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
+            $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
+            // если клиент без нашей валидной куки — считаем в отдельный бакет
+            $no_cookie  = !$this->arrival_has_valid_cookie();
+            $key        = $no_cookie ? "nbua_nocookie_cnt:{$ip}" : "nbua_cnt:{$ip}";
+            $cnt        = $this->fc_inc_in_window($key, $window_sec);
+            if ($no_cookie && $cnt > $threshold) {
+                $evaluation     = $this->baskerville_score_fp(['fingerprint'=>[]], ['headers'=>$headers]);
+                $classification = $this->classify_client(['fingerprint'=>[]], ['headers'=>$headers]);
+                $reason = "nonbrowser-ua-burst>{$threshold}/{$window_sec}s";
+                $ttl    = (int)get_option('baskerville_ban_ttl_sec', 600);
+                $this->set_ban($ip, $reason, $ttl, [
+                    'score' => (int)($evaluation['score'] ?? 0),
+                    'cls'   => (string)($classification['classification'] ?? 'bot')
+                ]);
+                $this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
+                $this->send_403_and_exit(['reason'=>$reason,'score'=>$evaluation['score']??null,'cls'=>$classification['classification']??null,'until'=>time()+$ttl]);
+            }
+            // пока порог не превышен — пропускаем дальше
+       }
+
+        // 3) Высокий риск по серверным заголовкам + не похоже на браузер
+        $evaluation     = $this->baskerville_score_fp(['fingerprint'=>[]], ['headers'=>$headers]);
+        $classification = $this->classify_client(['fingerprint'=>[]], ['headers'=>$headers]);
+        $risk = (int)($evaluation['score'] ?? 0);
+        if (($classification['classification'] ?? '') === 'bad_bot' && !$verified_crawler) {
+            $window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
+            $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
+            $cnt = $this->fc_inc_in_window("badbot_cnt:{$ip}", $window_sec);
+            if ($cnt > $threshold) {
+                $reason = 'classified-bad-bot-burst';
+                $ttl    = (int)get_option('baskerville_ban_ttl_sec', 600);
+                $this->set_ban($ip, $reason, $ttl, [
+                    'score' => $risk,
+                    'cls'   => (string)($classification['classification'] ?? 'bot')
+                ]);
+                $this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
+                $this->send_403_and_exit(['reason'=>$reason,'score'=>$risk,'cls'=>$classification['classification']??null,'until'=>time()+$ttl]);
+            }
+        } elseif ($risk >= 85 && !$looks_like_browser && !$verified_crawler) {
+            // действительно очень подозрительно — можно сразу
+            $reason = 'high-risk-nonbrowser';
+            $this->set_ban($ip, $reason, (int)get_option('baskerville_ban_ttl_sec', 600), [
+                'score' => $risk,
+                'cls'   => (string)($classification['classification'] ?? 'bot')
+            ]);
+            $this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
+            $this->send_403_and_exit(['reason'=>$reason,'score'=>$risk,'cls'=>$classification['classification']??null]);
+        }
+
+        // 4) (опционально) nocookie-burst уже есть у тебя; если он реализован раньше — оставь его
+        //    Если захочешь, его можно переиспользовать здесь по тому же шаблону с fc_inc_in_window(...)
     }
 
+    public function get_block_timeseries_data($hours = 24) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        $hours  = max(1, min(720, (int)$hours));
+        $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+        // гарантируем UTC
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        $sql = "
+          SELECT
+            FROM_UNIXTIME(
+              FLOOR(UNIX_TIMESTAMP(CONVERT_TZ(timestamp_utc,'+00:00','+00:00'))/900)*900
+            ) AS time_slot,
+            COUNT(*) AS total_blocks,
+            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_blocks,
+            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_blocks,
+            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_blocks,
+            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
+            SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+          FROM $table
+          WHERE event_type='block' AND timestamp_utc >= %s
+          GROUP BY time_slot
+          ORDER BY time_slot ASC
+        ";
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = [
+                'time'             => $r['time_slot'],
+                'total_blocks'     => (int)$r['total_blocks'],
+                'bad_bot_blocks'   => (int)$r['bad_bot_blocks'],
+                'verified_bot_blocks' => (int)$r['verified_bot_blocks'],
+                'ai_bot_blocks'    => (int)$r['ai_bot_blocks'],
+                'bot_blocks'       => (int)$r['bot_blocks'],
+                'other_blocks'     => (int)$r['other_blocks'],
+            ];
+        }
+        return $out;
+    }
 
     public function handle_widget_toggle() {
         if (!isset($_GET['baskerville_debug'])) return;
@@ -311,6 +626,12 @@ class Baskerville {
 
         $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'fingerprint_hash'");
         if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN fingerprint_hash VARCHAR(64) NULL"); $wpdb->query("CREATE INDEX fingerprint_hash ON $t (fingerprint_hash)"); }
+
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'block_reason'");
+        if (!$col) {
+            $wpdb->query("ALTER TABLE $t ADD COLUMN block_reason VARCHAR(128) NULL AFTER classification_reason");
+            $wpdb->query("CREATE INDEX block_reason ON $t (block_reason)");
+        }
 
     }
 
@@ -669,7 +990,6 @@ class Baskerville {
             'facebookbot',           // Facebook/Meta AI research
             'facebot',               // Meta
             'amazonbot',             // Amazon AI research
-            'yandexbot',             // Russia's search/LLM training
             'cohere',                // Cohere.ai
             'ai\scrawler',          // catch-all
             'meta-externalagent',    // facebook training
@@ -835,12 +1155,19 @@ class Baskerville {
         // Пустой/очень короткий UA тоже считаем небраузерным
         if (!$is_nonbrowser_client && strlen(trim($ua_lower)) < 6) { $is_nonbrowser_client = true; }
 
-        // Разрешённые «хорошие» краулеры (останутся просто bot)
-        $good_crawlers = ['googlebot','bingbot','duckduckbot','applebot','yandexbot','baiduspider',
-                          'facebookexternalhit','twitterbot','linkedinbot','slackbot','discordbot'];
-        $is_good_crawler = false;
-        foreach ($good_crawlers as $g) {
-            if (strpos($ua_lower, $g) !== false) { $is_good_crawler = true; break; }
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $vc = $this->verify_crawler_ip($ip, $user_agent);
+        if ($vc['claimed']) {
+            if ($vc['verified']) {
+                return [
+                  'classification' => 'verified_bot',
+                  'reason' => 'Verified crawler (' . ($vc['host'] ?: 'rDNS') . ')',
+                  'crawler_verified' => true,
+                  'risk_score' => min(10, $risk_score),
+                ];
+            } else {
+                $risk_score = max($risk_score, 50);
+            }
         }
 
         // 1) Явные AI-боты по UA — приоритетно
@@ -859,7 +1186,7 @@ class Baskerville {
         }
 
         // 2) BAD BOT: нет куки + небраузерный клиент (включая пустой/короткий UA) и не «хороший» краулер
-        if (!$had_cookie && ($is_nonbrowser_client || (!$looks_like_browser && !$is_good_crawler))) {
+        if (!$had_cookie && ($is_nonbrowser_client || (!$looks_like_browser && !$verified_crawler))) {
             return [
                 'classification' => 'bad_bot',
                 'reason'         => 'No prior cookie + non-browser User-Agent',
@@ -874,7 +1201,7 @@ class Baskerville {
         }
 
         // 3) BAD BOT: высокий риск и не похоже на браузер
-        if ($risk_score >= 50 && !$looks_like_browser && !$is_good_crawler) {
+        if ($risk_score >= 50 && !$looks_like_browser && !$verified_crawler) {
             return [
                 'classification' => 'bad_bot',
                 'reason'         => 'High risk (≥50) and non-browser UA',
@@ -964,6 +1291,19 @@ class Baskerville {
         }
         if (preg_match('~chrome/~i', $ua_server) && empty($svh['sec_ch_ua'])) {
             $score += 5;  $reasons[] = 'Missing Client Hints for Chrome-like UA';
+        }
+
+        if ($this->is_bot_user_agent($ua_server)) {
+            // Сильный аплифт: фиксируем минимум 70 и добавляем 25 поверх уже набранного
+            // (чтобы гарантированно уйти в зону challenge/rate_limit даже при прочих «мягких» сигналах)
+            $score += 25;
+            if ($score < 70) $score = 70;
+            $reasons[] = 'Bot UA detected';
+        }
+
+        if ($this->is_ai_bot_user_agent($ua_server)) {
+            $score += 10;
+            $reasons[] = 'AI bot UA detected';
         }
 
         if ($has_js_fp) {
@@ -1119,6 +1459,17 @@ class Baskerville {
             $classification = ['classification' => 'unknown', 'reason' => 'Classification error', 'risk_score' => 0];
         }
 
+        // mark that FP arrived recently -> suppress no-JS burst false positives
+        if (!empty($ip)) {
+            $this->fc_set("fp_seen_ip:{$ip}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
+        }
+        if (!empty($cookie_id)) {
+            $this->fc_set("fp_seen_cookie:{$cookie_id}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
+        }
+        // reset no-JS counter for this IP
+        $this->fc_delete("nojs_cnt:{$ip}");
+
+
         // --- сначала пробуем по visit_key из клиента ---
         $fp_hash   = isset($body['fingerprintHash']) ? substr($body['fingerprintHash'], 0, 64) : null;
         $visit_key = isset($body['visitKey']) ? preg_replace('~[^a-f0-9]~i', '', (string)$body['visitKey']) : '';
@@ -1248,6 +1599,7 @@ class Baskerville {
           evaluation_json longtext NOT NULL,
           score_reasons text NOT NULL,
           classification_reason text NOT NULL,
+          block_reason varchar(128) NULL,
           event_type varchar(16) NOT NULL DEFAULT 'fp',
 
           had_fp tinyint(1) NOT NULL DEFAULT 0,
@@ -1264,7 +1616,8 @@ class Baskerville {
           KEY classification (classification),
           KEY score (score),
           KEY event_type (event_type),
-          KEY fingerprint_hash (fingerprint_hash)
+          KEY fingerprint_hash (fingerprint_hash),
+          KEY block_reason (block_reason)
         ) $charset_collate;";
 
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
@@ -1337,7 +1690,8 @@ class Baskerville {
             SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_count,
             SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_count,
             SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_count,
-            AVG(score) AS avg_score
+            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
+            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
           FROM $table_name
           WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
           GROUP BY time_slot
@@ -1352,7 +1706,8 @@ class Baskerville {
             $bad     = (int)$r['bad_bot_count'];
             $ai      = (int)$r['ai_bot_count'];
             $bot     = (int)$r['bot_count'];
-            $botsum  = $bad + $ai + $bot;
+            $verified = (int)$r['verified_bot_count'];
+            $botsum   = $bad + $ai + $bot + $verified;
 
             $out[] = [
                 'time'            => $r['time_slot'],
@@ -1361,12 +1716,58 @@ class Baskerville {
                 'bad_bot_count'   => $bad,
                 'ai_bot_count'    => $ai,
                 'bot_count'       => $bot,
+                'verified_bot_count' => $verified,
                 'bot_percentage'  => $total ? round($botsum*100/$total,1) : 0,
                 'avg_score'       => round((float)$r['avg_score'],1),
             ];
         }
         return $out;
     }
+
+    public function get_summary_stats_window($hours = 24) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        $hours  = max(1, min(720, (int)$hours));
+        $cutoff = gmdate('Y-m-d H:i:s', time() - $hours*3600);
+
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        $sql = "
+          SELECT
+            COUNT(*) AS total_visits,
+            SUM(CASE WHEN classification='human'   THEN 1 ELSE 0 END) AS human_count,
+            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_count,
+            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_count,
+            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_count,
+            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
+            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
+          FROM $table
+          WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
+        ";
+        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+
+        $total = (int)($row['total_visits'] ?? 0);
+        $bots = (int)($row['bad_bot_count'] ?? 0)
+              + (int)($row['ai_bot_count'] ?? 0)
+              + (int)($row['bot_count'] ?? 0)
+              + (int)($row['verified_bot_count'] ?? 0);
+        $hum   = (int)($row['human_count'] ?? 0);
+
+        return [
+            'total_visits'     => $total,
+            'human_count'      => $hum,
+            'human_percentage' => $total ? round($hum*100/$total, 1) : 0,
+            'bad_bot_count'    => (int)($row['bad_bot_count'] ?? 0),
+            'ai_bot_count'     => (int)($row['ai_bot_count'] ?? 0),
+            'bot_count'        => (int)($row['bot_count'] ?? 0),
+            'bot_total'        => $bots,
+            'bot_percentage'   => $total ? round($bots*100/$total, 1) : 0,
+            'avg_score'        => round((float)($row['avg_score'] ?? 0), 1),
+            'hours'            => $hours,
+        ];
+    }
+
 
     public function get_summary_stats() {
         global $wpdb;
@@ -1384,7 +1785,8 @@ class Baskerville {
             SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) bad_bot_count,
             SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) ai_bot_count,
             SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) bot_count,
-            AVG(score) avg_score,
+            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
+            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
             MIN(timestamp_utc) first_record,
             MAX(timestamp_utc) last_record
           FROM $table
@@ -1394,7 +1796,10 @@ class Baskerville {
         if (!$row) return [];
 
         $total = (int)$row['total_visits'];
-        $bots  = (int)$row['bad_bot_count'] + (int)$row['ai_bot_count'] + (int)$row['bot_count'];
+        $bots = (int)($row['bad_bot_count'] ?? 0)
+              + (int)($row['ai_bot_count'] ?? 0)
+              + (int)($row['bot_count'] ?? 0)
+              + (int)($row['verified_bot_count'] ?? 0);
 
         return [
             'total_visits'     => $total,
@@ -1503,6 +1908,8 @@ class Baskerville {
                 .stat-card.bot { background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); }
                 .stat-card.ai-bot { background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); }
                 .stat-card.score { background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); }
+                .stat-card.block { background: linear-gradient(135deg, #e53935 0%, #d32f2f 100%); }
+
                 .stat-number {
                     font-size: 2em;
                     font-weight: bold;
@@ -1550,6 +1957,19 @@ class Baskerville {
                 align-items: stretch;
                 margin-top: 10px;
               }
+              .baskerville-logo{
+                  height: 46px;      /* подгоните при желании */
+                  width: auto;
+                  object-fit: contain;
+                  display: block;    /* чтобы в флексе не прыгал */
+              }
+                .table-ua { width:100%; border-collapse:collapse; }
+                .table-ua th, .table-ua td { padding:8px; border-bottom:1px solid #eee; vertical-align:top; }
+                .table-ua th { text-align:left; font-weight:600; color:#2c3e50; }
+                .table-ua td.num { text-align:right; white-space:nowrap; }
+                .table-ua td.ua { word-break:break-word; }
+                .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#f0f3f7; font-size:.85em; color:#455a64; }
+
               .chart-half {
                 background: #fff;
                 border-radius: 8px;
@@ -1565,7 +1985,14 @@ class Baskerville {
         </head>
         <body>
             <div class="container">
-                <h1>🛡️ Baskerville Traffic Analytics</h1>
+                <h1>
+                  <img
+                    src="<?php echo esc_url( BASKERVILLE_PLUGIN_URL . 'assets/logo-baskerville.png?v=' . BASKERVILLE_VERSION ); ?>"
+                    alt="Baskerville"
+                    class="baskerville-logo"
+                  />
+                  Baskerville
+                </h1>
 
                 <div id="summary-stats" class="stats-grid">
                     <div class="loading">Loading statistics...</div>
@@ -1588,58 +2015,423 @@ class Baskerville {
                 <div class="chart-container">
                     <canvas id="trafficChart"></canvas>
                 </div>
+                <div class="chart-container">
+                  <canvas id="blocksChart"></canvas>
+                </div>
+                <div class="charts-row">
+                  <div class="chart-half">
+                    <canvas id="blockReasonsPie"></canvas>
+                  </div>
+                  <div class="chart-half" id="blockReasonsTable" style="overflow:auto"></div>
+                </div>
+                <div class="chart-container" style="height:auto;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <div style="font-weight:600;">AI bot User-Agents — unique IPs (last <span id="aiUAHours">24</span>h)</div>
+                    <input id="aiUAFilter" type="search" placeholder="Filter UA…" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;min-width:220px;">
+                  </div>
+                  <div id="aiUAList" style="overflow:auto; max-height: 420px;"></div>
+                </div>
+
+                <div class="chart-container">
+                  <canvas id="scoreHistChart"></canvas>
+                </div>
+
+
             </div>
 
             <script>
                 let chart = null;
                 let currentHours = 24;
-                let chartHumAuto = null;
-                let chartHumAutoPie = null;
+                 let chartHumAuto = null;
+                 let chartHumAutoPie = null;
+                 let chartBlocks = null;
+                 let chartScoreHist = null;
 
                 const STATS_URL = '<?php echo esc_js($stats_url); ?>';
+
+                function updateScoreHistogram(hist) {
+                  const el = document.getElementById('scoreHistChart');
+                  if (!el || !hist) return;
+                  const ctx = el.getContext('2d');
+                  if (chartScoreHist) chartScoreHist.destroy();
+
+                  const labels = hist.labels || [];
+                  const humans = hist.human_counts || hist.humanCounts || [];
+                  const autos  = hist.automated_counts || hist.automatedCounts || [];
+                  const bucketSize = Number(hist.bucket_size || 10);
+
+                  const avgFromBuckets = (labels, counts) => {
+                    let sum = 0, tot = 0;
+                    labels.forEach((lab, i) => {
+                      const m = String(lab).match(/(\d+)[–-](\d+)/);
+                      if (!m) return;
+                      const mid = (parseInt(m[1], 10) + parseInt(m[2], 10)) / 2;
+                      const c = counts[i] || 0;
+                      sum += mid * c; tot += c;
+                    });
+                    return tot ? (sum / tot) : null;
+                  };
+
+                  const avgH = avgFromBuckets(labels, humans);
+                  const avgA = avgFromBuckets(labels, autos);
+
+                  // helper: rounded rect
+                  const roundRect = (ctx, x, y, w, h, r) => {
+                    const rr = Math.min(r, w/2, h/2);
+                    ctx.beginPath();
+                    ctx.moveTo(x + rr, y);
+                    ctx.arcTo(x + w, y, x + w, y + h, rr);
+                    ctx.arcTo(x + w, y + h, x, y + h, rr);
+                    ctx.arcTo(x, y + h, x, y, rr);
+                    ctx.arcTo(x, y, x + w, y, rr);
+                    ctx.closePath();
+                  };
+
+                  const avgLinesPlugin = {
+                    id: 'avgLines',
+                    afterDatasetsDraw(chart) {
+                      const { ctx, chartArea, scales } = chart;
+                      const x = scales.x;
+                      const yTop = chartArea.top;
+                      const yBottom = chartArea.bottom;
+
+                      const drawAvg = (val, color, label, yOffset) => {
+                        if (val == null || isNaN(val)) return;
+
+                        let idx = Math.floor(val / bucketSize);
+                        idx = Math.max(0, Math.min(labels.length - 1, idx));
+                        const xPix = x.getPixelForValue(idx);
+
+                        // линия
+                        ctx.save();
+                        ctx.setLineDash([6, 6]);
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(xPix, yTop);
+                        ctx.lineTo(xPix, yBottom);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+
+                        // подпись с серой подложкой
+                        ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+                        const pad = 6;
+                        const text = label;
+                        const metrics = ctx.measureText(text);
+                        const textW = metrics.width;
+                        const textH = 16; // примерно для 12px шрифта
+
+                        // стараемся не выходить за край
+                        const prefersLeft = (chartArea.right - xPix) < (textW + 12) && (xPix - chartArea.left) > (textW + 12);
+                        let textX = prefersLeft ? (xPix - textW - pad) : (xPix + pad);
+                        textX = Math.max(chartArea.left + 2, Math.min(textX, chartArea.right - textW - 2));
+                        const textY = yTop + (yOffset || 4);
+
+                        // тень/фон
+                        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+                        roundRect(ctx, textX - 4, textY - 2, textW + 8, textH, 4);
+                        ctx.fill();
+
+                        // собственно текст
+                        ctx.fillStyle = color;
+                        ctx.textBaseline = 'top';
+                        ctx.fillText(text, textX, textY);
+                        ctx.restore();
+                      };
+
+                      // зелёная выше, оранжевая ниже
+                      drawAvg(avgH, '#4CAF50', `avg human ${avgH?.toFixed(1)}`, 4);
+                      drawAvg(avgA, '#FF9800', `avg automated ${avgA?.toFixed(1)}`, 24);
+                    }
+                  };
+
+                  chartScoreHist = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                      labels,
+                      datasets: [
+                        {
+                          label: 'Humans',
+                          data: humans,
+                          backgroundColor: '#4CAF50',
+                          borderColor: '#4CAF50',
+                          borderWidth: 1
+                        },
+                        {
+                          label: 'Automated',
+                          data: autos,
+                          backgroundColor: '#FF9800',
+                          borderColor: '#FF9800',
+                          borderWidth: 1
+                        }
+                      ]
+                    },
+                    options: {
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      interaction: { mode: 'index', intersect: false },
+                      layout: { padding: { top: 32 } }, // больше места под обе подписи
+                      scales: {
+                        x: { stacked: false, title: { display: true, text: 'Score buckets (width = ' + bucketSize + ')' } },
+                        y: { beginAtZero: true, title: { display: true, text: 'Visits' } }
+                      },
+                      plugins: {
+                        title: { display: true, text: 'Score Distribution — last ' + (hist.hours || '') + 'h' },
+                        tooltip: {
+                          callbacks: {
+                            afterBody(items) {
+                              const idx = items[0].dataIndex;
+                              const h = humans[idx] || 0, a = autos[idx] || 0, t = h + a;
+                              const hp = t ? Math.round((h * 100) / t) : 0;
+                              const ap = t ? Math.round((a * 100) / t) : 0;
+                              return [`Total: ${t}`, `Humans: ${h} (${hp}%)`, `Automated: ${a} (${ap}%)`];
+                            }
+                          }
+                        },
+                        legend: { display: true }
+                      }
+                    },
+                    plugins: [avgLinesPlugin]
+                  });
+                }
+
+                                                // безопасный вывод текста в HTML
+                function escHtml(s){
+                  return String(s || '')
+                    .replaceAll('&','&amp;')
+                    .replaceAll('<','&lt;')
+                    .replaceAll('>','&gt;')
+                    .replaceAll('"','&quot;')
+                    .replaceAll("'",'&#39;');
+                }
+
+                let __aiUAData = null;
+
+                function renderAIBotUAList(data, filterText='') {
+                  const el = document.getElementById('aiUAList');
+                  const hrs = document.getElementById('aiUAHours');
+                  if (!el || !data) return;
+
+                  if (hrs) hrs.textContent = String(data.hours || currentHours);
+
+                  const items = (data.items || []);
+                  const f = (filterText || '').trim().toLowerCase();
+                  const filtered = f ? items.filter(it => (it.user_agent||'').toLowerCase().includes(f)) : items;
+
+                  if (!filtered.length) {
+                    el.innerHTML = `<div style="color:#777;padding:10px;">No AI-bot user agents${f ? ' for filter “'+escHtml(filterText)+'”' : ''}.</div>`;
+                    return;
+                  }
+
+                  const rows = filtered.map(it => {
+                    const ua = escHtml(it.user_agent || '');
+                    return `<tr>
+                      <td class="ua"><span title="${ua}">${ua}</span></td>
+                      <td class="num">${it.unique_ips}</td>
+                      <td class="num">${it.events}</td>
+                    </tr>`;
+                  }).join('');
+
+                  el.innerHTML = `
+                    <table class="table-ua">
+                      <thead>
+                        <tr>
+                          <th>User-Agent</th>
+                          <th style="width:140px;">Unique IPs</th>
+                          <th style="width:120px;">Events</th>
+                        </tr>
+                      </thead>
+                      <tbody>${rows}</tbody>
+                      <tfoot>
+                        <tr>
+                          <td><span class="badge">Total unique IPs (all AI): ${data.total_unique_ips || 0}</span></td>
+                          <td class="num" colspan="2"><span class="badge">${filtered.length} UA rows</span></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  `;
+                }
+
+                function updateAIBotUAList(aiUA){
+                  __aiUAData = aiUA || {items:[]};
+                  renderAIBotUAList(__aiUAData, document.getElementById('aiUAFilter')?.value || '');
+                }
+
+                // live-фильтр
+                document.addEventListener('input', (e)=>{
+                  if (e.target && e.target.id === 'aiUAFilter') {
+                    renderAIBotUAList(__aiUAData, e.target.value);
+                  }
+                });
+
+                function updateBlocksChart(blocksSeries) {
+                  const el = document.getElementById('blocksChart');
+                  if (!el) return;
+                  const ctx = el.getContext('2d');
+                  if (window.chartBlocks) window.chartBlocks.destroy();
+
+                  const labels  = blocksSeries.map(i => fmtHHMM(i.time));
+                  const bad     = blocksSeries.map(i => i.bad_bot_blocks    || 0);
+                  const ai      = blocksSeries.map(i => i.ai_bot_blocks     || 0);
+                  const bot     = blocksSeries.map(i => i.bot_blocks        || 0);
+                  const other   = blocksSeries.map(i => i.other_blocks      || 0);
+                  const verified= blocksSeries.map(i => i.verified_bot_blocks || 0);
+                  const totals  = blocksSeries.map(i => i.total_blocks      || 0);
+
+                  window.chartBlocks = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                      labels,
+                      datasets: [
+                        { label: '403 Bad bots',           data: bad,      stack: 'blocks', backgroundColor: '#ff6b6b' },
+                        { label: '403 AI bots',            data: ai,       stack: 'blocks', backgroundColor: '#ff9800' },
+                        { label: '403 Bots',               data: bot,      stack: 'blocks', backgroundColor: '#673AB7' },
+                        { label: '403 Other',              data: other,    stack: 'blocks', backgroundColor: '#90A4AE' },
+                        { label: '403 Verified crawlers',  data: verified, stack: 'blocks', backgroundColor: '#03A9F4' }
+                      ]
+                    },
+                    options: {
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      interaction: { mode: 'index', intersect: false },
+                      scales: {
+                        x: { stacked: true, title: { display: true, text: 'Time, UTC' } },
+                        y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Blocked decisions (403)' } }
+                      },
+                      plugins: {
+                        title: { display: true, text: '403 Decisions by Bot Category — last ' + currentHours + 'h' },
+                        tooltip: {
+                          callbacks: {
+                            afterBody(items) {
+                              const idx = items[0].dataIndex;
+                              return ['Total 403: ' + (totals[idx] || 0)];
+                            }
+                          }
+                        },
+                        legend: { display: true }
+                      }
+                    }
+                  });
+                }
 
                 // Возвращает HH:MM из строки вида "YYYY-MM-DD HH:MM:SS" (или любой строки с временем)
                 function fmtHHMM(ts) {
                   const m = String(ts || '').match(/\b(\d{2}):(\d{2})/);
-                  return m ? `${m[1]}:${m[2]}` : String(ts || '');
+                  return m ? m[1] + ':' + m[2] : String(ts || '');
                 }
 
                 async function loadData(hours = 24) {
                     try {
                         currentHours = hours;
 
-                        // Update active button
+                        const t = (typeof event !== 'undefined' && event && event.target) ? event.target : null;
                         document.querySelectorAll('.control-button').forEach(btn => btn.classList.remove('active'));
-                        event?.target?.classList.add('active');
+                        if (t) t.classList.add('active');
 
-                        const response = await fetch(`${STATS_URL}?hours=${hours}&_=${Date.now()}`, { cache: 'no-store' });
+                        const response = await fetch(STATS_URL + '?hours=' + hours + '&_=' + Date.now(), { cache: 'no-store' });
 
                         const data = await response.json();
-
-                        updateSummaryStats(data.summary);
+                        updateSummaryStats(data.summary_window || data.summary, data.blocks_summary, data.block_reasons);
                         updateHumAutoCharts(data.timeseries);
                         updateChart(data.timeseries);
+                        updateBlockReasons(data.block_reasons || { total:0, items:[] });
+                        updateBlocksChart(data.timeseries_blocks || []);
+                        updateScoreHistogram(data.score_histogram);
+                        updateAIBotUAList(data.ai_ua);
                     } catch (error) {
                         console.error('Error loading data:', error);
                     }
                 }
 
-                function updateSummaryStats(summary) {
-                    const statsHtml = `
-                        <div class="stat-card">
-                            <div class="stat-number">${summary.total_visits || 0}</div>
-                            <div class="stat-label">Total Visits</div>
-                        </div>
-                        <div class="stat-card human">
-                            <div class="stat-number">${summary.human_percentage || 0}%</div>
-                            <div class="stat-label">Human Traffic</div>
-                        </div>
-                        <div class="stat-card bot">
-                            <div class="stat-number">${summary.bot_percentage || 0}%</div>
-                            <div class="stat-label">Bot Traffic</div>
-                        </div>
+                function updateBlockReasons(reasons) {
+                  // Pie
+                  const elPie = document.getElementById('blockReasonsPie');
+                  if (elPie) {
+                    const ctx = elPie.getContext('2d');
+                    if (window.chartBlockReasonsPie) window.chartBlockReasonsPie.destroy();
+
+                    const labels = (reasons.items || []).map(i => i.reason);
+                    const data   = (reasons.items || []).map(i => i.count);
+
+                    window.chartBlockReasonsPie = new Chart(ctx, {
+                      type: 'pie',
+                      data: { labels, datasets: [{ data }] },
+                      options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          title: { display: true, text: '403 by Reason — last ' + currentHours + 'h' },
+                          tooltip: {
+                            callbacks: {
+                              label: (c) => ' ' + c.label + ': ' + c.parsed + ' (' + ((c.parsed/(reasons.total||1))*100).toFixed(1) + '%)'
+                            }
+                          },
+                          legend: { position: 'bottom' }
+                        }
+                      }
+                    });
+                  }
+
+                  // Table
+                  const elTbl = document.getElementById('blockReasonsTable');
+                  if (elTbl) {
+                    const total = reasons.total || 0;
+                    const rows = (reasons.items || []).map(i =>
+                      '<tr><td>' + i.reason + '</td><td style="text-align:right;">' + i.count + '</td><td style="text-align:right;">' + i.percent + '%</td></tr>'
+                    ).join('');
+                    elTbl.innerHTML = `
+                      <div style="font-weight:600;margin-bottom:8px;">403 Reasons — totals</div>
+                      <table style="width:100%;border-collapse:collapse;">
+                        <thead><tr>
+                          <th style="text-align:left;border-bottom:1px solid #eee;padding:6px 0;">Reason</th>
+                          <th style="text-align:right;border-bottom:1px solid #eee;padding:6px 0;">Count</th>
+                          <th style="text-align:right;border-bottom:1px solid #eee;padding:6px 0;">Share</th>
+                        </tr></thead>
+                        <tbody>${rows || `<tr><td colspan="3" style="padding:10px;color:#777;">No data</td></tr>`}</tbody>
+                        <tfoot>
+                          <tr><td style="border-top:1px solid #eee;padding:6px 0;">Total</td>
+                              <td style="text-align:right;border-top:1px solid #eee;padding:6px 0;">${total}</td>
+                              <td style="text-align:right;border-top:1px solid #eee;padding:6px 0;">100%</td></tr>
+                        </tfoot>
+                      </table>
                     `;
-                    document.getElementById('summary-stats').innerHTML = statsHtml;
+                  }
+                }
+
+
+                function updateSummaryStats(summaryLike, blocksSummary, reasons) {
+                  const blocked = (blocksSummary && blocksSummary.total_blocks) ? blocksSummary.total_blocks : 0;
+                  const humanPct = summaryLike?.human_percentage || 0;
+                  const botPct   = summaryLike?.bot_percentage || 0;
+
+                  const top3 = (reasons && reasons.items ? reasons.items.slice(0,3) : []);
+                  const mini = top3.length
+                    ? `<div style="font-size:.85em;margin-top:8px;text-align:left;">
+                         <div style="opacity:.9;margin-bottom:4px;">Top reasons:</div>
+                         ${top3.map(i => `<div>• ${i.reason}: ${i.count} (${i.percent}%)</div>`).join('')}
+                       </div>`
+                    : '';
+
+                  const statsHtml = `
+                    <div class="stat-card">
+                      <div class="stat-number">${summaryLike.total_visits || 0}</div>
+                      <div class="stat-label">Total Visits — last ${currentHours}h</div>
+                    </div>
+                    <div class="stat-card human">
+                      <div class="stat-number">${humanPct}%</div>
+                      <div class="stat-label">Human Traffic — last ${currentHours}h</div>
+                    </div>
+                    <div class="stat-card bot">
+                      <div class="stat-number">${botPct}%</div>
+                      <div class="stat-label">Automated Traffic — last ${currentHours}h</div>
+                    </div>
+                    <div class="stat-card block">
+                      <div class="stat-number">${blocked}</div>
+                      <div class="stat-label">Blocked (403) — last ${currentHours}h</div>
+                      ${mini}
+                    </div>
+                  `;
+                  document.getElementById('summary-stats').innerHTML = statsHtml;
                 }
 
                 function updateHumAutoCharts(timeseries) {
@@ -1650,7 +2442,10 @@ class Baskerville {
                   // Сбор данных
                   const labels = timeseries.map(i => fmtHHMM(i.time));
                   const humans = timeseries.map(i => i.human_count || 0);
-                  const automated = timeseries.map(i => (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.bot_count||0));
+                  const automated = timeseries.map(i =>
+                      (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.bot_count||0) + (i.verified_bot_count||0)
+                    );
+
 
                   // Totals для круговой диаграммы — за выбранный период (а не retention_days)
                   const totalHumans = humans.reduce((a,b) => a+b, 0);
@@ -1679,7 +2474,7 @@ class Baskerville {
                         y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Visits' } }
                       },
                       plugins: {
-                        title: { display: true, text: `Humans vs Automated — last ${currentHours}h` },
+                        title: { display: true, text: 'Humans vs Automated — last ' + currentHours + 'h' },
                         tooltip: {
                           callbacks: {
                             afterBody(items) {
@@ -1710,7 +2505,7 @@ class Baskerville {
                       responsive: true,
                       maintainAspectRatio: false,
                       plugins: {
-                        title: { display: true, text: `Totals — last ${currentHours}h` },
+                        title: { display: true, text: 'Totals — last ' + currentHours + 'h' },
                         tooltip: {
                           callbacks: {
                             label(ctx) {
@@ -1736,6 +2531,7 @@ class Baskerville {
                   const badBots  = timeseries.map(i => i.bad_bot_count || 0);
                   const aiBots   = timeseries.map(i => i.ai_bot_count || 0);
                   const bots     = timeseries.map(i => i.bot_count || 0);
+                  const verified = timeseries.map(i => i.verified_bot_count || 0);
 
                   chart = new Chart(ctx, {
                     type: 'bar',
@@ -1746,6 +2542,7 @@ class Baskerville {
                         { label: 'Bad bots', data: badBots, stack: 'visits', backgroundColor: '#ff6b6b' },
                         { label: 'AI bots',  data: aiBots,  stack: 'visits', backgroundColor: '#ff9800' }, // оранжевый
                         { label: 'Bots',     data: bots,    stack: 'visits', backgroundColor: '#673AB7' }, // фиолетовый, явно отличается
+                        { label: 'Verified crawlers', data: verified, stack: 'visits', backgroundColor: '#03A9F4' }
                       ]
 
                     },
@@ -1765,7 +2562,7 @@ class Baskerville {
                         }
                       },
                       plugins: {
-                        title: { display: true, text: `Traffic Analysis - Last ${currentHours} Hours` },
+                        title: { display: true, text: 'Traffic Analysis - Last ' + currentHours + ' Hours' },
                         tooltip: {
                           callbacks: {
                             // показываем сводку по слотам без процентов
@@ -1792,6 +2589,7 @@ class Baskerville {
                 // Auto-refresh every 5 minutes
                 setInterval(() => loadData(currentHours), 5 * 60 * 1000);
             </script>
+
         </body>
         </html>
         <?php
@@ -1800,6 +2598,158 @@ class Baskerville {
 
         // Output HTML directly to avoid WP REST API escaping
         wp_die($html, 'Baskerville Statistics', ['response' => 200]);
+    }
+
+    public function get_ai_bot_user_agents($hours = 24) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        $hours  = max(1, min(720, (int)$hours));
+        $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+        // гарантируем UTC
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        // Считаем уникальные IP на каждый UA + общее число событий
+        $sql = "
+          SELECT
+            user_agent,
+            COUNT(DISTINCT ip) AS unique_ips,
+            COUNT(*) AS events
+          FROM $table
+          WHERE classification='ai_bot' AND timestamp_utc >= %s
+          GROUP BY user_agent
+          ORDER BY unique_ips DESC, events DESC
+        ";
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+
+        // Общий охват по уникальным IP (не равен сумме по строкам — IP может встречаться у разных UA)
+        $total_unique_ips = (int)$wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(DISTINCT ip) FROM $table WHERE classification='ai_bot' AND timestamp_utc >= %s",
+            $cutoff
+        ));
+
+        // Небольшая нормализация длины UA для ответа
+        $items = array_map(function($r){
+            return [
+                'user_agent' => mb_substr((string)$r['user_agent'], 0, 500),
+                'unique_ips' => (int)$r['unique_ips'],
+                'events'     => (int)$r['events'],
+            ];
+        }, $rows);
+
+        return [
+            'hours'            => $hours,
+            'total_unique_ips' => $total_unique_ips,
+            'items'            => $items,
+        ];
+    }
+
+    public function get_score_histogram($hours = 24, $bucket_size = 10) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        $hours = max(1, min(720, (int)$hours));
+        $bucket_size = max(1, min(50, (int)$bucket_size)); // 1..50
+        $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+        $num_buckets = (int)ceil(100 / $bucket_size);
+        $last_idx = $num_buckets - 1;
+
+        $labels = [];
+        $human = array_fill(0, $num_buckets, 0);
+        $auto  = array_fill(0, $num_buckets, 0);
+        $total = array_fill(0, $num_buckets, 0);
+        for ($i = 0; $i < $num_buckets; $i++) {
+            $start = $i * $bucket_size;
+            $end   = ($i === $last_idx) ? 100 : ($i + 1) * $bucket_size - 1;
+            $labels[$i] = sprintf('%d–%d', $start, $end);
+        }
+
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        // Гистограмма ТОЛЬКО по had_fp=1
+        $sql = "
+          SELECT
+            LEAST(FLOOR(score / %d), %d) AS b,
+            SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END) AS human_count,
+            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
+            COUNT(*) AS total_count
+          FROM $table
+          WHERE event_type IN ('page','fp')
+            AND timestamp_utc >= %s
+            AND score IS NOT NULL
+          GROUP BY b
+          ORDER BY b
+        ";
+
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $bucket_size, $last_idx, $cutoff), ARRAY_A) ?: [];
+        foreach ($rows as $r) {
+            $idx = (int)$r['b'];
+            if ($idx < 0 || $idx > $last_idx) continue;
+            $human[$idx] = (int)$r['human_count'];
+            $auto[$idx]  = (int)$r['automated_count'];
+            $total[$idx] = (int)$r['total_count'];
+        }
+
+        // Средние скоры (также только по had_fp=1)
+        $row = $wpdb->get_row($wpdb->prepare("
+          SELECT
+            SUM(CASE WHEN classification='human' THEN score ELSE 0 END)        AS human_sum,
+            SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END)            AS human_n,
+            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN score ELSE 0 END) AS auto_sum,
+            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END)     AS auto_n
+          FROM $table
+          WHERE event_type IN ('page','fp') AND had_fp=1 AND timestamp_utc >= %s
+        ", $cutoff), ARRAY_A) ?: ['human_sum'=>0,'human_n'=>0,'auto_sum'=>0,'auto_n'=>0];
+
+        $avg_human = ((int)$row['human_n'] > 0) ? round(((float)$row['human_sum']) / (int)$row['human_n'], 1) : null;
+        $avg_auto  = ((int)$row['auto_n']  > 0) ? round(((float)$row['auto_sum'])  / (int)$row['auto_n'],  1) : null;
+
+        return [
+            'bucket_size'       => $bucket_size,
+            'labels'            => $labels,
+            'human_counts'      => $human,
+            'automated_counts'  => $auto,
+            'total_counts'      => $total,
+            'hours'             => $hours,
+            'avg_human_score'   => $avg_human,   // ← НОВОЕ
+            'avg_auto_score'    => $avg_auto,    // ← НОВОЕ
+        ];
+    }
+
+
+    public function get_block_summary($hours = 24) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        $hours  = max(1, min(720, (int)$hours));
+        $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        $sql = "
+          SELECT
+            COUNT(*) AS total_blocks,
+            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_blocks,
+            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_blocks,
+            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_blocks,
+            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
+            SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+          FROM $table
+          WHERE event_type='block' AND timestamp_utc >= %s
+        ";
+        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+
+        return [
+            'total_blocks'   => (int)($row['total_blocks']      ?? 0),
+            'bad_bot_blocks' => (int)($row['bad_bot_blocks']    ?? 0),
+            'ai_bot_blocks'  => (int)($row['ai_bot_blocks']     ?? 0),
+            'verified_bot_blocks' => (int)($row['verified_bot_blocks'] ?? 0),
+            'bot_blocks'     => (int)($row['bot_blocks']        ?? 0),
+            'other_blocks'   => (int)($row['other_blocks']      ?? 0),
+            'hours'          => $hours,
+        ];
     }
 
     public function handle_stats_data(WP_REST_Request $request) {
@@ -1811,13 +2761,27 @@ class Baskerville {
 
         $hours = max(1, min(720, (int)($request->get_param('hours') ?: 24)));
 
-        $timeseries = $this->get_timeseries_data($hours);
-        $summary    = $this->get_summary_stats();
+        $timeseries        = $this->get_timeseries_data($hours);
+        $summary           = $this->get_summary_stats();              // по retention
+        $summary_window    = $this->get_summary_stats_window($hours);
+        $timeseries_blocks = $this->get_block_timeseries_data($hours); // по окну hours
+        $blocks_summary    = $this->get_block_summary($hours);         // по окну hours
+        $block_reasons     = $this->get_block_reasons_breakdown($hours, 8);
+
+        $score_histogram   = $this->get_score_histogram($hours, 10);
+        $ai_ua_list = $this->get_ai_bot_user_agents($hours);
+
 
         return new WP_REST_Response([
             'ok'          => true,
             'timeseries'  => $timeseries,
             'summary'     => $summary,
+            'summary_window'    => $summary_window,
+            'blocks_summary' => $blocks_summary,
+            'timeseries_blocks' => $timeseries_blocks,
+            'score_histogram'    => $score_histogram,
+            'block_reasons'     => $block_reasons,
+            'ai_ua'              => $ai_ua_list,
             'hours'       => $hours,
             'generated_at'=> gmdate('c'),
         ], 200);
@@ -1840,6 +2804,14 @@ class Baskerville {
         if (!get_option('baskerville_nocookie_window_sec'))   add_option('baskerville_nocookie_window_sec', 60);
         if (!get_option('baskerville_nocookie_threshold'))    add_option('baskerville_nocookie_threshold', 10);
         if (!get_option('baskerville_nocookie_ban_minutes'))  add_option('baskerville_nocookie_ban_minutes', 10);
+
+        if (!get_option('baskerville_nojs_window_sec'))  add_option('baskerville_nojs_window_sec', 60);
+        if (!get_option('baskerville_nojs_threshold'))   add_option('baskerville_nojs_threshold', 20);
+        if (!get_option('baskerville_fp_seen_ttl_sec'))  add_option('baskerville_fp_seen_ttl_sec', 180);
+        if (!get_option('baskerville_ban_ttl_sec')) add_option('baskerville_ban_ttl_sec', 600);
+        if (!get_option('baskerville_fp_attach_window_sec')) add_option('baskerville_fp_attach_window_sec', 180);
+        if (!get_option('baskerville_ip_whitelist')) add_option('baskerville_ip_whitelist', '');
+
 
         flush_rewrite_rules();
     }
