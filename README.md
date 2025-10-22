@@ -3,8 +3,12 @@
 ## Building
 
 ```commandline
-cd ..
-zip -r baskerville-plugin.zip baskerville_plugin/ -x "*.DS_Store" "baskerville_wp/.idea/*" "baskerville_wp/.git/*" "baskerville_wp/node_modules/*" "baskerville_wp/*.log"  
+zip -r9q baskerville-plugin.zip baskerville_plugin/ \
+  -x "*/.DS_Store" "*/__MACOSX/*" \
+     "*/.git/*" "*/.gitignore" \
+     "*/.idea/*" \
+     "*/node_modules/*" \
+     "*.log"
 ```
 
 ## Installation
