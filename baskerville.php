@@ -47,11 +47,62 @@ class Baskerville {
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
     }
 
+    private function read_fp_cookie(): ?array {
+        $raw = $_COOKIE['baskerville_fp'] ?? '';
+        if (!$raw) return null;
+        $p = explode('.', $raw, 2);
+        if (count($p) !== 2) return null;
+        [$b64, $sig] = $p;
+        $json = $this->b64u_dec($b64);
+        if (!hash_equals(hash_hmac('sha256', $json, $this->cookie_secret()), $sig)) return null;
+        $data = json_decode($json, true);
+        if (!is_array($data)) return null;
+
+        // TTL
+        $ts  = (int)($data['ts']  ?? 0);
+        $ttl = (int)($data['ttl'] ?? 0);
+        if (!$ts || !$ttl || (time() - $ts) > $ttl) return null;
+
+        // Привязка к ip_key и UA-hash
+        $ipk_now = $this->ip_key($_SERVER['REMOTE_ADDR'] ?? '');
+        $ua_hash = sha1((string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        if (($data['ipk'] ?? '') !== $ipk_now) return null;
+        if (($data['ua']  ?? '') !== substr($ua_hash, 0, 16)) return null;
+
+        return $data;
+    }
+
+    /* ==== helpers: base64url & ip-key ==== */
+    private function b64u_enc(string $s): string {
+        return rtrim(strtr(base64_encode($s), '+/', '-_'), '=');
+    }
+    private function b64u_dec(string $s): string {
+        $s = strtr($s, '-_', '+/');
+        $pad = strlen($s) % 4;
+        if ($pad) $s .= str_repeat('=', 4 - $pad);
+        return base64_decode($s);
+    }
+
+    /** IPv4 -> первые 3 октета; IPv6 -> первые 4 хекстета */
+    private function ip_key(string $ip): string {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $p = explode('.', $ip);
+            return implode('.', array_slice($p, 0, 3)); // /24
+        }
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            $ip = strtolower($ip);
+            $h = explode(':', $ip);
+            // нормализация :: не критична — берем первые сегменты как есть
+            return implode(':', array_slice($h, 0, 4)); // /64
+        }
+        return 'unknown';
+    }
+
 
     /* ===== Fast cache: APCu + file fallback ===== */
 
     private function fc_has_apcu(): bool {
-        return function_exists('apcu_enabled') && apcu_enabled();
+        return function_exists('apcu_store') && (function_exists('apcu_enabled') ? apcu_enabled() : true);
     }
     private function fc_key(string $key): string {
         return 'baskerville:' . preg_replace('~[^a-z0-9:_-]~i','_', $key);
@@ -192,22 +243,37 @@ class Baskerville {
 
 
     // ---- ARRIVAL COOKIE CHECK (по «сырому» заголовку) ----
-    private function arrival_has_valid_cookie(): bool {
-        $hdr = $_SERVER['HTTP_COOKIE'] ?? '';
-        if ($hdr === '' || strpos($hdr, 'baskerville_id=') === false) return false;
-        // вытащим именно то значение, что прислал клиент
-        if (!preg_match('~(?:^|;\s*)baskerville_id=([^;]+)~i', $hdr, $m)) return false;
-        $raw = urldecode($m[1]);
-        $parts = explode('.', $raw);
-        if (count($parts) !== 3) return false;
-        [$token, $ts, $sig] = $parts;
-        if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
-        $calc = hash_hmac('sha256', $token . '.' . (int)$ts, $this->cookie_secret());
-        if (!hash_equals($calc, $sig)) return false;
-        // та же «валидность 90 дней», что и в get_cookie_id()
-        if ((int)$ts < time() - 60*60*24*90) return false;
-        return true;
-    }
+        private function arrival_has_valid_cookie(): bool {
+            $hdr = $_SERVER['HTTP_COOKIE'] ?? '';
+            if ($hdr === '' || strpos($hdr, 'baskerville_id=') === false) return false;
+            if (!preg_match('~(?:^|;\s*)baskerville_id=([^;]+)~i', $hdr, $m)) return false;
+            $raw = urldecode($m[1]);
+            $parts = explode('.', $raw);
+
+            // новый формат: token.ts.ipk.sig
+            if (count($parts) === 4) {
+                [$token, $ts, $ipk, $sig] = $parts;
+                if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
+                $cur_ipk = $this->ip_key($_SERVER['REMOTE_ADDR'] ?? '');
+                // подпись должна валидироваться на ТЕКУЩЕМ ip_key — как в get_cookie_id()
+                $calc = $this->sign_cookie($token, (int)$ts, $cur_ipk);
+                if (!hash_equals($calc, $sig)) return false;
+                if ((int)$ts < time() - 60*60*24*90) return false;
+                return true;
+            }
+
+            // legacy 3-part: token.ts.sig (оставляем для обратной совместимости)
+            if (count($parts) === 3) {
+                [$token, $ts, $sig] = $parts;
+                if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
+                $calc = hash_hmac('sha256', $token . '.' . (int)$ts, $this->cookie_secret());
+                if (!hash_equals($calc, $sig)) return false;
+                if ((int)$ts < time() - 60*60*24*90) return false;
+                return true;
+            }
+
+            return false;
+        }
 
     // ---- Признак «это публичная HTML-страница» (как в log_page_visit) ----
     private function is_public_html_request(): bool {
@@ -275,6 +341,56 @@ class Baskerville {
         return $res;
     }
 
+    public function get_top_factor_histogram($hours = 24, $min_score = 30) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        $hours     = max(1, min(720, (int)$hours));
+        $min_score = max(0, min(100, (int)$min_score));
+        $cutoff    = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+        // работаем в UTC
+        $wpdb->query("SET time_zone = '+00:00'");
+
+        // только события с had_fp=1, где реально считали скор и сохранили top_factor
+        $sql = "
+          SELECT
+            top_factor AS factor,
+            COUNT(*)   AS cnt,
+            AVG(score) AS avg_score
+          FROM $table
+          WHERE event_type IN ('page','fp')
+            AND timestamp_utc >= %s
+            AND had_fp = 1
+            AND score > %d
+            AND top_factor IS NOT NULL
+            AND top_factor <> ''
+          GROUP BY top_factor
+          ORDER BY cnt DESC
+        ";
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff, $min_score), ARRAY_A) ?: [];
+
+        $total = 0;
+        foreach ($rows as $r) { $total += (int)$r['cnt']; }
+
+        $items = array_map(function($r) use ($total) {
+            $cnt = (int)$r['cnt'];
+            return [
+                'factor'     => (string)$r['factor'],
+                'count'      => $cnt,
+                'percent'    => $total ? round($cnt * 100 / $total, 1) : 0.0,
+                'avg_score'  => round((float)$r['avg_score'], 1),
+            ];
+        }, $rows);
+
+        return [
+            'hours'      => $hours,
+            'min_score'  => $min_score,
+            'total'      => $total,
+            'items'      => $items,
+        ];
+    }
+
 
     public function get_block_reasons_breakdown($hours = 24, $limit = 10) {
         global $wpdb;
@@ -333,6 +449,12 @@ class Baskerville {
 
         if ($this->is_whitelisted_ip($ip)) return; // <- не фильтруем белый список
 
+        $fp_cookie = $this->read_fp_cookie();
+        if ($fp_cookie) {
+            // подавляем ложные no-JS триггеры
+            $this->fc_set("fp_seen_ip:{$ip}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
+        }
+
          // Считаем UA/headers СРАЗУ — нужно даже если бан уже в кэше
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
         $headers = [
@@ -367,13 +489,6 @@ class Baskerville {
 
 
         // Сбор контекста для правил
-        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
-        $headers = [
-            'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
-            'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
-            'user_agent'      => $ua,
-            'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
-        ];
         $client_cookie_header = $_SERVER['HTTP_COOKIE'] ?? '';
 //         $has_valid_cookie = (strpos($client_cookie_header, 'baskerville_id=') !== false) && ($this->get_cookie_id() !== null);
 
@@ -579,6 +694,16 @@ class Baskerville {
 
         // Классифицируем без клиентских полей (только серверные заголовки и кука)
         $evaluation     = $this->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
+        $fp_cookie = $this->read_fp_cookie();
+        if ($fp_cookie) {
+            // перезапишем/улучшим оценку
+            $evaluation = array_merge($evaluation, [
+                'score' => (int)$fp_cookie['score'],
+            ]);
+            // помечаем had_fp=1 позже через update_visit_stats_by_key (как и сейчас через handle_fp),
+            // но для первичной вставки можно оставить как есть; у нас есть visit_key для последующего апдейта.
+        }
+
         $classification = $this->classify_client(['fingerprint' => []], ['headers' => $headers]);
 
         // Детектор «бурстов» без JS: много HTML-хитов за короткое окно — mark as bad_bot
@@ -633,6 +758,15 @@ class Baskerville {
             $wpdb->query("CREATE INDEX block_reason ON $t (block_reason)");
         }
 
+        // add top_factor_json (LONGTEXT) + top_factor (VARCHAR) + INDEX
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'top_factor_json'");
+        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN top_factor_json LONGTEXT NULL"); }
+
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'top_factor'");
+        if (!$col) {
+            $wpdb->query("ALTER TABLE $t ADD COLUMN top_factor VARCHAR(64) NULL AFTER top_factor_json");
+            $wpdb->query("CREATE INDEX top_factor ON $t (top_factor)");
+        }
     }
 
 
@@ -697,6 +831,23 @@ class Baskerville {
           const showFromUrl = ['1','on','true','yes'].includes((urlFlag||'').toLowerCase());
           const showFromCookie = document.cookie.split('; ').includes('baskerville_show_widgets=1');
           const SHOW_WIDGET = showFromUrl || showFromCookie;
+
+          // === одноразовая отправка на TTL ===
+            const FP_MARK_KEY = 'baskerville_fp_sent_at';
+            const FP_TAB_KEY  = 'baskerville_fp_sent_tab';
+            const FP_TTL_MS   = 6*60*60*1000;
+
+            function fpWasSentThisTab(){ try{return sessionStorage.getItem(FP_TAB_KEY)==='1';}catch{return false;} }
+            function fpWasSentRecently(){ try{const t=Number(localStorage.getItem(FP_MARK_KEY)||0);return t>0 && (Date.now()-t)<FP_TTL_MS;}catch{return false;} }
+            function markFpSent(){ try{localStorage.setItem(FP_MARK_KEY,String(Date.now()));}catch{} try{sessionStorage.setItem(FP_TAB_KEY,'1');}catch{} }
+
+            function uaFamily(u){u=String(u||'').toLowerCase();const m=u.match(/(chrome|safari|firefox|edg|opr|opera)\/?\d+/);return m?m[1]:'other';}
+            try{
+              const fam=uaFamily(navigator.userAgent);
+              const prev=localStorage.getItem('baskerville_ua_family');
+              if (prev && prev!==fam) localStorage.removeItem(FP_MARK_KEY);
+              localStorage.setItem('baskerville_ua_family', fam);
+            }catch{}
 
           // Если виджеты не были отрисованы сервером (кэш), создадим контейнеры динамически
           function ensureWidgets() {
@@ -873,49 +1024,51 @@ class Baskerville {
                   visitKey: readCookie('baskerville_visit_key') || null
               };
 
-              const send = async () => {
-                try {
-                  const res = await fetch(REST_URL, {
-                    method: 'POST',
-                    headers: {'Content-Type':'application/json','X-WP-Nonce': WP_NONCE},
-                    body: JSON.stringify(payload),
-                    keepalive: true
-                  });
-                  if (res.ok) {
-                    const result = await res.json();
-                    if (SHOW_WIDGET && result?.ok) {
-                      const scoreEl = document.getElementById('score-data');
-                      if (scoreEl) {
-                        const sc = result.score ?? 0;
-                        const scoreColor = sc >= 60 ? '#ff6b6b' : sc >= 40 ? '#ffa726' : '#4CAF50';
-                        const map = (c)=>({human:['#4CAF50','👤','HUMAN'],bad_bot:['#ff6b6b','🚫','BAD BOT'],ai_bot:['#ff9800','🤖','AI BOT'],bot:['#673AB7','🕷️','BOT']})[c]||['#757575','❓','UNKNOWN'];
-                        const [color,icon,label] = map(result.classification?.classification);
-                        scoreEl.innerHTML = `
-                          <div style="margin-bottom:8px;"><span style="color:${scoreColor};font-size:24px;font-weight:bold;">${sc}/100</span></div>
-                          <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Action:</span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
-                          <div style="margin-bottom:8px;padding:4px 8px;background:rgba(0,0,0,.2);border-left:3px solid ${color};border-radius:4px;">
-                            <span style="color:${color};font-weight:bold;">${icon} ${label}</span>
-                            <div style="font-size:11px;color:#ccc;margin-top:2px;">${result.classification?.reason||'No reason provided'}</div>
-                          </div>
-                        `;
+              if (fpWasSentThisTab() || fpWasSentRecently()) {
+                // FP уже есть (и сервер держит HttpOnly baskerville_fp) — POST не нужен
+}             else {
+                  const send = async () => {
+                    try {
+                      const res = await fetch(REST_URL, {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json','X-WP-Nonce': WP_NONCE},
+                        body: JSON.stringify(payload),
+                        keepalive: true
+                      });
+                      if (res.ok) {
+                        const result = await res.json();
+                        if (SHOW_WIDGET && result?.ok) {
+                          const scoreEl = document.getElementById('score-data');
+                          if (scoreEl) {
+                            const sc = result.score ?? 0;
+                            const scoreColor = sc >= 60 ? '#ff6b6b' : sc >= 40 ? '#ffa726' : '#4CAF50';
+                            const map = (c)=>({human:['#4CAF50','👤','HUMAN'],bad_bot:['#ff6b6b','🚫','BAD BOT'],ai_bot:['#ff9800','🤖','AI BOT'],bot:['#673AB7','🕷️','BOT']})[c]||['#757575','❓','UNKNOWN'];
+                            const [color,icon,label] = map(result.classification?.classification);
+                            scoreEl.innerHTML = `
+                              <div style="margin-bottom:8px;"><span style="color:${scoreColor};font-size:24px;font-weight:bold;">${sc}/100</span></div>
+                              <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Action:</span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
+                              <div style="margin-bottom:8px;padding:4px 8px;background:rgba(0,0,0,.2);border-left:3px solid ${color};border-radius:4px;">
+                                <span style="color:${color};font-weight:bold;">${icon} ${label}</span>
+                                <div style="font-size:11px;color:#ccc;margin-top:2px;">${result.classification?.reason||'No reason provided'}</div>
+                              </div>
+                            `;
+                          }
+                        }
+                      } else {
+                        const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
+                        navigator.sendBeacon?.(REST_URL, blob);
                       }
+                    } catch {
+                      try {
+                        const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
+                        navigator.sendBeacon?.(REST_URL, blob);
+                      } catch {}
                     }
-                  } else {
-                    const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
-                    navigator.sendBeacon?.(REST_URL, blob);
-                  }
-                } catch {
-                  try {
-                    const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
-                    navigator.sendBeacon?.(REST_URL, blob);
-                  } catch {}
-                }
-              };
-
-              ('requestIdleCallback' in window)
-                ? requestIdleCallback(send, {timeout: 2000})
-                : setTimeout(send, 1000);
-
+                  };
+                  ('requestIdleCallback' in window)
+                    ? requestIdleCallback(send, {timeout: 2000})
+                    : setTimeout(send, 1000);
+              }
             } catch (e) {
               const el = document.getElementById('fingerprint-data');
               if (el) el.innerHTML = `<div style="color:#ff6b6b;">Error: ${e.message}</div>`;
@@ -1017,6 +1170,11 @@ class Baskerville {
     private function update_visit_stats_by_key(string $visit_key, array $evaluation, array $classification, ?string $fp_hash = null): bool {
         global $wpdb;
         $t = $wpdb->prefix.'baskerville_stats';
+
+        // попробуем также прочитать серверную fp-куку (если есть)
+        $fp_cookie = $this->read_fp_cookie();
+        [$top_json, $top_name] = $this->extract_top_factors($evaluation, $fp_cookie);
+
         $data = [
             'score'                 => (int)$evaluation['score'],
             'classification'        => (string)$classification['classification'],
@@ -1026,53 +1184,63 @@ class Baskerville {
             'had_fp'                => 1,
             'fp_received_at'        => current_time('mysql', true),
         ];
-        if ($fp_hash) { $data['fingerprint_hash'] = $fp_hash; }
+        $fmt = ['%d','%s','%s','%s','%s','%d','%s'];
 
-        $ok = $wpdb->update(
-            $t,
-            $data,
-            ['visit_key' => $visit_key],
-            array_merge(['%d','%s','%s','%s','%s','%d','%s'], $fp_hash ? ['%s'] : []),
-            ['%s']
-        );
+        if ($fp_hash)   { $data['fingerprint_hash'] = $fp_hash;   $fmt[] = '%s'; }
+        if ($top_json)  { $data['top_factor_json']  = $top_json;  $fmt[] = '%s'; }
+        if ($top_name)  { $data['top_factor']       = $top_name;  $fmt[] = '%s'; }
+
+        $ok = $wpdb->update($t, $data, ['visit_key' => $visit_key], $fmt, ['%s']);
         if ($ok === false) {
             error_log('Baskerville: update by visit_key failed - '.$wpdb->last_error);
             return false;
         }
-        // $ok===0 — запись могла не найдено/не изменилось; считаем «не найдено»
         return $ok > 0;
     }
 
 
-    private function sign_cookie(string $token, int $ts): string {
-        return hash_hmac('sha256', $token . '.' . $ts, $this->cookie_secret());
+    private function sign_cookie(string $token, int $ts, string $ipk): string {
+        // включаем ip_key в подпись
+        return hash_hmac('sha256', $token . '.' . $ts . '.' . $ipk, $this->cookie_secret());
     }
 
-    /**
-     * Формат куки: <token>.<ts>.<sig>
-     * token = 16 байт random hex, ts = unix time, sig = HMAC(token.ts)
-     */
     private function make_cookie_value(): string {
         $token = bin2hex(random_bytes(16));
         $ts    = time();
-        $sig   = $this->sign_cookie($token, $ts);
-        return $token . '.' . $ts . '.' . $sig;
+        $ipk   = $this->ip_key($_SERVER['REMOTE_ADDR'] ?? '');
+        $sig   = $this->sign_cookie($token, $ts, $ipk);
+        // новый формат: token.ts.ipk.sig
+        return $token . '.' . $ts . '.' . $ipk . '.' . $sig;
     }
 
-    /** Возвращает токен (token) если кука валидна и не просрочена, иначе null */
+    /** Возвращает токен, если подпись валидна и не просрочена. Поддерживает старый формат (3 части). */
     public function get_cookie_id(): ?string {
         $raw = $_COOKIE['baskerville_id'] ?? '';
         if (!$raw) return null;
         $parts = explode('.', $raw);
-        if (count($parts) !== 3) return null;
-        [$token, $ts, $sig] = $parts;
-        if (!ctype_xdigit($token) || !ctype_digit($ts)) return null;
-        if (!hash_equals($this->sign_cookie($token, (int)$ts), $sig)) return null;
 
-        // TTL куки (например, 90 дней для статуса «валидна»)
-        if ((int)$ts < time() - 60*60*24*90) return null;
+        if (count($parts) === 4) {
+            [$token, $ts, $ipk, $sig] = $parts;
+            if (!ctype_xdigit($token) || !ctype_digit($ts)) return null;
+            $cur_ipk = $this->ip_key($_SERVER['REMOTE_ADDR'] ?? '');
+            // подпись от текущего ip_key
+            if (!hash_equals($this->sign_cookie($token, (int)$ts, $cur_ipk), $sig)) return null;
+            if ((int)$ts < time() - 60*60*24*90) return null;
+            return $token;
+        }
 
-        return $token;
+        // legacy 3-part: token.ts.sig — принимаем, но при первой возможности перевыпустим
+        if (count($parts) === 3) {
+            [$token, $ts, $sig] = $parts;
+            if (!ctype_xdigit($token) || !ctype_digit($ts)) return null;
+            $legacy_ok = hash_equals(hash_hmac('sha256', $token . '.' . (int)$ts, $this->cookie_secret()), $sig);
+            if (!$legacy_ok) return null;
+            if ((int)$ts < time() - 60*60*24*90) return null;
+            // пометим для ротации в ensure_baskerville_cookie()
+            return $token;
+        }
+
+        return null;
     }
 
     /** Ставим HttpOnly/Secure куку, если её нет или она невалидна */
@@ -1157,17 +1325,18 @@ class Baskerville {
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         $vc = $this->verify_crawler_ip($ip, $user_agent);
-        if ($vc['claimed']) {
-            if ($vc['verified']) {
-                return [
-                  'classification' => 'verified_bot',
-                  'reason' => 'Verified crawler (' . ($vc['host'] ?: 'rDNS') . ')',
-                  'crawler_verified' => true,
-                  'risk_score' => min(10, $risk_score),
-                ];
-            } else {
-                $risk_score = max($risk_score, 50);
-            }
+        $verified_crawler = ($vc['claimed'] && $vc['verified']);
+
+        if ($vc['claimed'] && !$vc['verified']) {
+            $risk_score = max($risk_score, 50);
+        }
+        if ($verified_crawler) {
+            return [
+                'classification' => 'verified_bot',
+                'reason' => 'Verified crawler (' . ($vc['host'] ?: 'rDNS') . ')',
+                'crawler_verified' => true,
+                'risk_score' => min(10, $risk_score),
+            ];
         }
 
         // 1) Явные AI-боты по UA — приоритетно
@@ -1216,19 +1385,20 @@ class Baskerville {
         }
 
         // 4) Прочие боты: бот-UA (в т.ч. хорошие краулеры) ИЛИ высокий риск
-        if ($this->is_bot_user_agent($user_agent) || $risk_score >= 50) {
+        $threshold = 30;
+        if ($this->is_bot_user_agent($user_agent) || $risk_score >= $threshold) {
             return [
                 'classification' => 'bot',
                 'reason'         => $this->is_bot_user_agent($user_agent)
                                         ? 'Bot detected by user agent'
-                                        : 'High risk score (≥50)',
+                                        : 'High risk score',
                 'risk_score'     => $risk_score,
                 'details'        => [
                     'has_cookie'               => $had_cookie,
                     'is_ai_bot'                => false,
                     'is_bot_ua'                => $this->is_bot_user_agent($user_agent),
                     'user_agent'               => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
-                    'score_threshold_exceeded' => $risk_score >= 50
+                    'score_threshold_exceeded' => $risk_score >= $threshold
                 ]
             ];
         }
@@ -1255,6 +1425,7 @@ class Baskerville {
 
         $score = 0;
         $reasons = [];
+        $contrib = [];
 
         // ---- helpers ----
         $ua = strtolower($fp['userAgent'] ?? ($svh['user_agent'] ?? ''));
@@ -1281,16 +1452,21 @@ class Baskerville {
         $ua_server = strtolower($svh['user_agent'] ?? '');
         if (preg_match('~(curl|wget|python-requests|go-http-client|okhttp|node-fetch|postmanruntime)~', $ua_server)) {
             $score += 30; $reasons[] = 'Non-browser HTTP client';
+            $contrib[] = ['key'=>'non_browser_http', 'delta'=>30, 'why'=>'Non-browser HTTP client'];
         }
         if (!$this->looks_like_browser_ua($ua_server)) {
             $score += 30;
             $reasons[] = 'Non-browser-like User-Agent';
+            $contrib[] = ['key'=>'non_browser_user_agent', 'delta'=>30, 'why'=>'Non-browser-like User-Agent'];
+
         }
         if (empty($svh['accept_language'])) {
             $score += 5;  $reasons[] = 'Missing Accept-Language';
+            $contrib[] = ['key'=>'missing_accept_language', 'delta'=>5, 'why'=>'Missing Accept-Language'];
         }
         if (preg_match('~chrome/~i', $ua_server) && empty($svh['sec_ch_ua'])) {
             $score += 5;  $reasons[] = 'Missing Client Hints for Chrome-like UA';
+            $contrib[] = ['key'=>'missing_hints_chrome', 'delta'=>5, 'why'=>'Missing Client Hints for Chrome-like UA'];
         }
 
         if ($this->is_bot_user_agent($ua_server)) {
@@ -1299,11 +1475,13 @@ class Baskerville {
             $score += 25;
             if ($score < 70) $score = 70;
             $reasons[] = 'Bot UA detected';
+            $contrib[] = ['key'=>'bot_ua', 'delta'=>25, 'why'=>'Bot UA detected'];
         }
 
         if ($this->is_ai_bot_user_agent($ua_server)) {
             $score += 10;
             $reasons[] = 'AI bot UA detected';
+            $contrib[] = ['key'=>'ai_bot_ua', 'delta'=>10, 'why'=>'AI bot UA detected'];
         }
 
         if ($has_js_fp) {
@@ -1328,71 +1506,90 @@ class Baskerville {
             $tzJul = (int)($fp['tzOffsetJul'] ?? 0);
             $hasDST = ($tzJan !== 0 && $tzJul !== 0 && $tzJan !== $tzJul);
 
-            if ($webdriver) { $score += 35; $reasons[] = 'navigator.webdriver=true'; }
+            if ($webdriver) {
+                $score += 35; $reasons[] = 'navigator.webdriver=true';
+                $contrib[] = ['key'=>'webdriver', 'delta'=>35, 'why'=>'navigator.webdriver=true'];
+            }
 
             // безопасная проверка WebGL без доступа к $fp['quirks'] напрямую
             $webglMode = $fp['quirks']['webgl'] ?? null;
             if ($webglExtCount === 0 && $webglMode !== null && $webglMode !== 'no-webgl') {
                 $score += 10; $reasons[] = 'WebGL extensions = 0';
+                $contrib[] = ['key'=>'no_web_gl', 'delta'=>10, 'why'=>'WebGL extensions = 0'];
             }
 
             // 2) DPR vs UA
             if ($is_mobile_ua && $dpr <= 1.0) {
                 $score += 20; $reasons[] = 'Mobile UA but DPR<=1';
+                $contrib[] = ['key'=>'mobile_ua_small_dpr', 'delta'=>20, 'why'=>'Mobile UA but DPR<=1'];
             }
             if ($is_windows && $dpr > 1.5) {
                 // Windows c DPR>1.5 бывает из-за масштабирования, но реже
                 $score += 6;  $reasons[] = 'Windows with high DPR';
+                $contrib[] = ['key'=>'windows_high_dpr', 'delta'=>6, 'why'=>'Windows with high DPR'];
             }
             if ($is_mac && $dpr < 2 && preg_match('~\bMacintosh\b~i', $fp['userAgent'] ?? '')) {
                 // Современные маки почти всегда DPR=2 (Retina)
                 $score += 5;  $reasons[] = 'Mac UA but DPR<2';
+                $contrib[] = ['key'=>'mac_ua_low_dpr', 'delta'=>5, 'why'=>'Mac UA but DPR<2'];
             }
 
             // 3) Viewport vs Screen
             if ($sw > 0 && $sh > 0 && $vw > 0 && $vh > 0) {
                 if ($viewportToScreen && $viewportToScreen < 0.25) {
-                    $score += 15; $reasons[] = 'Very small viewport relative to screen (<0.25)';
+                    $score += 15;
+                    $reasons[] = 'Very small viewport relative to screen (<0.25)';
+                    $contrib[] = ['key'=>'small_viewport', 'delta'=>15, 'why'=>'Very small viewport relative to screen (<0.25)'];
                 }
                 if ($vw < 800 && !$is_mobile_ua && $dpr <= 1.1) {
-                    $score += 8;  $reasons[] = 'Desktop UA with very small viewport';
+                    $score += 8;
+                    $reasons[] = 'Desktop UA with very small viewport';
+                    $contrib[] = ['key'=>'desktop_ua_small_viewport', 'delta'=>8, 'why'=>'Desktop UA with very small viewport'];
                 }
             } else {
                 $score += 3; $reasons[] = 'Missing/invalid screen or viewport';
+                $contrib[] = ['key'=>'missing_viewport', 'delta'=>3, 'why'=>'Missing/invalid screen or viewport'];
             }
 
             // 4) Touch vs UA
             if ($is_mobile_ua && $maxTouchPoints === 0 && !$touchEvent) {
                 $score += 12; $reasons[] = 'Mobile UA without touch support';
+                $contrib[] = ['key'=>'mobile_ua_no_touch', 'delta'=>12, 'why'=>'Mobile UA without touch support'];
             }
             if (!$is_mobile_ua && $maxTouchPoints > 0 && $dpr <= 1.1 && $vw > 1200) {
                 $score += 4; $reasons[] = 'Desktop UA with touch points (mismatch)';
+                $contrib[] = ['key'=>'desktop_ua_with_touch', 'delta'=>4, 'why'=>'Desktop UA with touch points (mismatch)'];
             }
 
             // 5) Plugins
             if ($pluginsCount === 0 && $is_windows) {
                 $score += 6; $reasons[] = 'Windows with zero plugins';
+                $contrib[] = ['key'=>'zero_plugins', 'delta'=>6, 'why'=>'Windows with zero plugins'];
             }
 
             // 6) PDF viewer flag (Chrome-специфика)
             if ($pdfViewer === false && preg_match('~chrome/|crios/|edg/~i', $ua)) {
                 $score += 4; $reasons[] = 'Chrome-like UA without pdfViewer';
+                $contrib[] = ['key'=>'chrome_no_pdf', 'delta'=>4, 'why'=>'Chrome-like UA without pdfViewer'];
             }
 
             // 7) Outer/inner отношения окна
             if ($outerToInner > 1.6 || $outerToInner < 1.0) {
                 // у headless часто странные рамки
                 $score += 5; $reasons[] = 'Odd outer/inner ratio';
+                $contrib[] = ['key'=>'odd_outer_inner_ratio', 'delta'=>5, 'why'=>'Odd outer/inner ratio'];
             }
 
             // 8) Языки: сверка navigator.language и Accept-Language
             if ($lang && $acceptLang && strpos($acceptLang, substr($lang,0,2)) === false) {
                 $score += 5; $reasons[] = 'Language mismatch vs Accept-Language';
+                $contrib[] = ['key'=>'language_mismatch', 'delta'=>5, 'why'=>'Language mismatch vs Accept-Language'];
             }
 
             // 9) DST: в изолированных дата-центрах/контейнерах часто без DST
             if ($is_mobile_ua && !$hasDST) {
                 $score += 3; $reasons[] = 'Mobile UA but no DST observed';
+                $contrib[] = ['key'=>'mobile_ua_no_dst', 'delta'=>3, 'why'=>'Mobile UA but no DST observed'];
             }
         }
 
@@ -1405,6 +1602,10 @@ class Baskerville {
         if     ($score >= 60) $action = 'challenge'; // или ban для очень строгих
         elseif ($score >= 40) $action = 'rate_limit';
         else                   $action = 'allow';
+
+        // top factors: сортируем по |delta| убыв.
+        usort($contrib, function($a,$b){ return abs($b['delta']) <=> abs($a['delta']); });
+        $top = array_slice($contrib, 0, 6);
 
         return [
             'score'   => $score,
@@ -1422,11 +1623,12 @@ class Baskerville {
                 'accept_language' => $acceptLang,
                 'hasDST' => $hasDST,
             ],
+            'contrib' => $contrib,
+            'top_factors' => $top,
         ];
     }
 
     public function handle_fp( WP_REST_Request $request ) {
-        // verify nonce header if present
         $nonce = $request->get_header('x-wp-nonce');
         if ($nonce && ! wp_verify_nonce($nonce, 'wp_rest')) {
             return new WP_REST_Response(['error' => 'invalid_nonce'], 403);
@@ -1437,145 +1639,109 @@ class Baskerville {
             return new WP_REST_Response(['error' => 'empty_payload'], 400);
         }
 
-        // server context
-        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         $headers = [
             'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
             'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
             'user_agent'      => $_SERVER['HTTP_USER_AGENT'] ?? null,
             'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
         ];
+        $cookie_id = $this->get_cookie_id();
 
-        $cookie_id = $this->get_cookie_id(); // HttpOnly cookie: ок — читаем на сервере
-        $cookie_id_log = $cookie_id ? substr($cookie_id, 0, 8) . '…' : 'none';
-
-        // оценка/классификация
+        // считаем
         try {
             $evaluation     = $this->baskerville_score_fp($body, ['headers' => $headers]);
             $classification = $this->classify_client($body, ['headers' => $headers]);
         } catch (Exception $e) {
             error_log('Baskerville evaluation error: ' . $e->getMessage());
-            $evaluation = ['score' => 0, 'action' => 'error', 'reasons' => ['evaluation_error']];
+            $evaluation = ['score' => 0, 'action' => 'error', 'reasons' => ['evaluation_error'], 'top_factors'=>[]];
             $classification = ['classification' => 'unknown', 'reason' => 'Classification error', 'risk_score' => 0];
         }
 
-        // mark that FP arrived recently -> suppress no-JS burst false positives
-        if (!empty($ip)) {
-            $this->fc_set("fp_seen_ip:{$ip}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
-        }
-        if (!empty($cookie_id)) {
-            $this->fc_set("fp_seen_cookie:{$cookie_id}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
-        }
-        // reset no-JS counter for this IP
+        // кука fp (HttpOnly, подписанная)
+        $ua   = $headers['user_agent'] ?? '';
+        $ua_hash = sha1((string)$ua);
+        $ttl_sec = 6*60*60;
+        $payload_fp = [
+            'v'=>1,'ts'=>time(),'ttl'=>$ttl_sec,
+            'ipk'=>$this->ip_key($ip),
+            'ua'=>substr($ua_hash,0,16),
+            'bid'=>substr($cookie_id ?: '', 0, 16),
+            'score'=>(int)($evaluation['score'] ?? 0),
+            'top'=>array_map(function($x){ return [
+                'key'=>(string)($x['key']??''), 'delta'=>(int)($x['delta']??0), 'why'=>(string)($x['why']??'')
+            ];}, array_slice($evaluation['top_factors'] ?? [], 0, 6))
+        ];
+        $raw = json_encode($payload_fp, JSON_UNESCAPED_SLASHES);
+        $sig = hash_hmac('sha256', $raw, $this->cookie_secret());
+        $val = $this->b64u_enc($raw) . '.' . $sig;
+        setcookie('baskerville_fp', $val, [
+            'expires'=>time()+$ttl_sec,'path'=>'/','secure'=>is_ssl(),'httponly'=>true,'samesite'=>'Lax',
+        ]);
+
+        // mark fp seen
+        if ($ip) $this->fc_set("fp_seen_ip:{$ip}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
+        if ($cookie_id) $this->fc_set("fp_seen_cookie:{$cookie_id}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
         $this->fc_delete("nojs_cnt:{$ip}");
 
-
-        // --- сначала пробуем по visit_key из клиента ---
         $fp_hash   = isset($body['fingerprintHash']) ? substr($body['fingerprintHash'], 0, 64) : null;
         $visit_key = isset($body['visitKey']) ? preg_replace('~[^a-f0-9]~i', '', (string)$body['visitKey']) : '';
 
         if ($visit_key) {
-            $updated = $this->update_visit_stats_by_key($visit_key, $evaluation, $classification, $fp_hash);
-            if ($updated) {
-                return new WP_REST_Response([
-                    'ok'             => true,
-                    'score'          => (int)($evaluation['score'] ?? 0),
-                    'action'         => $evaluation['action'] ?? 'allow',
-                    'why'            => $evaluation['reasons'] ?? [],
-                    'classification' => $classification,
-                ], 200);
-            }
+            $this->update_visit_stats_by_key($visit_key, $evaluation, $classification, $fp_hash);
+            return new WP_REST_Response([
+                'ok'=>true,'score'=>(int)($evaluation['score']??0),
+                'action'=>$evaluation['action'] ?? 'allow',
+                'why'=>$evaluation['reasons'] ?? [],
+                'classification'=>$classification,
+            ], 200);
         }
-        // --- если не получилось — идём в fallback по ip+baskerville_id+окно ---
 
-
-        // === ВАРИАНТ B: прикрепляем FP к последнему page-хиту без FP ===
+        // fallback: прикрепить к последнему page-хиту без FP
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
-
-        // окно, в течение которого считаем, что FP относится к данному page-хиту (в секундах)
-        $attach_window_sec = (int) get_option('baskerville_fp_attach_window_sec', 180);
-
-        // подстраховка: фиксируем TZ в UTC, чтобы сравнение с timestamp_utc было консистентным
+        $table = $wpdb->prefix.'baskerville_stats';
         $wpdb->query("SET time_zone = '+00:00'");
 
-        // находим последний page-хит без FP за окно
+        $attach_window_sec = (int) get_option('baskerville_fp_attach_window_sec', 180);
         $row_id = null;
         if ($ip && $cookie_id) {
             $row_id = $wpdb->get_var($wpdb->prepare(
-                "SELECT id
-                   FROM $table
-                  WHERE ip=%s
-                    AND baskerville_id=%s
-                    AND event_type='page'
-                    AND had_fp=0
-                    AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)
-                  ORDER BY timestamp_utc DESC
-                  LIMIT 1",
+                "SELECT id FROM $table
+                 WHERE ip=%s AND baskerville_id=%s AND event_type='page' AND had_fp=0
+                   AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)
+                 ORDER BY timestamp_utc DESC LIMIT 1",
                 $ip, $cookie_id, $attach_window_sec
             ));
         }
 
-        // значения для записи
-        $score   = (int)($evaluation['score'] ?? 0);
-        $cls     = (string)($classification['classification'] ?? 'unknown');
-        $why     = implode('; ', $evaluation['reasons'] ?? []);
-        $cls_r   = (string)($classification['reason'] ?? '');
-        $eval_js = json_encode($evaluation);
-        $fp_hash = isset($body['fingerprintHash']) ? substr($body['fingerprintHash'], 0, 64) : null;
+        [$top_json, $top_name] = $this->extract_top_factors($evaluation, $this->read_fp_cookie());
+        $score = (int)($evaluation['score'] ?? 0);
+        $cls   = (string)($classification['classification'] ?? 'unknown');
+        $why   = implode('; ', $evaluation['reasons'] ?? []);
+        $cls_r = (string)($classification['reason'] ?? '');
 
         if ($row_id) {
-            // Обновляем существующий page-хит: помечаем had_fp=1 и актуализируем поля оценки
-            $wpdb->update(
-                $table,
-                [
-                    'score'                 => $score,
-                    'classification'        => $cls,
-                    'evaluation_json'       => $eval_js,
-                    'score_reasons'         => $why,
-                    'classification_reason' => $cls_r,
-                    'had_fp'                => 1,
-                    'fp_received_at'        => current_time('mysql', true),
-                    'fingerprint_hash'      => $fp_hash,
-                    // updated_at обновится триггером ON UPDATE CURRENT_TIMESTAMP
-                ],
-                ['id' => (int)$row_id],
-                ['%d','%s','%s','%s','%s','%d','%s','%s'],
-                ['%d']
-            );
+            $wpdb->update($table, [
+                'score'=>$score,'classification'=>$cls,'evaluation_json'=>json_encode($evaluation),
+                'score_reasons'=>$why,'classification_reason'=>$cls_r,'had_fp'=>1,
+                'fp_received_at'=>current_time('mysql', true),'fingerprint_hash'=>$fp_hash,
+                'top_factor_json'=>$top_json,'top_factor'=>$top_name,
+            ], ['id'=>(int)$row_id], ['%d','%s','%s','%s','%s','%d','%s','%s','%s','%s'], ['%d']);
         } else {
-            // Фоллбек: page-хита нет (напр., SPA/браузер загрузил FP без полной навигации).
-            // Вставим 1 запись event_type='page' сразу с had_fp=1, чтобы не терять событие.
             $visit_key = hash('sha256', ($ip ?? '') . '|' . ($cookie_id ?? '') . '|' . microtime(true) . '|' . wp_generate_uuid4());
-            $wpdb->insert(
-                $table,
-                [
-                    'visit_key'             => $visit_key,
-                    'ip'                    => $ip ?: '',
-                    'baskerville_id'        => $cookie_id ?: '',
-                    'timestamp_utc'         => current_time('mysql', true),
-                    'score'                 => $score,
-                    'classification'        => $cls,
-                    'user_agent'            => $headers['user_agent'] ?? '',
-                    'evaluation_json'       => $eval_js,
-                    'score_reasons'         => $why,
-                    'classification_reason' => $cls_r,
-                    'event_type'            => 'page',
-                    'had_fp'                => 1,
-                    'fp_received_at'        => current_time('mysql', true),
-                    'fingerprint_hash'      => $fp_hash,
-                ],
-                ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%d','%s','%s']
-            );
+            $wpdb->insert($table, [
+                'visit_key'=>$visit_key,'ip'=>$ip ?: '','baskerville_id'=>$cookie_id ?: '',
+                'timestamp_utc'=>current_time('mysql', true),'score'=>$score,'classification'=>$cls,
+                'user_agent'=>$headers['user_agent'] ?? '','evaluation_json'=>json_encode($evaluation),
+                'score_reasons'=>$why,'classification_reason'=>$cls_r,'event_type'=>'page',
+                'had_fp'=>1,'fp_received_at'=>current_time('mysql', true),'fingerprint_hash'=>$fp_hash,
+                'top_factor_json'=>$top_json,'top_factor'=>$top_name,
+            ], ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%d','%s','%s','%s']);
         }
 
-        // ответ клиенту (без создания отдельной строки)
         return new WP_REST_Response([
-            'ok'             => true,
-            'score'          => $score,
-            'action'         => $evaluation['action'] ?? 'allow',
-            'why'            => $evaluation['reasons'] ?? [],
-            'classification' => $classification,
+            'ok'=>true,'score'=>$score,'action'=>$evaluation['action'] ?? 'allow',
+            'why'=>$evaluation['reasons'] ?? [], 'classification'=>$classification,
         ], 200);
     }
 
@@ -1606,6 +1772,9 @@ class Baskerville {
           fp_received_at datetime NULL,
           visit_count int(11) NOT NULL DEFAULT 1,
 
+          top_factor_json longtext NULL,
+          top_factor varchar(64) NULL,
+
           created_at timestamp DEFAULT CURRENT_TIMESTAMP,
           updated_at timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id),
@@ -1617,7 +1786,8 @@ class Baskerville {
           KEY score (score),
           KEY event_type (event_type),
           KEY fingerprint_hash (fingerprint_hash),
-          KEY block_reason (block_reason)
+          KEY block_reason (block_reason),
+          KEY top_factor (top_factor)
         ) $charset_collate;";
 
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
@@ -1625,6 +1795,40 @@ class Baskerville {
 
         // Add version option to track schema changes
         add_option('baskerville_db_version', '1.0');
+    }
+
+    /** Возвращает [json_string|null, top_name|null] из $evaluation['top_factors'] или из fp-cookie. */
+    private function extract_top_factors(array $evaluation, ?array $fp_cookie = null): array {
+        $top = $evaluation['top_factors'] ?? $evaluation['contrib'] ?? null;
+
+        if ((!is_array($top) || !$top) && is_array($fp_cookie) && !empty($fp_cookie['top'])) {
+            $top = $fp_cookie['top'];
+        }
+
+        if (!is_array($top) || !$top) return [null, null];
+
+        // нормализуем: берем первые 6 факторов
+        $norm = [];
+        foreach (array_slice($top, 0, 6) as $x) {
+            $norm[] = [
+                'key'   => (string)($x['key']   ?? ''),
+                'delta' => (int)   ($x['delta'] ?? 0),
+                'why'   => (string)($x['why']   ?? '')
+            ];
+        }
+
+        // главный фактор = по максимальному |delta|, fallback — первый по порядку
+        $main = null; $best = -1;
+        foreach ($norm as $x) {
+            $w = abs((int)$x['delta']);
+            if ($w > $best) { $best = $w; $main = (string)$x['key']; }
+        }
+        if (!$main && !empty($norm[0]['key'])) $main = (string)$norm[0]['key'];
+
+        // ограничим имя (на всякий случай)
+        if ($main !== null) { $main = mb_substr($main, 0, 64); }
+
+        return [json_encode($norm, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES), $main];
     }
 
     public function get_retention_days() {
@@ -1786,7 +1990,7 @@ class Baskerville {
             SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) ai_bot_count,
             SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) bot_count,
             SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
-            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
+            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score,
             MIN(timestamp_utc) first_record,
             MAX(timestamp_utc) last_record
           FROM $table
@@ -1824,6 +2028,9 @@ class Baskerville {
 
         $visit_key = $visit_key ?: $this->make_visit_key($ip, $baskerville_id);
 
+        $fp_cookie = $this->read_fp_cookie();
+        [$top_json, $top_name] = $this->extract_top_factors((array)$evaluation, $fp_cookie);
+
         $data = [
             'visit_key' => $visit_key,
             'ip' => $ip,
@@ -1836,9 +2043,10 @@ class Baskerville {
             'score_reasons' => implode('; ', $evaluation['reasons'] ?? []),
             'classification_reason' => (string)($classification['reason'] ?? ''),
             'event_type' => $event_type,
-            // had_fp/visit_count — оставляем дефолты из схемы (had_fp=0, visit_count=1)
+            'top_factor_json' => $top_json,
+            'top_factor' => $top_name,
         ];
-        $fmt = ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s'];
+        $fmt = ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s'];
 
         $ok = $wpdb->insert($table_name, $data, $fmt);
         if ($ok === false) {
@@ -2035,6 +2243,13 @@ class Baskerville {
                 <div class="chart-container">
                   <canvas id="scoreHistChart"></canvas>
                 </div>
+                <div class="charts-row">
+                  <div class="chart-half">
+                    <canvas id="topFactorBar"></canvas>
+                  </div>
+                  <div class="chart-half" id="topFactorTable" style="overflow:auto"></div>
+                </div>
+
 
 
             </div>
@@ -2048,6 +2263,86 @@ class Baskerville {
                  let chartScoreHist = null;
 
                 const STATS_URL = '<?php echo esc_js($stats_url); ?>';
+
+                function updateTopFactorHistogram(tf) {
+                  const el = document.getElementById('topFactorBar');
+                  const tbl = document.getElementById('topFactorTable');
+                  if (!el || !tf) return;
+
+                  const labels = (tf.items || []).map(i => i.factor);
+                  const counts = (tf.items || []).map(i => i.count);
+                  const avgs   = (tf.items || []).map(i => i.avg_score);
+                  const share  = (tf.items || []).map(i => i.percent);
+
+                  // Гистограмма по счётчикам (bar). В тултипе — доля и средний скор.
+                  if (window.chartTopFactor) window.chartTopFactor.destroy();
+                  window.chartTopFactor = new Chart(el.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                      labels,
+                      datasets: [{
+                        label: 'Count (score > ' + (tf.min_score ?? 30) + ')',
+                        data: counts,
+                        backgroundColor: '#9C27B0', // фиолетовый, чтобы не путать с Humans/Automated
+                        borderColor: '#9C27B0',
+                        borderWidth: 1
+                      }]
+                    },
+                    options: {
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      interaction: { mode: 'index', intersect: false },
+                      scales: {
+                        x: { title: { display: true, text: 'Top factor' } },
+                        y: { beginAtZero: true, title: { display: true, text: 'Visits' } }
+                      },
+                      plugins: {
+                        title: { display: true, text: 'Top factors — score > ' + (tf.min_score ?? 30) + ' (last ' + (tf.hours ?? '') + 'h)' },
+                        tooltip: {
+                          callbacks: {
+                            afterBody(items) {
+                              const i = items[0].dataIndex;
+                              return [
+                                'Share: ' + (share[i] || 0) + '%',
+                                'Avg score: ' + (avgs[i] ?? '—')
+                              ];
+                            }
+                          }
+                        },
+                        legend: { display: false }
+                      }
+                    }
+                  });
+
+                  // Мини-таблица (топ 20, если их много)
+                  if (tbl) {
+                    const rows = (tf.items || []).slice(0, 20).map(i =>
+                      `<tr>
+                         <td>${escHtml(i.factor)}</td>
+                         <td style="text-align:right;">${i.count}</td>
+                         <td style="text-align:right;">${i.percent}%</td>
+                         <td style="text-align:right;">${i.avg_score}</td>
+                       </tr>`
+                    ).join('');
+                    tbl.innerHTML = `
+                      <div style="font-weight:600;margin-bottom:8px;">
+                        Top factors (score > ${tf.min_score ?? 30}) — last ${tf.hours ?? ''}h
+                        <span class="badge">Total: ${tf.total || 0}</span>
+                      </div>
+                      <table style="width:100%;border-collapse:collapse;">
+                        <thead>
+                          <tr>
+                            <th style="text-align:left;border-bottom:1px solid #eee;padding:6px 0;">Factor</th>
+                            <th style="text-align:right;border-bottom:1px solid #eee;padding:6px 0;">Count</th>
+                            <th style="text-align:right;border-bottom:1px solid #eee;padding:6px 0;">Share</th>
+                            <th style="text-align:right;border-bottom:1px solid #eee;padding:6px 0;">Avg score</th>
+                          </tr>
+                        </thead>
+                        <tbody>${rows || `<tr><td colspan="4" style="padding:10px;color:#777;">No data</td></tr>`}</tbody>
+                      </table>
+                    `;
+                  }
+                }
 
                 function updateScoreHistogram(hist) {
                   const el = document.getElementById('scoreHistChart');
@@ -2338,6 +2633,8 @@ class Baskerville {
                         updateBlocksChart(data.timeseries_blocks || []);
                         updateScoreHistogram(data.score_histogram);
                         updateAIBotUAList(data.ai_ua);
+                        updateTopFactorHistogram(data.top_factor_histogram);
+
                     } catch (error) {
                         console.error('Error loading data:', error);
                     }
@@ -2679,6 +2976,7 @@ class Baskerville {
           WHERE event_type IN ('page','fp')
             AND timestamp_utc >= %s
             AND score IS NOT NULL
+            AND had_fp = 1
           GROUP BY b
           ORDER BY b
         ";
@@ -2770,6 +3068,7 @@ class Baskerville {
 
         $score_histogram   = $this->get_score_histogram($hours, 10);
         $ai_ua_list = $this->get_ai_bot_user_agents($hours);
+        $top_factor_hist = $this->get_top_factor_histogram($hours, 30);
 
 
         return new WP_REST_Response([
@@ -2784,6 +3083,7 @@ class Baskerville {
             'ai_ua'              => $ai_ua_list,
             'hours'       => $hours,
             'generated_at'=> gmdate('c'),
+            'top_factor_histogram' => $top_factor_hist,
         ], 200);
     }
 
