@@ -1,0 +1,277 @@
+<?php
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+/**
+ * Automatic installer for MaxMind GeoIP2 PHP library
+ * Downloads and installs the library without requiring composer
+ */
+class Baskerville_MaxMind_Installer {
+
+    private $vendor_dir;
+    private $zip_url = 'https://github.com/maxmind/GeoIP2-php/archive/refs/tags/v2.13.0.zip';
+    private $composer_data_url = 'https://github.com/maxmind/MaxMind-DB-Reader-php/archive/refs/tags/v1.11.1.zip';
+
+    public function __construct() {
+        $this->vendor_dir = BASKERVILLE_PLUGIN_PATH . 'vendor/';
+    }
+
+    /**
+     * Check if MaxMind library is installed
+     */
+    public function is_installed() {
+        return file_exists($this->vendor_dir . 'autoload.php') &&
+               class_exists('GeoIp2\Database\Reader');
+    }
+
+    /**
+     * Install MaxMind library automatically
+     * @return array Status with success/error message
+     */
+    public function install() {
+        $errors = array();
+
+        // Check if ZipArchive is available
+        if (!class_exists('ZipArchive')) {
+            return array(
+                'success' => false,
+                'message' => 'ZipArchive class not available. Please contact your hosting provider to enable PHP ZIP extension.',
+                'errors' => array('ZipArchive not available')
+            );
+        }
+
+        // Check if we can write to plugin directory
+        if (!is_writable(BASKERVILLE_PLUGIN_PATH)) {
+            return array(
+                'success' => false,
+                'message' => 'Plugin directory is not writable. Path: ' . BASKERVILLE_PLUGIN_PATH . '. Please check file permissions.',
+                'errors' => array('Directory not writable: ' . BASKERVILLE_PLUGIN_PATH)
+            );
+        }
+
+        // Create vendor directory if it doesn't exist
+        if (!is_dir($this->vendor_dir)) {
+            if (!wp_mkdir_p($this->vendor_dir)) {
+                return array(
+                    'success' => false,
+                    'message' => 'Failed to create vendor directory at: ' . $this->vendor_dir,
+                    'errors' => array('mkdir failed')
+                );
+            }
+        }
+
+        try {
+            // Step 1: Download and install MaxMind-DB-Reader (dependency)
+            $result = $this->download_and_extract_db_reader();
+            if (!$result['success']) {
+                $result['errors'][] = 'Step 1 failed: DB-Reader';
+                return $result;
+            }
+
+            // Step 2: Download and install GeoIP2
+            $result = $this->download_and_extract_geoip2();
+            if (!$result['success']) {
+                $result['errors'][] = 'Step 2 failed: GeoIP2';
+                return $result;
+            }
+
+            // Step 3: Create autoload.php
+            $this->create_autoload();
+
+            return array(
+                'success' => true,
+                'message' => 'MaxMind GeoIP2 library installed successfully!'
+            );
+
+        } catch (Exception $e) {
+            return array(
+                'success' => false,
+                'message' => 'Installation exception: ' . $e->getMessage(),
+                'errors' => array($e->getMessage()),
+                'trace' => $e->getTraceAsString()
+            );
+        }
+    }
+
+    /**
+     * Download and extract MaxMind-DB-Reader library
+     */
+    private function download_and_extract_db_reader() {
+        $zip_file = $this->vendor_dir . 'maxmind-db-reader.zip';
+
+        // Download
+        $response = wp_remote_get($this->composer_data_url, array('timeout' => 60));
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'message' => 'Failed to download MaxMind-DB-Reader: ' . $response->get_error_message()
+            );
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        if (empty($body)) {
+            return array(
+                'success' => false,
+                'message' => 'Downloaded MaxMind-DB-Reader file is empty.'
+            );
+        }
+
+        // Save zip
+        file_put_contents($zip_file, $body);
+
+        // Extract
+        $zip = new ZipArchive();
+        if ($zip->open($zip_file) !== true) {
+            return array(
+                'success' => false,
+                'message' => 'Failed to open MaxMind-DB-Reader zip file.'
+            );
+        }
+
+        $extract_to = $this->vendor_dir . 'maxmind-db-temp/';
+        $zip->extractTo($extract_to);
+        $zip->close();
+
+        // Move files to correct location
+        $source_dir = $extract_to . 'MaxMind-DB-Reader-php-1.11.1/src/MaxMind/';
+        $target_dir = $this->vendor_dir . 'maxmind/';
+
+        if (is_dir($source_dir)) {
+            $this->recursive_copy($source_dir, $target_dir);
+        }
+
+        // Cleanup
+        @unlink($zip_file);
+        $this->recursive_delete($extract_to);
+
+        return array('success' => true);
+    }
+
+    /**
+     * Download and extract GeoIP2 library
+     */
+    private function download_and_extract_geoip2() {
+        $zip_file = $this->vendor_dir . 'geoip2.zip';
+
+        // Download
+        $response = wp_remote_get($this->zip_url, array('timeout' => 60));
+        if (is_wp_error($response)) {
+            return array(
+                'success' => false,
+                'message' => 'Failed to download GeoIP2: ' . $response->get_error_message()
+            );
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        if (empty($body)) {
+            return array(
+                'success' => false,
+                'message' => 'Downloaded GeoIP2 file is empty.'
+            );
+        }
+
+        // Save zip
+        file_put_contents($zip_file, $body);
+
+        // Extract
+        $zip = new ZipArchive();
+        if ($zip->open($zip_file) !== true) {
+            return array(
+                'success' => false,
+                'message' => 'Failed to open GeoIP2 zip file.'
+            );
+        }
+
+        $extract_to = $this->vendor_dir . 'geoip2-temp/';
+        $zip->extractTo($extract_to);
+        $zip->close();
+
+        // Move files to correct location
+        $source_dir = $extract_to . 'GeoIP2-php-2.13.0/src/';
+        $target_dir = $this->vendor_dir . 'geoip2/';
+
+        if (is_dir($source_dir)) {
+            $this->recursive_copy($source_dir, $target_dir);
+        }
+
+        // Cleanup
+        @unlink($zip_file);
+        $this->recursive_delete($extract_to);
+
+        return array('success' => true);
+    }
+
+    /**
+     * Create autoload.php file
+     */
+    private function create_autoload() {
+        $autoload_content = <<<'PHP'
+<?php
+// Baskerville MaxMind GeoIP2 Autoloader
+
+spl_autoload_register(function ($class) {
+    // MaxMind namespace prefix
+    $prefixes = array(
+        'GeoIp2\\' => __DIR__ . '/geoip2/GeoIp2/',
+        'MaxMind\\' => __DIR__ . '/maxmind/',
+    );
+
+    foreach ($prefixes as $prefix => $base_dir) {
+        $len = strlen($prefix);
+        if (strncmp($prefix, $class, $len) !== 0) {
+            continue;
+        }
+
+        $relative_class = substr($class, $len);
+        $file = $base_dir . str_replace('\\', '/', $relative_class) . '.php';
+
+        if (file_exists($file)) {
+            require $file;
+            return;
+        }
+    }
+});
+PHP;
+
+        file_put_contents($this->vendor_dir . 'autoload.php', $autoload_content);
+    }
+
+    /**
+     * Recursive copy directory
+     */
+    private function recursive_copy($src, $dst) {
+        if (!is_dir($dst)) {
+            wp_mkdir_p($dst);
+        }
+
+        $dir = opendir($src);
+        while (($file = readdir($dir)) !== false) {
+            if ($file != '.' && $file != '..') {
+                if (is_dir($src . '/' . $file)) {
+                    $this->recursive_copy($src . '/' . $file, $dst . '/' . $file);
+                } else {
+                    copy($src . '/' . $file, $dst . '/' . $file);
+                }
+            }
+        }
+        closedir($dir);
+    }
+
+    /**
+     * Recursive delete directory
+     */
+    private function recursive_delete($dir) {
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $files = array_diff(scandir($dir), array('.', '..'));
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            is_dir($path) ? $this->recursive_delete($path) : unlink($path);
+        }
+        rmdir($dir);
+    }
+}
