@@ -2,13 +2,19 @@
 
 class Baskerville_Stats
 {
-    /** Текущий visit_key последней записи page/fp в рамках запроса (если нужен снаружи) */
-    public ?string $current_visit_key = null;
+    /** @var Baskerville_Core */
+    private $core;
 
-    public function __construct(
-        private Baskerville_Core $core,
-        private Baskerville_AI_UA $aiua
-    ) {}
+    /** @var Baskerville_AI_UA */
+    private $aiua;
+
+    /** Текущий visit_key последней записи page/fp в рамках запроса (если нужен снаружи) */
+    public $current_visit_key = null;
+
+    public function __construct(Baskerville_Core $core, Baskerville_AI_UA $aiua) {
+        $this->core = $core;
+        $this->aiua = $aiua;
+    }
 
     public function create_stats_table() {
         global $wpdb;
@@ -20,6 +26,7 @@ class Baskerville_Stats
           id bigint(20) NOT NULL AUTO_INCREMENT,
           visit_key varchar(255) NOT NULL,
           ip varchar(45) NOT NULL,
+          country_code varchar(2) NULL,
           baskerville_id varchar(100) NOT NULL,
           fingerprint_hash varchar(64) NULL,
           timestamp_utc datetime NOT NULL,
@@ -44,6 +51,7 @@ class Baskerville_Stats
           PRIMARY KEY (id),
           UNIQUE KEY visit_key (visit_key),
           KEY ip (ip),
+          KEY country_code (country_code),
           KEY baskerville_id (baskerville_id),
           KEY timestamp_utc (timestamp_utc),
           KEY classification (classification),
@@ -60,7 +68,7 @@ class Baskerville_Stats
         add_option('baskerville_db_version', '1.0');
     }
 
-    private function maybe_upgrade_schema() {
+    public function maybe_upgrade_schema() {
         global $wpdb;
         $t = $wpdb->prefix . 'baskerville_stats';
 
@@ -102,6 +110,13 @@ class Baskerville_Stats
         if (!$col) {
             $wpdb->query("ALTER TABLE $t ADD COLUMN top_factor VARCHAR(64) NULL AFTER top_factor_json");
             $wpdb->query("CREATE INDEX top_factor ON $t (top_factor)");
+        }
+
+        // Add country_code field for GeoIP
+        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'country_code'");
+        if (!$col) {
+            $wpdb->query("ALTER TABLE $t ADD COLUMN country_code VARCHAR(2) NULL AFTER ip");
+            $wpdb->query("CREATE INDEX country_code ON $t (country_code)");
         }
     }
 
@@ -188,9 +203,13 @@ class Baskerville_Stats
         $fp_cookie = $this->core->read_fp_cookie();
         [$top_json, $top_name] = $this->extract_top_factors((array)$evaluation, $fp_cookie);
 
+        // Get country code for GeoIP analytics
+        $country_code = $this->core->get_country_by_ip($ip);
+
         $data = [
             'visit_key'             => $visit_key,
             'ip'                    => $ip,
+            'country_code'          => $country_code,
             'baskerville_id'        => $baskerville_id,
             'timestamp_utc'         => current_time('mysql', true),
             'score'                 => (int)($evaluation['score'] ?? 0),
@@ -203,7 +222,7 @@ class Baskerville_Stats
             'top_factor_json'       => $top_json,
             'top_factor'            => $top_name,
         ];
-        $fmt = ['%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s'];
+        $fmt = ['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s'];
 
         $ok = $wpdb->insert($table_name, $data, $fmt);
         if ($ok === false) {
@@ -248,6 +267,18 @@ class Baskerville_Stats
         if (!$this->core->is_public_html_request()) return;
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+
+        // Skip logging for whitelisted IPs (performance optimization)
+        if ($this->core->is_whitelisted_ip($ip)) return;
+
+        // Check logging mode (disabled/file/database)
+        $options = get_option('baskerville_settings', array());
+        $log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'file'; // Default to 'file'
+
+        if ($log_mode === 'disabled') {
+            return; // No logging at all
+        }
+
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
         $headers = [
@@ -281,7 +312,14 @@ class Baskerville_Stats
             'samesite' => 'Lax',
         ]);
 
-        $this->save_visit_stats($ip, $cookie_id ?? '', $evaluation, $classification, $ua, 'page', $visit_key);
+        // Log according to selected mode
+        if ($log_mode === 'file') {
+            // Fast file logging (~1-2ms)
+            $this->log_page_visit_to_file($ip, $cookie_id ?? '', $evaluation, $classification, $ua, $visit_key);
+        } else {
+            // Direct database logging (~500ms on shared hosting)
+            $this->save_visit_stats($ip, $cookie_id ?? '', $evaluation, $classification, $ua, 'page', $visit_key);
+        }
     }
 
     public function get_timeseries_data($hours = 24) {
@@ -651,8 +689,10 @@ class Baskerville_Stats
         ));
 
         $items = array_map(function($r){
+            $ua = (string)$r['user_agent'];
             return [
-                'user_agent' => mb_substr((string)$r['user_agent'], 0, 500),
+                'company'    => $this->aiua->get_ai_bot_company($ua),
+                'user_agent' => mb_substr($ua, 0, 500),
                 'unique_ips' => (int)$r['unique_ips'],
                 'events'     => (int)$r['events'],
             ];
@@ -711,5 +751,212 @@ class Baskerville_Stats
             'total'      => $total,
             'items'      => $items,
         ];
+    }
+
+    /* ===== File-based logging (performance optimization) ===== */
+
+    private function get_log_dir(): string {
+        $dir = WP_CONTENT_DIR . '/cache/baskerville/logs';
+        if (!is_dir($dir)) {
+            @wp_mkdir_p($dir);
+        }
+        return $dir;
+    }
+
+    private function get_log_file_path(): string {
+        return $this->get_log_dir() . '/visits-' . gmdate('Y-m-d') . '.log';
+    }
+
+    /**
+     * Log page visit to file (fast: ~1-2ms)
+     * Returns true on success, false on failure
+     */
+    public function log_page_visit_to_file($ip, $baskerville_id, $evaluation, $classification, $user_agent, $visit_key): bool {
+        $log_file = $this->get_log_file_path();
+
+        $fp_cookie = $this->core->read_fp_cookie();
+        [$top_json, $top_name] = $this->extract_top_factors((array)$evaluation, $fp_cookie);
+
+        // Get country code for GeoIP analytics
+        $country_code = $this->core->get_country_by_ip($ip);
+
+        $data = [
+            'visit_key'             => $visit_key,
+            'ip'                    => $ip,
+            'country_code'          => $country_code,
+            'baskerville_id'        => $baskerville_id,
+            'timestamp_utc'         => current_time('mysql', true),
+            'score'                 => (int)($evaluation['score'] ?? 0),
+            'classification'        => (string)($classification['classification'] ?? 'unknown'),
+            'user_agent'            => $user_agent,
+            'evaluation_json'       => wp_json_encode($evaluation),
+            'score_reasons'         => implode('; ', $evaluation['reasons'] ?? []),
+            'classification_reason' => (string)($classification['reason'] ?? ''),
+            'event_type'            => 'page',
+            'top_factor_json'       => $top_json,
+            'top_factor'            => $top_name,
+        ];
+
+        // Write as single JSON line
+        $line = wp_json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+
+        // Fast append with file lock
+        $result = @file_put_contents($log_file, $line, FILE_APPEND | LOCK_EX);
+
+        if ($result === false) {
+            error_log('Baskerville: Failed to write to log file: ' . $log_file);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Process log files and import to database (batch)
+     * Called by WP Cron every 5 minutes
+     */
+    public function process_log_files_to_db(): int {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'baskerville_stats';
+        $log_dir = $this->get_log_dir();
+
+        if (!is_dir($log_dir)) {
+            return 0;
+        }
+
+        $files = glob($log_dir . '/visits-*.log');
+        if (!$files) {
+            return 0;
+        }
+
+        $total_imported = 0;
+
+        foreach ($files as $file) {
+            // Skip today's file if it's being written to
+            $today_file = $this->get_log_file_path();
+            if ($file === $today_file) {
+                continue; // Process tomorrow
+            }
+
+            $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (!$lines) {
+                @unlink($file); // Delete empty file
+                continue;
+            }
+
+            $batch = [];
+            foreach ($lines as $line) {
+                $data = json_decode($line, true);
+                if (!$data || !isset($data['visit_key'])) {
+                    continue; // Skip invalid lines
+                }
+
+                $batch[] = $data;
+
+                // Batch insert every 100 records
+                if (count($batch) >= 100) {
+                    $imported = $this->batch_insert_visits($batch);
+                    $total_imported += $imported;
+                    $batch = [];
+                }
+            }
+
+            // Insert remaining records
+            if (!empty($batch)) {
+                $imported = $this->batch_insert_visits($batch);
+                $total_imported += $imported;
+            }
+
+            // Delete processed file
+            @unlink($file);
+        }
+
+        if ($total_imported > 0) {
+            error_log("Baskerville: Imported $total_imported page visits from log files");
+        }
+
+        return $total_imported;
+    }
+
+    /**
+     * Batch insert visits to database (optimized)
+     */
+    private function batch_insert_visits(array $batch): int {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'baskerville_stats';
+
+        if (empty($batch)) {
+            return 0;
+        }
+
+        // Build multi-row INSERT query
+        $values = [];
+        $placeholders = [];
+
+        foreach ($batch as $data) {
+            $placeholders[] = "(%s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s)";
+            $values[] = $data['visit_key'];
+            $values[] = $data['ip'];
+            $values[] = $data['country_code'];
+            $values[] = $data['baskerville_id'];
+            $values[] = $data['timestamp_utc'];
+            $values[] = (int)$data['score'];
+            $values[] = $data['classification'];
+            $values[] = $data['user_agent'];
+            $values[] = $data['evaluation_json'];
+            $values[] = $data['score_reasons'];
+            $values[] = $data['classification_reason'];
+            $values[] = $data['event_type'];
+            $values[] = $data['top_factor_json'];
+            $values[] = $data['top_factor'];
+        }
+
+        $sql = "INSERT INTO $table_name
+                (visit_key, ip, country_code, baskerville_id, timestamp_utc, score, classification,
+                 user_agent, evaluation_json, score_reasons, classification_reason, event_type,
+                 top_factor_json, top_factor)
+                VALUES " . implode(', ', $placeholders);
+
+        $result = $wpdb->query($wpdb->prepare($sql, $values));
+
+        if ($result === false) {
+            error_log('Baskerville: Batch insert failed - ' . $wpdb->last_error);
+            return 0;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Cleanup old log files (older than 7 days)
+     */
+    public function cleanup_old_log_files(): int {
+        $log_dir = $this->get_log_dir();
+        if (!is_dir($log_dir)) {
+            return 0;
+        }
+
+        $files = glob($log_dir . '/visits-*.log');
+        if (!$files) {
+            return 0;
+        }
+
+        $deleted = 0;
+        $cutoff = time() - (7 * 86400); // 7 days
+
+        foreach ($files as $file) {
+            $mtime = @filemtime($file);
+            if ($mtime && $mtime < $cutoff) {
+                if (@unlink($file)) {
+                    $deleted++;
+                }
+            }
+        }
+
+        if ($deleted > 0) {
+            error_log("Baskerville: Deleted $deleted old log files");
+        }
+
+        return $deleted;
     }
 }

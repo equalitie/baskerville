@@ -81,6 +81,50 @@ class Baskerville_AI_UA {
         return false;
     }
 
+    /**
+     * Get the company/owner name for an AI bot user agent
+     * @param string $user_agent
+     * @return string Company name or 'Unknown'
+     */
+    public function get_ai_bot_company($user_agent) {
+        if (empty($user_agent)) {
+            return 'Unknown';
+        }
+
+        $ua = strtolower($user_agent);
+
+        // Mapping: pattern => company name
+        $ai_bot_companies = [
+            'gptbot'              => 'OpenAI',
+            'openai.*crawler'     => 'OpenAI',
+            'openai-httplib'      => 'OpenAI',
+            'chatgpt'             => 'OpenAI',
+            'anthropic'           => 'Anthropic',
+            'claudebot'           => 'Anthropic',
+            'google-extended'     => 'Google',
+            'bytespider'          => 'ByteDance',
+            'yisouspider'         => 'Baidu',
+            'youdao'              => 'NetEase',
+            'ccbot'               => 'Common Crawl',
+            'petalbot'            => 'Huawei',
+            'facebookbot'         => 'Meta',
+            'facebot'             => 'Meta',
+            'meta-externalagent'  => 'Meta',
+            'amazonbot'           => 'Amazon',
+            'cohere'              => 'Cohere',
+            'ai\scrawler'         => 'Generic',
+            'ai crawler'          => 'Generic',
+        ];
+
+        foreach ($ai_bot_companies as $pattern => $company) {
+            if (preg_match('/' . $pattern . '/i', $ua)) {
+                return $company;
+            }
+        }
+
+        return 'Unknown';
+    }
+
     public function verify_crawler_ip(string $ip, string $ua): array {
         $ua = strtolower($ua);
         $expect = null;

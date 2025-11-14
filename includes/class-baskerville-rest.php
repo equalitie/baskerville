@@ -376,7 +376,7 @@ class Baskerville_REST {
                 <div class="chart-container" style="height:auto;">
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                     <div style="font-weight:600;">AI bot User-Agents — unique IPs (last <span id="aiUAHours">24</span>h)</div>
-                    <input id="aiUAFilter" type="search" placeholder="Filter UA…" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;min-width:220px;">
+                    <input id="aiUAFilter" type="search" placeholder="Filter by Company or UA…" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;min-width:240px;">
                   </div>
                   <div id="aiUAList" style="overflow:auto; max-height: 420px;"></div>
                 </div>
@@ -652,16 +652,18 @@ class Baskerville_REST {
 
                   const items = (data.items || []);
                   const f = (filterText || '').trim().toLowerCase();
-                  const filtered = f ? items.filter(it => (it.user_agent||'').toLowerCase().includes(f)) : items;
+                  const filtered = f ? items.filter(it => (it.user_agent||'').toLowerCase().includes(f) || (it.company||'').toLowerCase().includes(f)) : items;
 
                   if (!filtered.length) {
-                    el.innerHTML = `<div style="color:#777;padding:10px;">No AI-bot user agents${f ? ' for filter “'+escHtml(filterText)+'”' : ''}.</div>`;
+                    el.innerHTML = `<div style="color:#777;padding:10px;">No AI-bot user agents${f ? ' for filter "'+escHtml(filterText)+'"' : ''}.</div>`;
                     return;
                   }
 
                   const rows = filtered.map(it => {
                     const ua = escHtml(it.user_agent || '');
+                    const company = escHtml(it.company || 'Unknown');
                     return `<tr>
+                      <td style="width:120px;font-weight:600;color:#2c3e50;">${company}</td>
                       <td class="ua"><span title="${ua}">${ua}</span></td>
                       <td class="num">${it.unique_ips}</td>
                       <td class="num">${it.events}</td>
@@ -672,6 +674,7 @@ class Baskerville_REST {
                     <table class="table-ua">
                       <thead>
                         <tr>
+                          <th style="width:120px;">Company</th>
                           <th>User-Agent</th>
                           <th style="width:140px;">Unique IPs</th>
                           <th style="width:120px;">Events</th>
@@ -680,7 +683,7 @@ class Baskerville_REST {
                       <tbody>${rows}</tbody>
                       <tfoot>
                         <tr>
-                          <td><span class="badge">Total unique IPs (all AI): ${data.total_unique_ips || 0}</span></td>
+                          <td colspan="2"><span class="badge">Total unique IPs (all AI): ${data.total_unique_ips || 0}</span></td>
                           <td class="num" colspan="2"><span class="badge">${filtered.length} UA rows</span></td>
                         </tr>
                       </tfoot>
@@ -690,6 +693,7 @@ class Baskerville_REST {
 
                 function updateAIBotUAList(aiUA){
                   __aiUAData = aiUA || {items:[]};
+                  console.log('AI UA Data:', __aiUAData); // Debug: проверим данные
                   renderAIBotUAList(__aiUAData, document.getElementById('aiUAFilter')?.value || '');
                 }
 

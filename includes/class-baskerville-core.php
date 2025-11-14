@@ -9,6 +9,9 @@ class Baskerville_Core {
     /** Было ли у клиента валидное baskerville_id при приходе */
     private bool $had_cookie_on_arrival = false;
 
+    /** Cache for whitelisted IPs to avoid repeated get_option() calls */
+    private ?array $whitelist_cache = null;
+
     public function __construct() {
         $this->init_hooks();
     }
@@ -275,7 +278,110 @@ class Baskerville_Core {
         @unlink($this->fc_path($k));
     }
 
-    private function fc_has_apcu(): bool {
+    /**
+     * Cleanup expired cache files (zombie files that were never read again)
+     * @param int $max_age_sec Maximum age for files (default 86400 = 24 hours)
+     * @return int Number of files deleted
+     */
+    public function fc_cleanup_old_files($max_age_sec = 86400) {
+        // APCu cleans itself automatically
+        if ($this->fc_has_apcu()) return 0;
+
+        $dir = $this->fc_dir();
+        if (!is_dir($dir)) return 0;
+
+        $deleted = 0;
+        $now = time();
+        $files = @glob($dir . '/*.cache');
+        if (!$files) return 0;
+
+        foreach ($files as $file) {
+            // Skip if file was modified recently (within max_age)
+            $mtime = @filemtime($file);
+            if ($mtime === false || $mtime > ($now - $max_age_sec)) {
+                continue;
+            }
+
+            // Read and check TTL
+            $raw = @file_get_contents($file);
+            if ($raw === false) {
+                @unlink($file);
+                $deleted++;
+                continue;
+            }
+
+            $data = @unserialize($raw);
+            if (!is_array($data)) {
+                // Corrupted file - delete it
+                @unlink($file);
+                $deleted++;
+                continue;
+            }
+
+            // Delete expired files
+            if (($data['e'] ?? 0) < $now) {
+                @unlink($file);
+                $deleted++;
+            }
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * Clear all GeoIP country cache entries
+     * @return int Number of entries cleared
+     */
+    public function fc_clear_geoip_cache() {
+        $cleared = 0;
+
+        if ($this->fc_has_apcu()) {
+            // APCu: iterate and delete country:* keys
+            $iterator = new \APCUIterator('/^baskerville:country:/');
+            foreach ($iterator as $entry) {
+                if (apcu_delete($entry['key'])) {
+                    $cleared++;
+                }
+            }
+        } else {
+            // File cache: find and delete country:* cache files
+            $dir = $this->fc_dir();
+            if (!is_dir($dir)) return 0;
+
+            $files = @glob($dir . '/*.cache');
+            if (!$files) return 0;
+
+            foreach ($files as $file) {
+                $raw = @file_get_contents($file);
+                if ($raw === false) continue;
+
+                // Check if this is a country cache file by checking the key hash
+                // We need to check all country:* patterns
+                $basename = basename($file, '.cache');
+
+                // Generate sample hashes to identify country cache files
+                // This is not perfect but will work for most cases
+                // Better approach: store metadata in cache files
+
+                // For now, just delete files that look like country cache
+                // by checking if they're relatively fresh (< 7 days) and small
+                $mtime = @filemtime($file);
+                if ($mtime && (time() - $mtime) < (7 * 86400)) {
+                    $size = filesize($file);
+                    // Country codes are small (2-3 bytes), serialized ~50-100 bytes
+                    if ($size < 200) {
+                        if (@unlink($file)) {
+                            $cleared++;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $cleared;
+    }
+
+    public function fc_has_apcu(): bool {
         return function_exists('apcu_store') && (function_exists('apcu_enabled') ? apcu_enabled() : true);
     }
     private function fc_key(string $key): string {
@@ -306,12 +412,180 @@ class Baskerville_Core {
     }
 
     public function is_whitelisted_ip(string $ip): bool {
-        $raw = (string) get_option('baskerville_ip_whitelist', '');
-        if ($raw === '') return false;
-        foreach (preg_split('~[\	s,]+~', $raw) as $w) {
-            if ($w !== '' && $w === $ip) return true;
+        // Load whitelist once per request and cache in memory
+        if ($this->whitelist_cache === null) {
+            $raw = (string) get_option('baskerville_ip_whitelist', '');
+            if ($raw === '') {
+                $this->whitelist_cache = [];
+            } else {
+                $this->whitelist_cache = array_filter(
+                    preg_split('~[\s,]+~', $raw),
+                    function($w) { return $w !== ''; }
+                );
+            }
         }
-        return false;
+        return in_array($ip, $this->whitelist_cache, true);
+    }
+
+    /**
+     * Get country code for IP address
+     * Priority: 1) NGINX GeoIP, 2) Cloudflare, 3) MaxMind local DB
+     * @param string $ip
+     * @return string|null Two-letter country code (e.g., 'US', 'RU') or null if unknown
+     */
+    public function get_country_by_ip($ip) {
+        if (empty($ip)) return null;
+
+        // Check cache first (7 days TTL)
+        $cache_key = "country:{$ip}";
+        $cached = $this->fc_get($cache_key);
+        if ($cached !== null) {
+            return $cached === 'XX' ? null : $cached;
+        }
+
+        $country = null;
+
+        // 1. Check NGINX GeoIP variables (fastest)
+        if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
+            $country = strtoupper($_SERVER['GEOIP2_COUNTRY_CODE']);
+        }
+        elseif (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
+            $country = strtoupper($_SERVER['GEOIP_COUNTRY_CODE']);
+        }
+        elseif (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
+            $country = strtoupper($_SERVER['HTTP_X_COUNTRY_CODE']);
+        }
+        // 2. Check Cloudflare header
+        elseif (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+            $country = strtoupper($_SERVER['HTTP_CF_IPCOUNTRY']);
+        }
+        // 3. Fallback to MaxMind local database
+        else {
+            $country = $this->lookup_country_maxmind($ip);
+        }
+
+        // Normalize and validate
+        if ($country && strlen($country) === 2 && ctype_alpha($country)) {
+            $country = strtoupper($country);
+        } else {
+            $country = null;
+        }
+
+        // Cache result (use 'XX' for null to distinguish from cache miss)
+        $this->fc_set($cache_key, $country ?: 'XX', 7 * 86400);
+
+        return $country;
+    }
+
+    /**
+     * Lookup country code using MaxMind GeoLite2 database
+     * @param string $ip
+     * @return string|null
+     */
+    private function lookup_country_maxmind($ip) {
+        $db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+        if (!file_exists($db_path)) return null;
+
+        if (!class_exists('GeoIp2\Database\Reader')) {
+            $autoload = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
+            if (file_exists($autoload)) {
+                require_once $autoload;
+            } else {
+                return null;
+            }
+        }
+
+        try {
+            $reader = new \GeoIp2\Database\Reader($db_path);
+            $record = $reader->country($ip);
+            return $record->country->isoCode;
+        } catch (\Exception $e) {
+            error_log('Baskerville GeoIP lookup failed: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Test all GeoIP sources for a given IP (for admin diagnostics)
+     * @param string $ip
+     * @return array
+     */
+    public function test_geoip_sources($ip) {
+        $current_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        $is_current_ip = ($ip === $current_ip);
+
+        $results = array(
+            'nginx_geoip2' => null,
+            'nginx_geoip_legacy' => null,
+            'nginx_custom_header' => null,
+            'cloudflare' => null,
+            'maxmind' => null,
+            'maxmind_debug' => array(),
+            'is_current_ip' => $is_current_ip,
+            'current_ip' => $current_ip,
+        );
+
+        // NGINX and Cloudflare only work for current request IP
+        if ($is_current_ip) {
+            // Check NGINX variables (these are set per-request, so we check current $_SERVER)
+            if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
+                $results['nginx_geoip2'] = strtoupper($_SERVER['GEOIP2_COUNTRY_CODE']);
+            }
+            if (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
+                $results['nginx_geoip_legacy'] = strtoupper($_SERVER['GEOIP_COUNTRY_CODE']);
+            }
+            if (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
+                $results['nginx_custom_header'] = strtoupper($_SERVER['HTTP_X_COUNTRY_CODE']);
+            }
+
+            // Check Cloudflare header
+            if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+                $results['cloudflare'] = strtoupper($_SERVER['HTTP_CF_IPCOUNTRY']);
+            }
+        } else {
+            // For non-current IPs, note that server-side sources only work for current IP
+            $results['nginx_geoip2'] = 'N/A (only for current IP)';
+            $results['nginx_geoip_legacy'] = 'N/A (only for current IP)';
+            $results['nginx_custom_header'] = 'N/A (only for current IP)';
+            $results['cloudflare'] = 'N/A (only for current IP)';
+        }
+
+        // Test MaxMind directly with detailed diagnostics
+        $db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+        $results['maxmind_debug']['expected_path'] = $db_path;
+        $results['maxmind_debug']['file_exists'] = file_exists($db_path);
+        $results['maxmind_debug']['is_readable'] = is_readable($db_path);
+        $results['maxmind_debug']['file_size'] = file_exists($db_path) ? filesize($db_path) : 0;
+        $results['maxmind_debug']['wp_content_dir'] = WP_CONTENT_DIR;
+
+        // Check if vendor autoload exists
+        $autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
+        $results['maxmind_debug']['autoload_exists'] = file_exists($autoload_path);
+        $results['maxmind_debug']['autoload_path'] = $autoload_path;
+
+        // Load autoload if exists
+        if ($results['maxmind_debug']['autoload_exists'] && !class_exists('GeoIp2\Database\Reader')) {
+            require_once $autoload_path;
+        }
+
+        // Check if GeoIp2 class is available (after loading autoload)
+        $results['maxmind_debug']['class_exists'] = class_exists('GeoIp2\Database\Reader');
+
+        try {
+            $results['maxmind'] = $this->lookup_country_maxmind($ip);
+            if ($results['maxmind']) {
+                $results['maxmind_debug']['lookup_success'] = true;
+            } else {
+                $results['maxmind_debug']['lookup_success'] = false;
+                $results['maxmind_debug']['lookup_result'] = 'Returned null';
+            }
+        } catch (\Exception $e) {
+            $results['maxmind'] = 'Error: ' . $e->getMessage();
+            $results['maxmind_debug']['lookup_success'] = false;
+            $results['maxmind_debug']['error'] = $e->getMessage();
+        }
+
+        return $results;
     }
 
     public function handle_widget_toggle() {

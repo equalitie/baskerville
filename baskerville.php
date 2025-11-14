@@ -22,7 +22,17 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-stats.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-firewall.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-rest.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
+
+// Add custom cron interval for file logging (5 minutes)
+add_filter('cron_schedules', function($schedules) {
+    $schedules['baskerville_5min'] = array(
+        'interval' => 300, // 5 minutes in seconds
+        'display'  => __('Every 5 Minutes (Baskerville)', 'baskerville')
+    );
+    return $schedules;
+});
 
 add_action('plugins_loaded', function () {
     // базовые сервисы
@@ -34,12 +44,12 @@ add_action('plugins_loaded', function () {
     add_action('init', [$core, 'init']);                         // load_plugin_textdomain + add_fingerprinting_script
     add_action('init', [$core, 'handle_widget_toggle'], 0);      // раньше — чтобы выставить/снять cookie
 
+    // pre-DB firewall (MUST run BEFORE any caching or template loading)
+    $fw = new Baskerville_Firewall($core, $stats, $aiua);
+    add_action('init', [$fw, 'pre_db_firewall'], -999999);
+
     // ранняя установка идентификатора (до вывода)
     add_action('send_headers', [$core, 'ensure_baskerville_cookie'], 0);
-
-    // pre-DB firewall (быстрее логгера страниц)
-    $fw = new Baskerville_Firewall($core, $stats, $aiua);
-    add_action('template_redirect', [$fw, 'pre_db_firewall'], -1);
 
     // логирование визитов публичных HTML-страниц
     add_action('template_redirect', [$stats, 'log_page_visit'], 0);
@@ -51,9 +61,18 @@ add_action('plugins_loaded', function () {
     // периодическая очистка статистики
     add_action('baskerville_cleanup_stats', [$stats, 'cleanup_old_stats']);
 
+    // периодическая очистка кеш-файлов
+    add_action('baskerville_cleanup_cache', [$core, 'fc_cleanup_old_files']);
+
+    // периодический импорт логов из файлов в БД (file logging mode)
+    add_action('baskerville_process_log_files', [$stats, 'process_log_files_to_db']);
+
+    // периодическая очистка старых лог-файлов
+    add_action('baskerville_cleanup_log_files', [$stats, 'cleanup_old_log_files']);
+
     // админка
     if (is_admin()) {
-        (new Baskerville_Admin())->register();
+        new Baskerville_Admin();
     }
 });
 
