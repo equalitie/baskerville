@@ -12,6 +12,8 @@ class Baskerville_Admin {
         add_action('wp_ajax_baskerville_install_maxmind', array($this, 'ajax_install_maxmind'));
         add_action('wp_ajax_baskerville_clear_geoip_cache', array($this, 'ajax_clear_geoip_cache'));
         add_action('wp_ajax_baskerville_run_benchmark', array($this, 'ajax_run_benchmark'));
+        add_action('wp_ajax_baskerville_get_live_feed', array($this, 'ajax_get_live_feed'));
+        add_action('wp_ajax_baskerville_get_live_stats', array($this, 'ajax_get_live_stats'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
     }
 
@@ -1210,6 +1212,242 @@ class Baskerville_Admin {
         // Build URLs for period buttons
         $base_url = admin_url('options-general.php?page=baskerville-settings&tab=overview');
         ?>
+
+        <!-- Real-time Live Dashboard -->
+        <div class="baskerville-live-dashboard" style="margin-bottom: 40px;">
+            <h2 style="display: flex; align-items: center; gap: 10px;">
+                <span class="dashicons dashicons-visibility" style="font-size: 28px;"></span>
+                <?php _e('Live Bot Attack Dashboard', 'baskerville'); ?>
+                <span class="live-indicator" style="display: inline-block; width: 12px; height: 12px; background: #00d084; border-radius: 50%; margin-left: 10px; animation: pulse 2s infinite;"></span>
+            </h2>
+
+            <!-- Live Stats Cards -->
+            <div class="live-stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 20px 0;">
+                <div class="live-stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🛡️</div>
+                    <div class="stat-value" id="blocks-today" style="font-size: 32px; font-weight: 700;">...</div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Blocked Today', 'baskerville'); ?></div>
+                </div>
+
+                <div class="live-stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">⚡</div>
+                    <div class="stat-value" id="blocks-hour" style="font-size: 32px; font-weight: 700;">...</div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Last Hour', 'baskerville'); ?></div>
+                </div>
+
+                <div class="live-stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🌍</div>
+                    <div class="stat-value" id="top-country" style="font-size: 32px; font-weight: 700;">...</div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Top Country', 'baskerville'); ?></div>
+                </div>
+
+                <div class="live-stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">💾</div>
+                    <div class="stat-value" id="requests-saved" style="font-size: 32px; font-weight: 700;">...</div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Saved Requests', 'baskerville'); ?></div>
+                </div>
+            </div>
+
+            <!-- Live Feed -->
+            <div class="live-feed-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 30px;">
+                <div class="live-feed" style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-height: 600px; overflow-y: auto;">
+                    <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
+                        <span class="dashicons dashicons-admin-site"></span>
+                        <?php _e('Live Feed', 'baskerville'); ?>
+                        <span style="font-size: 12px; color: #666; font-weight: normal; margin-left: auto;"><?php _e('Auto-refresh: 10s', 'baskerville'); ?></span>
+                    </h3>
+                    <div id="live-feed-items" style="font-family: 'Courier New', monospace; font-size: 13px;">
+                        <div style="text-align: center; padding: 40px; color: #999;">
+                            <span class="dashicons dashicons-update" style="font-size: 48px; animation: rotation 2s infinite linear;"></span>
+                            <p><?php _e('Loading live data...', 'baskerville'); ?></p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="top-attackers" style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                    <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
+                        <span class="dashicons dashicons-warning"></span>
+                        <?php _e('Top Attackers', 'baskerville'); ?>
+                    </h3>
+                    <div id="top-attackers-list" style="font-size: 13px;">
+                        <div style="text-align: center; padding: 20px; color: #999;">
+                            <?php _e('Loading...', 'baskerville'); ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+            @keyframes rotation {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .live-feed-item {
+                padding: 12px;
+                border-bottom: 1px solid #eee;
+                transition: background 0.2s;
+            }
+            .live-feed-item:hover {
+                background: #f9f9f9;
+            }
+            .live-feed-item.new-item {
+                animation: slideIn 0.5s ease-out;
+                background: #fff3cd;
+            }
+            @keyframes slideIn {
+                from {
+                    opacity: 0;
+                    transform: translateX(-20px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
+            .feed-icon {
+                display: inline-block;
+                width: 24px;
+                text-align: center;
+            }
+        </style>
+
+        <script>
+        jQuery(document).ready(function($) {
+            let lastEventId = null;
+
+            function updateLiveFeed() {
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: { action: 'baskerville_get_live_feed' },
+                    success: function(response) {
+                        if (response.success && response.data) {
+                            // Debug: check first event timestamp
+                            if (response.data.length > 0) {
+                                console.log('First event created_at:', response.data[0].created_at);
+                                console.log('Current time:', new Date());
+                                console.log('Event time parsed:', new Date(response.data[0].created_at));
+                            }
+                            renderLiveFeed(response.data);
+                        }
+                    }
+                });
+            }
+
+            function updateLiveStats() {
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: { action: 'baskerville_get_live_stats' },
+                    success: function(response) {
+                        if (response.success && response.data) {
+                            $('#blocks-today').text(response.data.blocks_today.toLocaleString());
+                            $('#blocks-hour').text(response.data.blocks_hour.toLocaleString());
+                            $('#requests-saved').text(response.data.blocks_today.toLocaleString());
+
+                            if (response.data.top_countries && response.data.top_countries.length > 0) {
+                                $('#top-country').text(response.data.top_countries[0].country_code || 'N/A');
+                            }
+
+                            renderTopAttackers(response.data.top_ips);
+                        }
+                    }
+                });
+            }
+
+            function renderLiveFeed(events) {
+                const container = $('#live-feed-items');
+                container.empty();
+
+                if (!events || events.length === 0) {
+                    container.html('<div style="text-align: center; padding: 40px; color: #999;">No recent events</div>');
+                    return;
+                }
+
+                events.forEach(function(event) {
+                    const icon = getEventIcon(event.classification, event.event_type);
+                    const color = getEventColor(event.classification);
+                    const timeAgo = getTimeAgo(event.created_at);
+
+                    const item = $('<div class="live-feed-item"></div>');
+                    item.html(
+                        '<span class="feed-icon">' + icon + '</span> ' +
+                        '<strong style="color: ' + color + ';">' + event.classification.toUpperCase().replace('_', ' ') + '</strong> ' +
+                        event.ip + ' ' +
+                        (event.country_code ? '<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">' + event.country_code + '</span> ' : '') +
+                        '<span style="color: #999; margin-left: 10px;">' + timeAgo + '</span><br>' +
+                        '<span style="color: #666; font-size: 11px; margin-left: 28px;">' +
+                        (event.reason || 'No reason') +
+                        (event.score ? ' (score: ' + event.score + ')' : '') +
+                        '</span>'
+                    );
+                    container.append(item);
+                });
+            }
+
+            function renderTopAttackers(ips) {
+                const container = $('#top-attackers-list');
+                container.empty();
+
+                if (!ips || ips.length === 0) {
+                    container.html('<div style="text-align: center; padding: 20px; color: #999;">No data</div>');
+                    return;
+                }
+
+                ips.forEach(function(item, index) {
+                    const badge = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1) + '.';
+                    container.append(
+                        '<div style="padding: 10px; border-bottom: 1px solid #eee;">' +
+                        '<strong>' + badge + '</strong> ' +
+                        item.ip + ' ' +
+                        (item.country_code ? '<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">' + item.country_code + '</span>' : '') +
+                        '<br><span style="color: #999; font-size: 12px; margin-left: 20px;">' + item.count + ' attempts</span>' +
+                        '</div>'
+                    );
+                });
+            }
+
+            function getEventIcon(classification, eventType) {
+                if (eventType === 'honeypot') return '🍯';
+                if (classification === 'ai_bot') return '🤖';
+                if (classification === 'bad_bot') return '🔴';
+                if (classification === 'bot') return '🟡';
+                return '⚠️';
+            }
+
+            function getEventColor(classification) {
+                if (classification === 'ai_bot') return '#9333ea';
+                if (classification === 'bad_bot') return '#dc2626';
+                if (classification === 'bot') return '#f59e0b';
+                return '#6b7280';
+            }
+
+            function getTimeAgo(timestamp) {
+                const now = new Date();
+                const eventTime = new Date(timestamp);
+                const seconds = Math.floor((now - eventTime) / 1000);
+
+                if (seconds < 60) return seconds + 's ago';
+                if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+                if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+                return Math.floor(seconds / 86400) + 'd ago';
+            }
+
+            // Initial load
+            updateLiveFeed();
+            updateLiveStats();
+
+            // Auto-refresh every 10 seconds
+            setInterval(updateLiveFeed, 10000);
+            setInterval(updateLiveStats, 10000);
+        });
+        </script>
+
         <style>
             .baskerville-traffic-stats {
                 margin-top: 20px;
@@ -2734,5 +2972,91 @@ done
             <?php _e('When disabled, the visit is still logged as AI bot, but the honeypot page is displayed normally.', 'baskerville'); ?>
         </p>
         <?php
+    }
+
+    /**
+     * AJAX: Get live feed of recent bot blocks
+     */
+    public function ajax_get_live_feed() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        // Get last 30 unique IPs (blocked/suspicious) - one event per IP
+        // Note: using classification_reason (actual column name), aliasing as 'reason' for frontend
+        $events = $wpdb->get_results($wpdb->prepare(
+            "SELECT ip, country_code, classification, classification_reason as reason, score, user_agent as ua,
+                    UNIX_TIMESTAMP(created_at) as timestamp, event_type
+             FROM $table
+             WHERE classification IN ('bad_bot', 'ai_bot', 'bot')
+                OR score >= 50
+             GROUP BY ip
+             ORDER BY created_at DESC
+             LIMIT %d",
+            30
+        ), ARRAY_A);
+
+        // Convert timestamps to ISO 8601 format for JavaScript
+        foreach ($events as &$event) {
+            if (!empty($event['timestamp'])) {
+                // Convert UNIX timestamp to ISO 8601 UTC format
+                $event['created_at'] = gmdate('Y-m-d\TH:i:s\Z', $event['timestamp']);
+                unset($event['timestamp']);
+            }
+        }
+
+        wp_send_json_success($events);
+    }
+
+    /**
+     * AJAX: Get live statistics
+     */
+    public function ajax_get_live_stats() {
+        global $wpdb;
+        $table = $wpdb->prefix . 'baskerville_stats';
+
+        // Blocks today
+        $blocks_today = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM $table
+             WHERE classification IN ('bad_bot', 'ai_bot')
+               AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
+        );
+
+        // Blocks last hour
+        $blocks_hour = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM $table
+             WHERE classification IN ('bad_bot', 'ai_bot')
+               AND created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)"
+        );
+
+        // Top attacking IPs today
+        $top_ips = $wpdb->get_results(
+            "SELECT ip, country_code, COUNT(*) as count
+             FROM $table
+             WHERE classification IN ('bad_bot', 'ai_bot')
+               AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+             GROUP BY ip
+             ORDER BY count DESC
+             LIMIT 5",
+            ARRAY_A
+        );
+
+        // Top attacking countries today
+        $top_countries = $wpdb->get_results(
+            "SELECT country_code, COUNT(*) as count
+             FROM $table
+             WHERE classification IN ('bad_bot', 'ai_bot')
+               AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+             GROUP BY country_code
+             ORDER BY count DESC
+             LIMIT 5",
+            ARRAY_A
+        );
+
+        wp_send_json_success([
+            'blocks_today' => $blocks_today,
+            'blocks_hour' => $blocks_hour,
+            'top_ips' => $top_ips,
+            'top_countries' => $top_countries
+        ]);
     }
 }

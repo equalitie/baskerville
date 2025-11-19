@@ -122,14 +122,36 @@ class Baskerville_Firewall
     }
 
     public function pre_db_firewall(): void {
-        // public HTML page?
-        if (!$this->core->is_public_html_request()) return;
-
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+
+        // Always log first 20 requests for debugging (remove this after testing)
+        static $request_count = 0;
+        $request_count++;
+        if ($request_count <= 20) {
+            error_log("Baskerville DEBUG [$request_count]: IP=$ip, URI=" . ($_SERVER['REQUEST_URI'] ?? 'N/A') . ", UA=" . substr($_SERVER['HTTP_USER_AGENT'] ?? 'N/A', 0, 30));
+        }
+
+        // public HTML page?
+        if (!$this->core->is_public_html_request()) {
+            if ($request_count <= 20) {
+                error_log("Baskerville DEBUG [$request_count]: SKIPPED - not public HTML. Accept=" . ($_SERVER['HTTP_ACCEPT'] ?? 'N/A'));
+            }
+            return;
+        }
+
         if ($ip === '') return;
 
         // IP whitelist — allow through
-        if ($this->core->is_whitelisted_ip($ip)) return;
+        if ($this->core->is_whitelisted_ip($ip)) {
+            if ($request_count <= 20) {
+                error_log("Baskerville DEBUG [$request_count]: SKIPPED - IP $ip is whitelisted");
+            }
+            return;
+        }
+
+        if ($request_count <= 20) {
+            error_log("Baskerville DEBUG [$request_count]: CHECKING firewall rules for IP $ip");
+        }
 
         // GeoIP country ban check
         $options = get_option('baskerville_settings', array());
@@ -235,14 +257,44 @@ class Baskerville_Firewall
         $vc                 = $this->aiua->verify_crawler_ip($ip, $ua);
         $verified_crawler   = ($vc['claimed'] && $vc['verified']);
 
-        // 1) no-JS burst: count only pages for which we haven't seen FP "recently"
+        // Check if has valid session cookie on arrival
+        $has_valid_cookie = $this->core->arrival_has_valid_cookie();
+
+        // 1) no-cookie burst: ANY IP without valid cookie making too many requests
+        if (!$has_valid_cookie && !$verified_crawler) {
+            $window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
+            $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
+            $cnt        = $this->core->fc_inc_in_window("nocookie_burst:{$ip}", $window_sec);
+
+            if ($cnt > $threshold) {
+                $evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
+                $classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
+
+                $reason = "no-cookie-burst>{$threshold}/{$window_sec}s";
+                $ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
+
+                $this->set_ban($ip, $reason, $ttl, [
+                    'score' => (int)($evaluation['score'] ?? 0),
+                    'cls'   => (string)($classification['classification'] ?? 'bot'),
+                ]);
+                $this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
+                $this->send_403_and_exit([
+                    'reason' => $reason,
+                    'score'  => $evaluation['score'] ?? null,
+                    'cls'    => $classification['classification'] ?? null,
+                    'until'  => time() + $ttl,
+                ]);
+            }
+        }
+
+        // 3) no-JS burst: count only pages for which we haven't seen FP "recently"
         $fp_seen_recent = (bool) $this->core->fc_get("fp_seen_ip:{$ip}");
-        if (!$fp_seen_recent) {
+        if (!$fp_seen_recent && !$verified_crawler) {
             $window_sec = (int) get_option('baskerville_nojs_window_sec', 60);
             $threshold  = (int) get_option('baskerville_nojs_threshold', 20);
             $cnt        = $this->core->fc_inc_in_window("nojs_cnt:{$ip}", $window_sec);
 
-            if ($cnt > $threshold && !$verified_crawler) {
+            if ($cnt > $threshold) {
                 // Evaluation by server headers (without JS)
                 $evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
                 $classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
@@ -264,7 +316,7 @@ class Baskerville_Firewall
             }
         }
 
-        // 2) Non-browser UA (and not a "good" crawler): fast burst block
+        // 4) Non-browser UA (and not a "good" crawler): fast burst block
         $ua_l = strtolower($ua);
         $nonbrowser_signatures = [
             'curl','wget','python-requests','go-http-client','httpie','libcurl',
@@ -275,6 +327,23 @@ class Baskerville_Firewall
         $is_nonbrowser = false;
         foreach ($nonbrowser_signatures as $sig) {
             if (strpos($ua_l, $sig) !== false) { $is_nonbrowser = true; break; }
+        }
+
+        // Also flag suspiciously short or simple UA strings (likely custom bots)
+        if (!$is_nonbrowser && strlen($ua) > 0 && strlen($ua) < 30) {
+            // Check if it looks like a browser (contains mozilla, chrome, safari, firefox, edge, opera)
+            $browser_keywords = ['mozilla', 'chrome', 'safari', 'firefox', 'edge', 'opera', 'msie', 'trident'];
+            $has_browser_keyword = false;
+            foreach ($browser_keywords as $keyword) {
+                if (strpos($ua_l, $keyword) !== false) {
+                    $has_browser_keyword = true;
+                    break;
+                }
+            }
+            // If UA is short AND doesn't contain browser keywords, it's suspicious
+            if (!$has_browser_keyword) {
+                $is_nonbrowser = true;
+            }
         }
 
         if ($is_nonbrowser && !$verified_crawler) {
@@ -307,7 +376,7 @@ class Baskerville_Firewall
             // threshold not exceeded yet — allow through
         }
 
-        // 3) High risk from server headers + doesn't look like a browser
+        // 5) High risk from server headers + doesn't look like a browser
         $evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
         $classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
         $risk           = (int)($evaluation['score'] ?? 0);
@@ -351,6 +420,6 @@ class Baskerville_Firewall
             ]);
         }
 
-        // 4) (optional) additional policies can be added here (e.g., nocookie-burst for "browser-like")
+        // 6) (optional) additional policies can be added here
     }
 }
