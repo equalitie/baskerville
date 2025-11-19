@@ -8,7 +8,7 @@ class Baskerville_Stats
     /** @var Baskerville_AI_UA */
     private $aiua;
 
-    /** Текущий visit_key последней записи page/fp в рамках запроса (если нужен снаружи) */
+    /** Current visit_key of the last page/fp record within the request (if needed externally) */
     public $current_visit_key = null;
 
     public function __construct(Baskerville_Core $core, Baskerville_AI_UA $aiua) {
@@ -164,7 +164,7 @@ class Baskerville_Stats
         return hash('sha256', $ip . '|' . $bid . '|' . microtime(true) . '|' . bin2hex(random_bytes(8)));
     }
 
-    /** Возвращает [json_string|null, top_name|null] из $evaluation['top_factors'] или fp-cookie. */
+    /** Returns [json_string|null, top_name|null] from $evaluation['top_factors'] or fp-cookie. */
     public function extract_top_factors(array $evaluation, ?array $fp_cookie = null): array {
         $top = $evaluation['top_factors'] ?? $evaluation['contrib'] ?? null;
 
@@ -263,7 +263,7 @@ class Baskerville_Stats
     }
 
     public function log_page_visit() {
-        // Только публичные HTML-страницы — без дублирования логики
+        // Only public HTML pages — without duplicating logic
         if (!$this->core->is_public_html_request()) return;
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
@@ -288,10 +288,10 @@ class Baskerville_Stats
             'sec_ch_ua'        => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
         ];
 
-        // Классифицируем по серверным заголовкам (без JS)
+        // Classify by server headers (without JS)
         $evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
 
-        // Если уже есть fp-cookie — скор можно скорректировать/подтянуть
+        // If fp-cookie already exists — score can be adjusted/pulled
         $fp_cookie = $this->core->read_fp_cookie();
         if ($fp_cookie && isset($fp_cookie['score'])) {
             $evaluation['score'] = (int)$fp_cookie['score'];
@@ -303,7 +303,7 @@ class Baskerville_Stats
         $visit_key = $this->make_visit_key($ip, $cookie_id);
         $this->current_visit_key = $visit_key;
 
-        // короткая кука для связи с fetch/beacon
+        // short-lived cookie for linking with fetch/beacon
         setcookie('baskerville_visit_key', $visit_key, [
             'expires'  => time() + 300,
             'path'     => '/',

@@ -21,61 +21,66 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-ai-ua.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-stats.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-firewall.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-rest.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-honeypot.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
-// Add custom cron interval for file logging (5 minutes)
+// Add custom cron interval for file logging (1 minute)
 add_filter('cron_schedules', function($schedules) {
-    $schedules['baskerville_5min'] = array(
-        'interval' => 300, // 5 minutes in seconds
-        'display'  => __('Every 5 Minutes (Baskerville)', 'baskerville')
+    $schedules['baskerville_1min'] = array(
+        'interval' => 60, // 1 minute in seconds
+        'display'  => __('Every Minute (Baskerville)', 'baskerville')
     );
     return $schedules;
 });
 
 add_action('plugins_loaded', function () {
-    // базовые сервисы
+    // basic services
     $core  = new Baskerville_Core();
-    $aiua  = new Baskerville_AI_UA($core);       // AI_UA должен принимать $core в конструкторе
-    $stats = new Baskerville_Stats($core, $aiua); // Stats принимает Core и AI_UA
+    $aiua  = new Baskerville_AI_UA($core);       // AI_UA should receive $core in constructor
+    $stats = new Baskerville_Stats($core, $aiua); // Stats receives Core and AI_UA
 
-    // i18n + фронтовый JS + переключатель виджетов
+    // i18n + frontend JS + widget toggle
     add_action('init', [$core, 'init']);                         // load_plugin_textdomain + add_fingerprinting_script
-    add_action('init', [$core, 'handle_widget_toggle'], 0);      // раньше — чтобы выставить/снять cookie
+    add_action('init', [$core, 'handle_widget_toggle'], 0);      // earlier — to set/remove cookie
 
     // pre-DB firewall (MUST run BEFORE any caching or template loading)
     $fw = new Baskerville_Firewall($core, $stats, $aiua);
     add_action('init', [$fw, 'pre_db_firewall'], -999999);
 
-    // ранняя установка идентификатора (до вывода)
+    // early identifier setup (before output)
     add_action('send_headers', [$core, 'ensure_baskerville_cookie'], 0);
 
-    // логирование визитов публичных HTML-страниц
+    // logging public HTML page visits
     add_action('template_redirect', [$stats, 'log_page_visit'], 0);
 
     // REST API
     $rest = new Baskerville_REST($core, $stats, $aiua);
     add_action('rest_api_init', [$rest, 'register_routes']);
 
-    // периодическая очистка статистики
+    // Honeypot for AI bot detection
+    $honeypot = new Baskerville_Honeypot($core, $stats, $aiua);
+    $honeypot->init();
+
+    // periodic statistics cleanup
     add_action('baskerville_cleanup_stats', [$stats, 'cleanup_old_stats']);
 
-    // периодическая очистка кеш-файлов
+    // periodic cache file cleanup
     add_action('baskerville_cleanup_cache', [$core, 'fc_cleanup_old_files']);
 
-    // периодический импорт логов из файлов в БД (file logging mode)
+    // periodic log file import to DB (file logging mode) - every minute for faster blocking
     add_action('baskerville_process_log_files', [$stats, 'process_log_files_to_db']);
 
-    // периодическая очистка старых лог-файлов
+    // periodic old log file cleanup
     add_action('baskerville_cleanup_log_files', [$stats, 'cleanup_old_log_files']);
 
-    // админка
+    // admin
     if (is_admin()) {
         new Baskerville_Admin();
     }
 });
 
-// активация/деактивация
+// activation/deactivation
 register_activation_hook(__FILE__,   ['Baskerville_Installer', 'activate']);
 register_deactivation_hook(__FILE__, ['Baskerville_Installer', 'deactivate']);

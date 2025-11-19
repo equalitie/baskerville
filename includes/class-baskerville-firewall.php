@@ -122,13 +122,13 @@ class Baskerville_Firewall
     }
 
     public function pre_db_firewall(): void {
-        // публичная HTML-страница?
+        // public HTML page?
         if (!$this->core->is_public_html_request()) return;
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? '';
         if ($ip === '') return;
 
-        // белый список IP — пропускаем
+        // IP whitelist — allow through
         if ($this->core->is_whitelisted_ip($ip)) return;
 
         // GeoIP country ban check
@@ -192,13 +192,13 @@ class Baskerville_Firewall
             }
         }
 
-        // Если есть корректная FP-кука — подавим no-JS триггеры
+        // If there's a valid FP cookie — suppress no-JS triggers
         $fp_cookie = $this->core->read_fp_cookie();
         if ($fp_cookie) {
             $this->core->fc_set("fp_seen_ip:{$ip}", 1, (int) get_option('baskerville_fp_seen_ttl_sec', 180));
         }
 
-        // Заголовки для серверной эвристики
+        // Headers for server-side heuristics
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
         $headers = [
             'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
@@ -207,9 +207,9 @@ class Baskerville_Firewall
             'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
         ];
 
-        // 0) Уже забанен?
+        // 0) Already banned?
         if ($ban = $this->get_ban($ip)) {
-            // если это верифицированный краулер — снимем бан
+            // if it's a verified crawler — remove the ban
             if (($ban['cls'] ?? '') === 'verified_bot') {
                 $this->core->fc_delete("ban:{$ip}");
             } else {
@@ -230,12 +230,12 @@ class Baskerville_Firewall
             }
         }
 
-        // Помощники
+        // Helpers
         $looks_like_browser = $this->aiua->looks_like_browser_ua($ua);
         $vc                 = $this->aiua->verify_crawler_ip($ip, $ua);
         $verified_crawler   = ($vc['claimed'] && $vc['verified']);
 
-        // 1) no-JS burst: считаем только страницы, для которых мы не видели FP «вскоре»
+        // 1) no-JS burst: count only pages for which we haven't seen FP "recently"
         $fp_seen_recent = (bool) $this->core->fc_get("fp_seen_ip:{$ip}");
         if (!$fp_seen_recent) {
             $window_sec = (int) get_option('baskerville_nojs_window_sec', 60);
@@ -243,7 +243,7 @@ class Baskerville_Firewall
             $cnt        = $this->core->fc_inc_in_window("nojs_cnt:{$ip}", $window_sec);
 
             if ($cnt > $threshold && !$verified_crawler) {
-                // Оценка по серверным заголовкам (без JS)
+                // Evaluation by server headers (without JS)
                 $evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
                 $classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
 
@@ -264,7 +264,7 @@ class Baskerville_Firewall
             }
         }
 
-        // 2) Небраузерный UA (и не «хороший» краулер): быстрый блок по бурсту
+        // 2) Non-browser UA (and not a "good" crawler): fast burst block
         $ua_l = strtolower($ua);
         $nonbrowser_signatures = [
             'curl','wget','python-requests','go-http-client','httpie','libcurl',
@@ -281,7 +281,7 @@ class Baskerville_Firewall
             $window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
             $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
 
-            // «есть валидная кука на входе?» — пользуемся публичным методом ядра
+            // "does it have a valid cookie on entry?" — use the core public method
             $no_cookie  = !$this->core->arrival_has_valid_cookie();
             $key        = $no_cookie ? "nbua_nocookie_cnt:{$ip}" : "nbua_cnt:{$ip}";
             $cnt        = $this->core->fc_inc_in_window($key, $window_sec);
@@ -304,10 +304,10 @@ class Baskerville_Firewall
                     'until'  => time() + $ttl,
                 ]);
             }
-            // пока порог не превышен — пропускаем дальше
+            // threshold not exceeded yet — allow through
         }
 
-        // 3) Высокий риск по серверным заголовкам + не похоже на браузер
+        // 3) High risk from server headers + doesn't look like a browser
         $evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
         $classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
         $risk           = (int)($evaluation['score'] ?? 0);
@@ -334,7 +334,7 @@ class Baskerville_Firewall
                 ]);
             }
         } elseif ($risk >= 85 && !$looks_like_browser && !$verified_crawler) {
-            // очень подозрительно — можно сразу
+            // very suspicious — can block immediately
             $reason = 'high-risk-nonbrowser';
             $ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
 
@@ -351,6 +351,6 @@ class Baskerville_Firewall
             ]);
         }
 
-        // 4) (опционально) здесь можно добавить дополнительные политики (например, nocookie-burst для «похожих на браузер»)
+        // 4) (optional) additional policies can be added here (e.g., nocookie-burst for "browser-like")
     }
 }

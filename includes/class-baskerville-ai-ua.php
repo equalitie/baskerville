@@ -10,7 +10,7 @@ class Baskerville_AI_UA {
     }
 
     public function looks_like_browser_ua(string $ua): bool {
-        // любые из распространённых браузерных токенов
+        // any common browser tokens
         return (bool) preg_match('~(mozilla/|chrome/|safari/|firefox/|edg/|opera|opr/)~i', $ua);
     }
 
@@ -369,18 +369,18 @@ class Baskerville_AI_UA {
         $user_agent = $server_ctx['headers']['user_agent'] ?? '';
         $ua_lower   = strtolower($user_agent);
 
-        // Была ли КУКА в исходном запросе
+        // Was there a COOKIE in the original request
         $client_cookie_header = $_SERVER['HTTP_COOKIE'] ?? '';
         $had_cookie = (strpos($client_cookie_header, 'baskerville_id=') !== false) && ($this->core->get_cookie_id() !== null);
 
-        // Оценка риска
+        // Risk assessment
         $evaluation = $this->baskerville_score_fp($payload, $server_ctx);
         $risk_score = (int) ($evaluation['score'] ?? 0);
 
-        // Похоже ли на браузер
+        // Looks like a browser
         $looks_like_browser = $this->looks_like_browser_ua($user_agent);
 
-        // Явные небраузерные клиенты
+        // Explicit non-browser clients
         $nonbrowser_signatures = [
             'curl','wget','python-requests','go-http-client','httpie','libcurl',
             'java','okhttp','node-fetch','axios','aiohttp','urllib','postmanruntime',
@@ -424,7 +424,7 @@ class Baskerville_AI_UA {
             ];
         }
 
-        // 2) BAD BOT: нет куки + небраузерный клиент и не «хороший» краулер
+        // 2) BAD BOT: no cookie + non-browser client and not a "good" crawler
         if (!$had_cookie && ($is_nonbrowser_client || (!$looks_like_browser && !$verified_crawler))) {
             return [
                 'classification' => 'bad_bot',
@@ -439,7 +439,7 @@ class Baskerville_AI_UA {
             ];
         }
 
-        // 3) BAD BOT: высокий риск и не похоже на браузер
+        // 3) BAD BOT: high risk and doesn't look like a browser
         if ($risk_score >= 50 && !$looks_like_browser && !$verified_crawler) {
             return [
                 'classification' => 'bad_bot',
@@ -454,7 +454,7 @@ class Baskerville_AI_UA {
             ];
         }
 
-        // 4) Прочие боты: бот-UA (в т.ч. хорошие краулеры) ИЛИ высокий риск
+        // 4) Other bots: bot-UA (including good crawlers) OR high risk
         $threshold = 30;
         if ($this->is_bot_user_agent($user_agent) || $risk_score >= $threshold) {
             return [
@@ -488,7 +488,7 @@ class Baskerville_AI_UA {
         ];
     }
 
-    /** Если с IP слишком много page-хитов БЕЗ FP за короткое окно — помечаем как bad_bot */
+    /** If there are too many page hits WITHOUT FP from an IP in a short window — mark as bad_bot */
     private function maybe_mark_ip_as_bad_bot_on_burst(string $ip, array &$classification): void {
         global $wpdb;
         $table = $wpdb->prefix . 'baskerville_stats';
@@ -496,7 +496,7 @@ class Baskerville_AI_UA {
         $window_sec = (int) get_option('baskerville_nojs_window_sec', 60);
         $threshold  = (int) get_option('baskerville_nojs_threshold', 20);
 
-        // считаем ТОЛЬКО page-записи без полученного FP (had_fp=0) за последнее окно
+        // count ONLY page records without received FP (had_fp=0) for the recent window
         $cnt = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table
              WHERE ip=%s

@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) {
 
 class Baskerville_Core {
 
-    /** Было ли у клиента валидное baskerville_id при приходе */
+    /** Whether the client had a valid baskerville_id on arrival */
     private bool $had_cookie_on_arrival = false;
 
     /** Cache for whitelisted IPs to avoid repeated get_option() calls */
@@ -72,7 +72,7 @@ class Baskerville_Core {
         return base64_decode($s);
     }
 
-    /** Секрет для подписи кук (используется и REST-эндпоинтом) */
+    /** Secret for signing cookies (also used by REST endpoint) */
     public function cookie_secret(): string {
         $secret = (string) get_option('baskerville_cookie_secret', '');
         if (!$secret) {
@@ -82,12 +82,12 @@ class Baskerville_Core {
         return $secret;
     }
 
-    /** Подпись основной куки: включаем ip_key в HMAC */
+    /** Sign the main cookie: include ip_key in HMAC */
     private function sign_cookie(string $token, int $ts, string $ipk): string {
         return hash_hmac('sha256', $token . '.' . $ts . '.' . $ipk, $this->cookie_secret());
     }
 
-    /** IPv4 -> первые 3 октета; IPv6 -> первые 4 хекстета */
+    /** IPv4 -> first 3 octets; IPv6 -> first 4 hextets */
     public function ip_key(string $ip): string {
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             $p = explode('.', $ip);
@@ -106,11 +106,11 @@ class Baskerville_Core {
         $ts    = time();
         $ipk   = $this->ip_key($_SERVER['REMOTE_ADDR'] ?? '');
         $sig   = $this->sign_cookie($token, $ts, $ipk);
-        // новый формат: token.ts.ipk.sig
+        // new format: token.ts.ipk.sig
         return $token . '.' . $ts . '.' . $ipk . '.' . $sig;
     }
 
-    /** Возвращает токен, если подпись валидна и не просрочена. Поддерживает старый формат (3 части). */
+    /** Returns token if signature is valid and not expired. Supports legacy format (3 parts). */
     public function get_cookie_id(): ?string {
         $raw = $_COOKIE['baskerville_id'] ?? '';
         if (!$raw) return null;
@@ -120,13 +120,13 @@ class Baskerville_Core {
             [$token, $ts, $ipk, $sig] = $parts;
             if (!ctype_xdigit($token) || !ctype_digit($ts)) return null;
             $cur_ipk = $this->ip_key($_SERVER['REMOTE_ADDR'] ?? '');
-            // подпись от ТЕКУЩЕГО ip_key
+            // signature from CURRENT ip_key
             if (!hash_equals($this->sign_cookie($token, (int)$ts, $cur_ipk), $sig)) return null;
             if ((int)$ts < time() - 60*60*24*90) return null;
             return $token;
         }
 
-        // legacy 3-part: token.ts.sig — принимаем, но при первой возможности перевыпустим
+        // legacy 3-part: token.ts.sig — accept, but will reissue at first opportunity
         if (count($parts) === 3) {
             [$token, $ts, $sig] = $parts;
             if (!ctype_xdigit($token) || !ctype_digit($ts)) return null;
@@ -139,7 +139,7 @@ class Baskerville_Core {
         return null;
     }
 
-    /** Ставим HttpOnly/Secure куку, если её нет или она невалидна */
+    /** Set HttpOnly/Secure cookie if it doesn't exist or is invalid */
     public function ensure_baskerville_cookie(): void {
         if (headers_sent()) return;
 
@@ -147,11 +147,11 @@ class Baskerville_Core {
 
         if (!$this->had_cookie_on_arrival) {
             $value = $this->make_cookie_value();
-            // чтобы текущий же запрос мог использовать id — подложим в $_COOKIE
+            // so the current request can use the id — inject into $_COOKIE
             $_COOKIE['baskerville_id'] = $value;
 
             setcookie('baskerville_id', $value, [
-                'expires'  => time() + 60*60*24*365, // год хранения
+                'expires'  => time() + 60*60*24*365, // one year retention
                 'path'     => '/',
                 'secure'   => function_exists('wp_is_using_https') ? wp_is_using_https() : is_ssl(),
                 'httponly' => true,
@@ -160,7 +160,7 @@ class Baskerville_Core {
         }
     }
 
-    // ---- ARRIVAL COOKIE CHECK (по «сырому» заголовку) ----
+    // ---- ARRIVAL COOKIE CHECK (by raw header) ----
     public function arrival_has_valid_cookie(): bool {
         $hdr = $_SERVER['HTTP_COOKIE'] ?? '';
         if ($hdr === '' || strpos($hdr, 'baskerville_id=') === false) return false;
@@ -168,7 +168,7 @@ class Baskerville_Core {
         $raw = urldecode($m[1]);
         $parts = explode('.', $raw);
 
-        // новый формат: token.ts.ipk.sig
+        // new format: token.ts.ipk.sig
         if (count($parts) === 4) {
             [$token, $ts, $ipk, $sig] = $parts;
             if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
@@ -179,7 +179,7 @@ class Baskerville_Core {
             return true;
         }
 
-        // legacy 3-part: token.ts.sig (оставляем для обратной совместимости)
+        // legacy 3-part: token.ts.sig (keep for backward compatibility)
         if (count($parts) === 3) {
             [$token, $ts, $sig] = $parts;
             if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
@@ -208,7 +208,7 @@ class Baskerville_Core {
         $ttl = (int)($data['ttl'] ?? 0);
         if (!$ts || !$ttl || (time() - $ts) > $ttl) return null;
 
-        // Привязка к ip_key и UA-hash
+        // Binding to ip_key and UA-hash
         $ipk_now = $this->ip_key($_SERVER['REMOTE_ADDR'] ?? '');
         $ua_hash = sha1((string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
         if (($data['ipk'] ?? '') !== $ipk_now) return null;
@@ -396,7 +396,7 @@ class Baskerville_Core {
         return $this->fc_dir() . '/' . sha1($key) . '.cache';
     }
 
-    // ---- Признак «это публичная HTML-страница» (как в log_page_visit) ----
+    // ---- Check "is this a public HTML page" (as in log_page_visit) ----
     public function is_public_html_request(): bool {
         if (is_admin()) return false;
         if (defined('REST_REQUEST') && REST_REQUEST) return false;
@@ -615,7 +615,7 @@ class Baskerville_Core {
             unset($_COOKIE['baskerville_show_widgets']);
         }
 
-        // Подскажем кэшу не кэшировать эту выдачу
+        // Hint to cache not to cache this output
         if (!headers_sent()) {
             if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
             nocache_headers();

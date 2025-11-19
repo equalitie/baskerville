@@ -3,22 +3,22 @@
 class Baskerville_Installer {
 
     /**
-     * Вызывается при активации плагина.
+     * Called upon plugin activation.
      */
     public static function activate() {
-        // Создаём вспомогательные объекты для работы со схемой БД
+        // Create helper objects for working with DB schema
         $core  = new Baskerville_Core();
         $aiua  = new Baskerville_AI_UA($core);
         $stats = new Baskerville_Stats($core, $aiua);
 
-        // Таблица статистики + апгрейд схемы
-        // ВАЖНО: метод maybe_upgrade_schema должен быть public в Baskerville_Stats.
+        // Statistics table + schema upgrade
+        // IMPORTANT: method maybe_upgrade_schema must be public in Baskerville_Stats.
         $stats->create_stats_table();
         if (method_exists($stats, 'maybe_upgrade_schema')) {
             $stats->maybe_upgrade_schema();
         }
 
-        // Опции по умолчанию (не перетираем, если уже есть)
+        // Default options (don't overwrite if already exist)
         if (get_option('baskerville_retention_days') === false) {
             add_option('baskerville_retention_days', BASKERVILLE_DEFAULT_RETENTION_DAYS);
         }
@@ -36,42 +36,58 @@ class Baskerville_Installer {
         if (get_option('baskerville_ban_ttl_sec') === false)          add_option('baskerville_ban_ttl_sec', 600);
         if (get_option('baskerville_fp_attach_window_sec') === false) add_option('baskerville_fp_attach_window_sec', 180);
         if (get_option('baskerville_ip_whitelist') === false)         add_option('baskerville_ip_whitelist', '');
+        if (get_option('baskerville_honeypot_ban_ttl') === false)     add_option('baskerville_honeypot_ban_ttl', 86400); // 24 hours
 
-        // Крон для регулярной очистки статистики
+        // Default honeypot settings
+        $settings = get_option('baskerville_settings', array());
+        $needs_update = false;
+        if (!isset($settings['honeypot_enabled'])) {
+            $settings['honeypot_enabled'] = true; // Enabled by default
+            $needs_update = true;
+        }
+        if (!isset($settings['honeypot_ban'])) {
+            $settings['honeypot_ban'] = true; // Ban by default
+            $needs_update = true;
+        }
+        if ($needs_update) {
+            update_option('baskerville_settings', $settings);
+        }
+
+        // Cron for regular statistics cleanup
         if (!wp_next_scheduled('baskerville_cleanup_stats')) {
             wp_schedule_event(time(), 'daily', 'baskerville_cleanup_stats');
         }
 
-        // Крон для очистки просроченных кеш-файлов
+        // Cron for expired cache file cleanup
         if (!wp_next_scheduled('baskerville_cleanup_cache')) {
             wp_schedule_event(time(), 'daily', 'baskerville_cleanup_cache');
         }
 
-        // Крон для импорта логов из файлов в БД (каждые 5 минут)
+        // Cron for log file import to DB (every minute for faster blocking)
         if (!wp_next_scheduled('baskerville_process_log_files')) {
-            wp_schedule_event(time(), 'baskerville_5min', 'baskerville_process_log_files');
+            wp_schedule_event(time(), 'baskerville_1min', 'baskerville_process_log_files');
         }
 
-        // Крон для очистки старых лог-файлов (ежедневно)
+        // Cron for old log file cleanup (daily)
         if (!wp_next_scheduled('baskerville_cleanup_log_files')) {
             wp_schedule_event(time(), 'daily', 'baskerville_cleanup_log_files');
         }
 
-        // Перестройка правил (на случай, если есть свои эндпоинты/переписывание)
+        // Rebuild rewrite rules (in case there are custom endpoints/rewriting)
         flush_rewrite_rules();
     }
 
     /**
-     * Вызывается при деактивации плагина.
+     * Called upon plugin deactivation.
      */
     public static function deactivate() {
-        // Убираем крон-задачи
+        // Remove cron tasks
         wp_clear_scheduled_hook('baskerville_cleanup_stats');
         wp_clear_scheduled_hook('baskerville_cleanup_cache');
         wp_clear_scheduled_hook('baskerville_process_log_files');
         wp_clear_scheduled_hook('baskerville_cleanup_log_files');
 
-        // Чистим правила
+        // Clean up rewrite rules
         flush_rewrite_rules();
     }
 }

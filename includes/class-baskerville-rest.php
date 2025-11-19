@@ -21,7 +21,7 @@ class Baskerville_REST {
         register_rest_route('baskerville/v1', '/fp', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [$this, 'handle_fp'],
-            'permission_callback' => function () { return true; }, // публичный эндпоинт; nonce проверяем внутри
+            'permission_callback' => function () { return true; }, // public endpoint; nonce checked inside
         ]);
 
         register_rest_route('baskerville/v1', '/stats', [
@@ -57,7 +57,7 @@ class Baskerville_REST {
         ];
         $cookie_id = $this->core->get_cookie_id();
 
-        // считаем
+        // calculate
         try {
             $evaluation     = $this->aiua->baskerville_score_fp($body, ['headers' => $headers]);
             $classification = $this->aiua->classify_client($body, ['headers' => $headers]);
@@ -67,13 +67,13 @@ class Baskerville_REST {
             $classification = ['classification' => 'unknown', 'reason' => 'Classification error', 'risk_score' => 0];
         }
 
-        // кука fp (HttpOnly, подписанная)
+        // fp cookie (HttpOnly, signed)
         $ua      = $headers['user_agent'] ?? '';
         $ua_hash = sha1((string)$ua);
         $ttl_sec = 6 * 60 * 60;
 
-        // ! ВАЖНО: ниже предполагается, что core предоставляет публичные методы:
-        // cookie_secret(), ip_key(), b64u_enc(). Если у тебя они private — сделай публичными аналоги.
+        // ! IMPORTANT: assumes that core provides public methods:
+        // cookie_secret(), ip_key(), b64u_enc(). If they are private — create public equivalents.
         $payload_fp = [
             'v'     => 1,
             'ts'    => time(),
@@ -121,7 +121,7 @@ class Baskerville_REST {
             ], 200);
         }
 
-        // fallback: прикрепить к последнему page-хиту без FP
+        // fallback: attach to last page hit without FP
         global $wpdb;
         $table = $wpdb->prefix . 'baskerville_stats';
         $wpdb->query("SET time_zone = '+00:00'");

@@ -70,13 +70,39 @@ class Baskerville_Admin {
             'baskerville_general_section'
         );
 
+        // Honeypot enabled field
+        add_settings_field(
+            'honeypot_enabled',
+            __('AI Bot Honeypot', 'baskerville'),
+            array($this, 'render_honeypot_enabled_field'),
+            'baskerville-general',
+            'baskerville_general_section'
+        );
+
+        // Honeypot ban enabled field
+        add_settings_field(
+            'honeypot_ban',
+            __('Ban on Honeypot Trigger', 'baskerville'),
+            array($this, 'render_honeypot_ban_field'),
+            'baskerville-general',
+            'baskerville_general_section'
+        );
+
+        // Countries tab settings section
+        add_settings_section(
+            'baskerville_countries_section',
+            __('GeoIP Country Restrictions', 'baskerville'),
+            null,
+            'baskerville-countries'
+        );
+
         // GeoIP mode field
         add_settings_field(
             'geoip_mode',
             __('GeoIP Access Mode', 'baskerville'),
             array($this, 'render_geoip_mode_field'),
-            'baskerville-general',
-            'baskerville_general_section'
+            'baskerville-countries',
+            'baskerville_countries_section'
         );
 
         // Blacklist countries field
@@ -84,8 +110,8 @@ class Baskerville_Admin {
             'blacklist_countries',
             __('Black List Countries', 'baskerville'),
             array($this, 'render_blacklist_countries_field'),
-            'baskerville-general',
-            'baskerville_general_section'
+            'baskerville-countries',
+            'baskerville_countries_section'
         );
 
         // Whitelist countries field
@@ -93,17 +119,16 @@ class Baskerville_Admin {
             'whitelist_countries',
             __('White List Countries', 'baskerville'),
             array($this, 'render_whitelist_countries_field'),
-            'baskerville-general',
-            'baskerville_general_section'
+            'baskerville-countries',
+            'baskerville_countries_section'
         );
     }
 
     public function sanitize_settings($input) {
         $sanitized = array();
 
-        if (isset($input['ban_bots_403'])) {
-            $sanitized['ban_bots_403'] = (bool) $input['ban_bots_403'];
-        }
+        // Checkboxes: if not set in POST, they are unchecked (false)
+        $sanitized['ban_bots_403'] = isset($input['ban_bots_403']) ? (bool) $input['ban_bots_403'] : false;
 
         if (isset($input['log_mode'])) {
             $mode = sanitize_text_field($input['log_mode']);
@@ -149,6 +174,13 @@ class Baskerville_Admin {
             $sanitized['banned_countries'] = $countries;
         }
 
+        // Honeypot settings (checkboxes: false if not in POST)
+        $sanitized['honeypot_enabled'] = isset($input['honeypot_enabled']) ? (bool) $input['honeypot_enabled'] : false;
+        $sanitized['honeypot_ban'] = isset($input['honeypot_ban']) ? (bool) $input['honeypot_ban'] : false;
+
+        // Flush rewrite rules when settings are saved (for honeypot route)
+        flush_rewrite_rules();
+
         return $sanitized;
     }
 
@@ -191,7 +223,7 @@ class Baskerville_Admin {
                        value="file"
                        <?php checked($mode, 'file'); ?> />
                 <strong><?php _e('File Logging', 'baskerville'); ?></strong> -
-                <?php _e('Write to log file, batch import to DB every 5 minutes', 'baskerville'); ?>
+                <?php _e('Write to log file, batch import to DB every minute', 'baskerville'); ?>
                 <span style="color: #4CAF50;">⚡ ~1-2ms overhead</span>
                 <strong style="color: #2196F3;">✓ Recommended</strong>
             </label>
@@ -209,7 +241,7 @@ class Baskerville_Admin {
             <p class="description" style="margin-top: 15px; padding: 10px; background: #f0f0f1; border-left: 4px solid #2196F3;">
                 <strong><?php _e('💡 Recommendation:', 'baskerville'); ?></strong><br>
                 <?php _e('Use <strong>File Logging</strong> for best performance on shared hosting (GoDaddy, Bluehost, etc.)', 'baskerville'); ?><br>
-                <?php _e('Full analytics with minimal overhead. Logs are processed in background every 5 minutes.', 'baskerville'); ?>
+                <?php _e('Full analytics with minimal overhead. Logs are processed in background every minute.', 'baskerville'); ?>
             </p>
         </fieldset>
         <?php
@@ -1979,9 +2011,17 @@ class Baskerville_Admin {
                         break;
 
                     case 'countries':
+                        // Display GeoIP settings form
+                        settings_fields('baskerville_settings_group');
+                        do_settings_sections('baskerville-countries');
+                        submit_button();
                         ?>
                         </form>
+
+                        <hr style="margin: 30px 0;">
+
                         <?php
+                        // Display country statistics below the form
                         $this->render_countries_tab();
                         ?>
                         <form method="post" action="options.php">
@@ -1989,8 +2029,6 @@ class Baskerville_Admin {
                         break;
 
                     case 'settings':
-                        // Display current GeoIP mode status
-                        $this->render_geoip_status_banner();
                         do_settings_sections('baskerville-general');
                         submit_button();
                         break;
@@ -2654,5 +2692,47 @@ done
         } catch (Exception $e) {
             return array('message' => 'Firewall test failed: ' . $e->getMessage(), 'error' => true);
         }
+    }
+
+    public function render_honeypot_enabled_field() {
+        $options = get_option('baskerville_settings', array());
+        // Default to true if not set
+        $enabled = !isset($options['honeypot_enabled']) || $options['honeypot_enabled'];
+        ?>
+        <label>
+            <input type="checkbox"
+                   name="baskerville_settings[honeypot_enabled]"
+                   value="1"
+                   <?php checked($enabled, true); ?> />
+            <?php _e('Enable AI bot honeypot trap', 'baskerville'); ?>
+        </label>
+        <p class="description">
+            <?php _e('Adds a hidden link to your site footer that is invisible to humans but visible to AI crawlers in HTML.', 'baskerville'); ?><br>
+            <?php _e('When an IP accesses this link, it is immediately marked as an AI bot.', 'baskerville'); ?><br>
+            <strong><?php _e('Honeypot URL:', 'baskerville'); ?></strong> <code><?php echo esc_html(home_url('/ai-training-data/')); ?></code><br>
+            <em style="color: #d63638;"><?php _e('⚠️ The URL name "ai-training-data" is designed to attract AI bots looking for training content!', 'baskerville'); ?></em>
+        </p>
+        <?php
+    }
+
+    public function render_honeypot_ban_field() {
+        $options = get_option('baskerville_settings', array());
+        // Default to true if not set
+        $ban_enabled = !isset($options['honeypot_ban']) || $options['honeypot_ban'];
+        $honeypot_enabled = !isset($options['honeypot_enabled']) || $options['honeypot_enabled'];
+        ?>
+        <label>
+            <input type="checkbox"
+                   name="baskerville_settings[honeypot_ban]"
+                   value="1"
+                   <?php checked($ban_enabled, true); ?>
+                   <?php disabled(!$honeypot_enabled); ?> />
+            <?php _e('Ban IPs that trigger honeypot with 403', 'baskerville'); ?>
+        </label>
+        <p class="description">
+            <?php _e('When enabled, IPs accessing the honeypot will be banned for 24 hours and receive a 403 Forbidden response.', 'baskerville'); ?><br>
+            <?php _e('When disabled, the visit is still logged as AI bot, but the honeypot page is displayed normally.', 'baskerville'); ?>
+        </p>
+        <?php
     }
 }
