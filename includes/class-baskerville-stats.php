@@ -194,7 +194,7 @@ class Baskerville_Stats
         return [wp_json_encode($norm, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $main];
     }
 
-    public function save_visit_stats($ip, $baskerville_id, $evaluation, $classification, $user_agent, $event_type = 'fp', $visit_key = null) {
+    public function save_visit_stats($ip, $baskerville_id, $evaluation, $classification, $user_agent, $event_type = 'fp', $visit_key = null, $block_reason = null) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'baskerville_stats';
 
@@ -218,11 +218,12 @@ class Baskerville_Stats
             'evaluation_json'       => wp_json_encode($evaluation),
             'score_reasons'         => implode('; ', $evaluation['reasons'] ?? []),
             'classification_reason' => (string)($classification['reason'] ?? ''),
+            'block_reason'          => $block_reason,
             'event_type'            => $event_type,
             'top_factor_json'       => $top_json,
             'top_factor'            => $top_name,
         ];
-        $fmt = ['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s'];
+        $fmt = ['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s','%s'];
 
         $ok = $wpdb->insert($table_name, $data, $fmt);
         if ($ok === false) {

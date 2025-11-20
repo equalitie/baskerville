@@ -386,6 +386,27 @@ class Baskerville_Firewall
             $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
             $cnt        = $this->core->fc_inc_in_window("badbot_cnt:{$ip}", $window_sec);
 
+            // Log to stats if >= 3 requests (but don't ban yet)
+            // Use gate to log only once per IP per window
+            if ($cnt >= 3) {
+                $gate_key = "badbot_logged:{$ip}";
+                if (!$this->core->fc_get($gate_key)) {
+                    $this->core->fc_set($gate_key, 1, $window_sec);
+                    $cookie_id = $this->core->get_cookie_id();
+                    $this->stats->save_visit_stats(
+                        $ip,
+                        $cookie_id ?? '',
+                        $evaluation,
+                        $classification,
+                        $ua,
+                        'firewall',
+                        null,
+                        null  // Not banned yet
+                    );
+                }
+            }
+
+            // Ban only if threshold exceeded
             if ($cnt > $threshold) {
                 $reason = 'classified-bad-bot-burst';
                 $ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);

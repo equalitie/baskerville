@@ -1373,18 +1373,59 @@ class Baskerville_Admin {
                     const icon = getEventIcon(event.classification, event.event_type);
                     const color = getEventColor(event.classification);
                     const timeAgo = getTimeAgo(event.created_at);
+                    const banBadge = event.is_banned
+                        ? '<span style="background: #dc3232; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">BANNED</span>'
+                        : '<span style="background: #46b450; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">DETECTED</span>';
+
+                    // Detection method badge and User-Agent info
+                    let detectionBadge = '';
+                    let userAgentInfo = '';
+
+                    // Check if detection was based on User-Agent
+                    const isUserAgentBased = event.reason && (
+                        event.reason.toLowerCase().includes('user agent') ||
+                        event.reason.toLowerCase().includes('user-agent')
+                    );
+
+                    if (event.classification === 'ai_bot') {
+                        if (event.event_type === 'honeypot') {
+                            detectionBadge = '<span style="background: #f0a000; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">🍯 HONEYPOT</span>';
+                            // Show User-Agent for honeypot too
+                            if (event.ua) {
+                                const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+                                userAgentInfo = '<br><span style="color: #999; font-size: 10px; margin-left: 28px; font-style: italic;">UA: ' + truncatedUA + '</span>';
+                            }
+                        } else {
+                            detectionBadge = '<span style="background: #666; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">USER-AGENT</span>';
+                            // Show User-Agent for UA-based detection
+                            if (event.ua) {
+                                const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+                                userAgentInfo = '<br><span style="color: #999; font-size: 10px; margin-left: 28px; font-style: italic;">UA: ' + truncatedUA + '</span>';
+                            }
+                        }
+                    } else {
+                        // Show User-Agent for other bot types if UA-based detection
+                        if (isUserAgentBased && event.ua) {
+                            const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+                            userAgentInfo = '<br><span style="color: #999; font-size: 10px; margin-left: 28px; font-style: italic;">UA: ' + truncatedUA + '</span>';
+                        }
+                    }
 
                     const item = $('<div class="live-feed-item"></div>');
                     item.html(
                         '<span class="feed-icon">' + icon + '</span> ' +
-                        '<strong style="color: ' + color + ';">' + event.classification.toUpperCase().replace('_', ' ') + '</strong> ' +
+                        '<strong style="color: ' + color + ';">' + event.classification.toUpperCase().replace('_', ' ') + '</strong>' +
+                        detectionBadge + ' ' +
                         event.ip + ' ' +
                         (event.country_code ? '<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">' + event.country_code + '</span> ' : '') +
+                        banBadge +
                         '<span style="color: #999; margin-left: 10px;">' + timeAgo + '</span><br>' +
                         '<span style="color: #666; font-size: 11px; margin-left: 28px;">' +
                         (event.reason || 'No reason') +
                         (event.score ? ' (score: ' + event.score + ')' : '') +
-                        '</span>'
+                        (event.block_reason ? ' | Ban reason: ' + event.block_reason : '') +
+                        '</span>' +
+                        userAgentInfo
                     );
                     container.append(item);
                 });
@@ -2948,7 +2989,10 @@ done
             <?php _e('Adds a hidden link to your site footer that is invisible to humans but visible to AI crawlers in HTML.', 'baskerville'); ?><br>
             <?php _e('When an IP accesses this link, it is immediately marked as an AI bot.', 'baskerville'); ?><br>
             <strong><?php _e('Honeypot URL:', 'baskerville'); ?></strong> <code><?php echo esc_html(home_url('/ai-training-data/')); ?></code><br>
-            <em style="color: #d63638;"><?php _e('⚠️ The URL name "ai-training-data" is designed to attract AI bots looking for training content!', 'baskerville'); ?></em>
+            <em style="color: #d63638;"><?php _e('⚠️ The URL name "ai-training-data" is designed to attract AI bots looking for training content!', 'baskerville'); ?></em><br>
+            <strong style="color: #d63638;">⚠️ IMPORTANT:</strong> After enabling, go to
+            <a href="<?php echo admin_url('options-permalink.php'); ?>" target="_blank">Settings → Permalinks</a>
+            and click "Save Changes" to activate the honeypot URL!
         </p>
         <?php
     }
@@ -2969,7 +3013,8 @@ done
         </label>
         <p class="description">
             <?php _e('When enabled, IPs accessing the honeypot will be banned for 24 hours and receive a 403 Forbidden response.', 'baskerville'); ?><br>
-            <?php _e('When disabled, the visit is still logged as AI bot, but the honeypot page is displayed normally.', 'baskerville'); ?>
+            <?php _e('When disabled, the visit is still logged as AI bot, but the honeypot page is displayed normally.', 'baskerville'); ?><br>
+            <strong style="color: #d63638;">⚠️ IMPORTANT:</strong> Make sure "Enable 403 ban for detected bots" is checked in the General tab above for this to work!
         </p>
         <?php
     }
@@ -2983,14 +3028,20 @@ done
 
         // Get last 30 unique IPs (blocked/suspicious) - one event per IP
         // Note: using classification_reason (actual column name), aliasing as 'reason' for frontend
+        // Use subquery to get the latest record for each IP
         $events = $wpdb->get_results($wpdb->prepare(
-            "SELECT ip, country_code, classification, classification_reason as reason, score, user_agent as ua,
-                    UNIX_TIMESTAMP(created_at) as timestamp, event_type
-             FROM $table
-             WHERE classification IN ('bad_bot', 'ai_bot', 'bot')
-                OR score >= 50
-             GROUP BY ip
-             ORDER BY created_at DESC
+            "SELECT t1.ip, t1.country_code, t1.classification, t1.classification_reason as reason,
+                    t1.score, t1.user_agent as ua, UNIX_TIMESTAMP(t1.created_at) as timestamp,
+                    t1.event_type, t1.block_reason
+             FROM $table t1
+             INNER JOIN (
+                 SELECT ip, MAX(created_at) as max_created
+                 FROM $table
+                 WHERE classification IN ('bad_bot', 'ai_bot', 'bot') OR score >= 50
+                 GROUP BY ip
+             ) t2 ON t1.ip = t2.ip AND t1.created_at = t2.max_created
+             WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'bot') OR t1.score >= 50)
+             ORDER BY t1.created_at DESC
              LIMIT %d",
             30
         ), ARRAY_A);
@@ -3002,6 +3053,8 @@ done
                 $event['created_at'] = gmdate('Y-m-d\TH:i:s\Z', $event['timestamp']);
                 unset($event['timestamp']);
             }
+            // Add banned flag
+            $event['is_banned'] = !empty($event['block_reason']);
         }
 
         wp_send_json_success($events);
