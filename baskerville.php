@@ -1,9 +1,15 @@
 <?php
 /**
  * Plugin Name:  Baskerville
+ * Plugin URI: https://wordpress.org/plugins/baskerville/
  * Description:  A WordPress plugin by Equalitie.
  * Version:      1.0.0
- * Text Domain:  baskerville
+ * Requires at least: 6.0
+ * Requires PHP: 7.4
+ * Author: eQalitie
+ * Author URI: https://equalitie.org
+ * License: GPL v3
+ * Text Domain: baskerville
  */
 
 if (!defined('ABSPATH')) exit;
