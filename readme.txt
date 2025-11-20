@@ -43,3 +43,5 @@ Answer 2
 
 = 1.0.0 =
 Initial release of Baskerville plugin.
+
+Anton 777
