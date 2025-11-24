@@ -14,6 +14,7 @@ class Baskerville_Admin {
         add_action('wp_ajax_baskerville_run_benchmark', array($this, 'ajax_run_benchmark'));
         add_action('wp_ajax_baskerville_get_live_feed', array($this, 'ajax_get_live_feed'));
         add_action('wp_ajax_baskerville_get_live_stats', array($this, 'ajax_get_live_stats'));
+        add_action('wp_ajax_baskerville_import_logs', array($this, 'ajax_import_logs'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
     }
 
@@ -23,9 +24,9 @@ class Baskerville_Admin {
             return;
         }
 
-        // Enqueue Select2 (bundled with WordPress)
-        wp_enqueue_style('select2', 'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css', array(), '4.1.0');
-        wp_enqueue_script('select2', 'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js', array('jquery'), '4.1.0', true);
+        // Enqueue Select2 (local files)
+        wp_enqueue_style('select2', plugins_url('baskerville/assets/css/select2.min.css'), array(), '4.1.0');
+        wp_enqueue_script('select2', plugins_url('baskerville/assets/js/select2.min.js'), array('jquery'), '4.1.0', true);
     }
 
     public function add_admin_menu() {
@@ -196,7 +197,7 @@ class Baskerville_Admin {
                    name="baskerville_settings[ban_bots_403]"
                    value="1"
                    <?php checked($checked, true); ?> />
-            <?php _e('Enable 403 ban for detected bots', 'baskerville'); ?>
+            <?php esc_html_e('Enable 403 ban for detected bots', 'baskerville'); ?>
         </label>
         <?php
     }
@@ -207,15 +208,15 @@ class Baskerville_Admin {
         $mode = isset($options['log_mode']) ? $options['log_mode'] : 'file';
         ?>
         <fieldset>
-            <legend class="screen-reader-text"><span><?php _e('Page Visit Logging Mode', 'baskerville'); ?></span></legend>
+            <legend class="screen-reader-text"><span><?php esc_html_e('Page Visit Logging Mode', 'baskerville'); ?></span></legend>
 
             <label style="display: block; margin-bottom: 10px;">
                 <input type="radio"
                        name="baskerville_settings[log_mode]"
                        value="disabled"
                        <?php checked($mode, 'disabled'); ?> />
-                <strong><?php _e('Disabled', 'baskerville'); ?></strong> -
-                <?php _e('No page visit logging (blocks & fingerprints still logged)', 'baskerville'); ?>
+                <strong><?php esc_html_e('Disabled', 'baskerville'); ?></strong> -
+                <?php esc_html_e('No page visit logging (blocks & fingerprints still logged)', 'baskerville'); ?>
                 <span style="color: #4CAF50;">⚡ ~0ms overhead</span>
             </label>
 
@@ -224,8 +225,8 @@ class Baskerville_Admin {
                        name="baskerville_settings[log_mode]"
                        value="file"
                        <?php checked($mode, 'file'); ?> />
-                <strong><?php _e('File Logging', 'baskerville'); ?></strong> -
-                <?php _e('Write to log file, batch import to DB every minute', 'baskerville'); ?>
+                <strong><?php esc_html_e('File Logging', 'baskerville'); ?></strong> -
+                <?php esc_html_e('Write to log file, batch import to DB every minute', 'baskerville'); ?>
                 <span style="color: #4CAF50;">⚡ ~1-2ms overhead</span>
                 <strong style="color: #2196F3;">✓ Recommended</strong>
             </label>
@@ -235,15 +236,15 @@ class Baskerville_Admin {
                        name="baskerville_settings[log_mode]"
                        value="database"
                        <?php checked($mode, 'database'); ?> />
-                <strong><?php _e('Direct Database', 'baskerville'); ?></strong> -
-                <?php _e('Write to database immediately (high overhead)', 'baskerville'); ?>
+                <strong><?php esc_html_e('Direct Database', 'baskerville'); ?></strong> -
+                <?php esc_html_e('Write to database immediately (high overhead)', 'baskerville'); ?>
                 <span style="color: #ff9800;">⚠️ ~500ms overhead on shared hosting</span>
             </label>
 
             <p class="description" style="margin-top: 15px; padding: 10px; background: #f0f0f1; border-left: 4px solid #2196F3;">
-                <strong><?php _e('💡 Recommendation:', 'baskerville'); ?></strong><br>
-                <?php _e('Use <strong>File Logging</strong> for best performance on shared hosting (GoDaddy, Bluehost, etc.)', 'baskerville'); ?><br>
-                <?php _e('Full analytics with minimal overhead. Logs are processed in background every minute.', 'baskerville'); ?>
+                <strong><?php esc_html_e('💡 Recommendation:', 'baskerville'); ?></strong><br>
+                <?php esc_html_e('Use <strong>File Logging</strong> for best performance on shared hosting (GoDaddy, Bluehost, etc.)', 'baskerville'); ?><br>
+                <?php esc_html_e('Full analytics with minimal overhead. Logs are processed in background every minute.', 'baskerville'); ?>
             </p>
         </fieldset>
         <?php
@@ -261,8 +262,8 @@ class Baskerville_Admin {
                        value="allow_all"
                        class="baskerville-geoip-mode-radio"
                        <?php checked($mode, 'allow_all'); ?> />
-                <strong><?php _e('Allow All Countries', 'baskerville'); ?></strong> -
-                <?php _e('No GeoIP restrictions (allow all countries)', 'baskerville'); ?>
+                <strong><?php esc_html_e('Allow All Countries', 'baskerville'); ?></strong> -
+                <?php esc_html_e('No GeoIP restrictions (allow all countries)', 'baskerville'); ?>
             </label>
             <label style="display: block; margin-bottom: 10px;">
                 <input type="radio"
@@ -270,8 +271,8 @@ class Baskerville_Admin {
                        value="blacklist"
                        class="baskerville-geoip-mode-radio"
                        <?php checked($mode, 'blacklist'); ?> />
-                <strong><?php _e('Black List', 'baskerville'); ?></strong> -
-                <?php _e('Block access from specified countries', 'baskerville'); ?>
+                <strong><?php esc_html_e('Black List', 'baskerville'); ?></strong> -
+                <?php esc_html_e('Block access from specified countries', 'baskerville'); ?>
             </label>
             <label style="display: block;">
                 <input type="radio"
@@ -279,19 +280,19 @@ class Baskerville_Admin {
                        value="whitelist"
                        class="baskerville-geoip-mode-radio"
                        <?php checked($mode, 'whitelist'); ?> />
-                <strong><?php _e('White List', 'baskerville'); ?></strong> -
-                <?php _e('Allow access ONLY from specified countries', 'baskerville'); ?>
+                <strong><?php esc_html_e('White List', 'baskerville'); ?></strong> -
+                <?php esc_html_e('Allow access ONLY from specified countries', 'baskerville'); ?>
             </label>
         </fieldset>
         <p class="description">
-            <?php _e('Choose whether to allow all countries, block specific countries, or allow only specific countries.', 'baskerville'); ?>
+            <?php esc_html_e('Choose whether to allow all countries, block specific countries, or allow only specific countries.', 'baskerville'); ?>
         </p>
 
         <script>
         jQuery(document).ready(function($) {
             // Initialize Select2 for country selects
             $('.baskerville-country-select').select2({
-                placeholder: '<?php _e('Search and select countries...', 'baskerville'); ?>',
+                placeholder: '<?php esc_html_e('Search and select countries...', 'baskerville'); ?>',
                 allowClear: true,
                 width: '100%'
             });
@@ -360,13 +361,13 @@ class Baskerville_Admin {
                 <?php endforeach; ?>
             </select>
             <p class="description">
-                <strong style="color: #d32f2f;"><?php _e('Block access from these countries', 'baskerville'); ?></strong><br>
-                <?php _e('Search and select countries to block. You can select multiple countries.', 'baskerville'); ?><br>
-                <em style="color: #999;"><?php _e('This field is only active when "Black List" mode is selected above.', 'baskerville'); ?></em><br>
-                <strong><?php _e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
+                <strong style="color: #d32f2f;"><?php esc_html_e('Block access from these countries', 'baskerville'); ?></strong><br>
+                <?php esc_html_e('Search and select countries to block. You can select multiple countries.', 'baskerville'); ?><br>
+                <em style="color: #999;"><?php esc_html_e('This field is only active when "Black List" mode is selected above.', 'baskerville'); ?></em><br>
+                <strong><?php esc_html_e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
                 <?php if ($geoip_source === 'MaxMind (if configured)'): ?>
-                    <br><em><?php _e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
-                    <br><em><?php _e('Download from: ', 'baskerville'); ?><a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank">MaxMind GeoLite2</a></em>
+                    <br><em><?php esc_html_e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
+                    <br><em><?php esc_html_e('Download from: ', 'baskerville'); ?><a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank">MaxMind GeoLite2</a></em>
                 <?php endif; ?>
             </p>
         </div>
@@ -403,13 +404,13 @@ class Baskerville_Admin {
                 <?php endforeach; ?>
             </select>
             <p class="description">
-                <strong style="color: #2271b1;"><?php _e('Allow access ONLY from these countries', 'baskerville'); ?></strong><br>
-                <?php _e('Search and select countries to allow. You can select multiple countries.', 'baskerville'); ?><br>
-                <em style="color: #999;"><?php _e('This field is only active when "White List" mode is selected above.', 'baskerville'); ?></em><br>
-                <strong><?php _e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
+                <strong style="color: #2271b1;"><?php esc_html_e('Allow access ONLY from these countries', 'baskerville'); ?></strong><br>
+                <?php esc_html_e('Search and select countries to allow. You can select multiple countries.', 'baskerville'); ?><br>
+                <em style="color: #999;"><?php esc_html_e('This field is only active when "White List" mode is selected above.', 'baskerville'); ?></em><br>
+                <strong><?php esc_html_e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
                 <?php if ($geoip_source === 'MaxMind (if configured)'): ?>
-                    <br><em><?php _e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
-                    <br><em><?php _e('Download from: ', 'baskerville'); ?><a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank">MaxMind GeoLite2</a></em>
+                    <br><em><?php esc_html_e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
+                    <br><em><?php esc_html_e('Download from: ', 'baskerville'); ?><a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank">MaxMind GeoLite2</a></em>
                 <?php endif; ?>
             </p>
         </div>
@@ -694,7 +695,8 @@ class Baskerville_Admin {
             $icon = '✓';
             $title = __('White List Mode Active', 'baskerville');
             $description = sprintf(
-                __('Access is allowed ONLY from %d %s: %s', 'baskerville'),
+                /* translators: %1$d is the number of countries, %2$s is either 'country' or 'countries', %3$s is the list of country names */
+                __('Access is allowed ONLY from %1$d %2$s: %3$s', 'baskerville'),
                 $country_count,
                 $country_count === 1 ? __('country', 'baskerville') : __('countries', 'baskerville'),
                 '<strong>' . esc_html($countries_display) . '</strong>'
@@ -724,7 +726,8 @@ class Baskerville_Admin {
             $icon = '✕';
             $title = __('Black List Mode Active', 'baskerville');
             $description = sprintf(
-                __('Access is blocked from %d %s: %s', 'baskerville'),
+                /* translators: %1$d is the number of countries, %2$s is either 'country' or 'countries', %3$s is the list of country names */
+                __('Access is blocked from %1$d %2$s: %3$s', 'baskerville'),
                 $country_count,
                 $country_count === 1 ? __('country', 'baskerville') : __('countries', 'baskerville'),
                 '<strong>' . esc_html($countries_display) . '</strong>'
@@ -733,14 +736,14 @@ class Baskerville_Admin {
         ?>
         <div style="background: <?php echo esc_attr($banner_color); ?>; color: #fff; padding: 20px; border-radius: 4px; margin: 20px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 15px;">
             <div style="font-size: 32px; font-weight: bold; opacity: 0.9;">
-                <?php echo $icon; ?>
+                <?php echo esc_html($icon); ?>
             </div>
             <div style="flex: 1;">
                 <div style="font-size: 18px; font-weight: bold; margin-bottom: 5px;">
                     <?php echo esc_html($title); ?>
                 </div>
                 <div style="font-size: 14px; opacity: 0.95;">
-                    <?php echo $description; ?>
+                    <?php echo wp_kses_post($description); ?>
                 </div>
             </div>
         </div>
@@ -765,12 +768,15 @@ class Baskerville_Admin {
         $where_clause = $wpdb->prepare("WHERE timestamp_utc >= %s", $time_threshold);
 
         // Total visits
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table and $where_clause are safe
         $total_visits = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table $where_clause");
 
         // Total unique IPs
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table and $where_clause are safe
         $total_ips = (int) $wpdb->get_var("SELECT COUNT(DISTINCT ip) FROM $table $where_clause");
 
         // Blocked IPs (unique IPs that have block_reason)
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table and $where_clause are safe
         $blocked_ips = (int) $wpdb->get_var("SELECT COUNT(DISTINCT ip) FROM $table $where_clause AND block_reason IS NOT NULL AND block_reason != ''");
 
         // Calculate block rate
@@ -806,6 +812,7 @@ class Baskerville_Admin {
 
         $wpdb->query("SET time_zone = '+00:00'");
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is safe, $bucket_seconds is sanitized integer
         $sql = "
           SELECT
             FROM_UNIXTIME(
@@ -823,6 +830,7 @@ class Baskerville_Admin {
           GROUP BY time_slot
           ORDER BY time_slot ASC
         ";
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql uses $wpdb->prepare() with placeholder
         $results = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A);
 
         $out = [];
@@ -854,17 +862,19 @@ class Baskerville_Admin {
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
         // Get stats grouped by country_code directly from database
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = $wpdb->prepare("
             SELECT
                 COALESCE(NULLIF(country_code, ''), 'XX') as country_code,
                 COUNT(*) as total_requests,
                 SUM(CASE WHEN event_type = 'block' OR (block_reason IS NOT NULL AND block_reason != '') THEN 1 ELSE 0 END) as blocked_requests
-            FROM {$table}
+            FROM " . esc_sql($table) . "
             WHERE timestamp_utc >= %s
             GROUP BY country_code
             ORDER BY total_requests DESC
         ", $cutoff);
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is prepared with $wpdb->prepare()
         $results = $wpdb->get_results($sql, ARRAY_A);
         $all_countries = $this->get_countries_list();
 
@@ -892,7 +902,8 @@ class Baskerville_Admin {
 
     private function render_countries_tab() {
         // Get selected period from URL, default to 1day
-        $period = isset($_GET['period']) ? sanitize_text_field($_GET['period']) : '1day';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display parameter
+        $period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
         $valid_periods = array('12h', '1day', '3days', '7days');
         if (!in_array($period, $valid_periods)) {
             $period = '1day';
@@ -1014,15 +1025,15 @@ class Baskerville_Admin {
 
                 <!-- Country Stats Table -->
                 <div class="country-stats-table">
-                    <h3><?php _e('Traffic by Country', 'baskerville'); ?></h3>
+                    <h3><?php esc_html_e('Traffic by Country', 'baskerville'); ?></h3>
                     <table>
                         <thead>
                             <tr>
-                                <th><?php _e('Country', 'baskerville'); ?></th>
-                                <th><?php _e('Total Requests', 'baskerville'); ?></th>
-                                <th><?php _e('Blocked (403)', 'baskerville'); ?></th>
-                                <th><?php _e('Block Rate', 'baskerville'); ?></th>
-                                <th><?php _e('Access Status', 'baskerville'); ?></th>
+                                <th><?php esc_html_e('Country', 'baskerville'); ?></th>
+                                <th><?php esc_html_e('Total Requests', 'baskerville'); ?></th>
+                                <th><?php esc_html_e('Blocked (403)', 'baskerville'); ?></th>
+                                <th><?php esc_html_e('Block Rate', 'baskerville'); ?></th>
+                                <th><?php esc_html_e('Access Status', 'baskerville'); ?></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1081,12 +1092,12 @@ class Baskerville_Admin {
                                 </td>
                                 <td>
                                     <span style="color: <?php echo $block_rate > 50 ? '#d32f2f' : ($block_rate > 20 ? '#ff9800' : '#4caf50'); ?>; font-weight: bold;">
-                                        <?php echo $block_rate; ?>%
+                                        <?php echo esc_html($block_rate); ?>%
                                     </span>
                                 </td>
                                 <td>
                                     <span style="color: <?php echo esc_attr($status_color); ?>; font-weight: bold; font-size: 14px;">
-                                        <?php echo $status_icon; ?> <?php echo esc_html($status_label); ?>
+                                        <?php echo esc_html($status_icon); ?> <?php echo esc_html($status_label); ?>
                                     </span>
                                 </td>
                             </tr>
@@ -1096,14 +1107,14 @@ class Baskerville_Admin {
                 </div>
             <?php else: ?>
                 <div style="background: #fff; padding: 40px; text-align: center; border: 1px solid #e0e0e0;">
-                    <p><?php _e('No traffic data available for the selected period.', 'baskerville'); ?></p>
+                    <p><?php esc_html_e('No traffic data available for the selected period.', 'baskerville'); ?></p>
                 </div>
             <?php endif; ?>
         </div>
 
         <?php if (!empty($country_stats)): ?>
-        <!-- Chart.js Library -->
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+        <?php // phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Chart.js is enqueued but inline load ensures availability ?>
+        <script src="<?php echo esc_url(plugins_url('baskerville/assets/js/chart.min.js')); ?>"></script>
 
         <script>
         (function waitForChart() {
@@ -1113,7 +1124,7 @@ class Baskerville_Admin {
             }
 
             const countryStats = <?php echo wp_json_encode($country_stats); ?>;
-            const hours = <?php echo $hours; ?>;
+            const hours = <?php echo absint($hours); ?>;
 
             // Prepare data - limit to top 15 countries
             const topCountries = countryStats.slice(0, 15);
@@ -1201,7 +1212,8 @@ class Baskerville_Admin {
 
     private function render_traffic_tab() {
         // Get selected period from URL, default to 1day
-        $period = isset($_GET['period']) ? sanitize_text_field($_GET['period']) : '1day';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display parameter
+        $period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
         $valid_periods = array('12h', '1day', '3days', '7days');
         if (!in_array($period, $valid_periods)) {
             $period = '1day';
@@ -1217,7 +1229,7 @@ class Baskerville_Admin {
         <div class="baskerville-live-dashboard" style="margin-bottom: 40px;">
             <h2 style="display: flex; align-items: center; gap: 10px;">
                 <span class="dashicons dashicons-visibility" style="font-size: 28px;"></span>
-                <?php _e('Live Bot Attack Dashboard', 'baskerville'); ?>
+                <?php esc_html_e('Live Bot Attack Dashboard', 'baskerville'); ?>
                 <span class="live-indicator" style="display: inline-block; width: 12px; height: 12px; background: #00d084; border-radius: 50%; margin-left: 10px; animation: pulse 2s infinite;"></span>
             </h2>
 
@@ -1226,25 +1238,25 @@ class Baskerville_Admin {
                 <div class="live-stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                     <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🛡️</div>
                     <div class="stat-value" id="blocks-today" style="font-size: 32px; font-weight: 700;">...</div>
-                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Blocked Today', 'baskerville'); ?></div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Blocked Today', 'baskerville'); ?></div>
                 </div>
 
                 <div class="live-stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                     <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">⚡</div>
                     <div class="stat-value" id="blocks-hour" style="font-size: 32px; font-weight: 700;">...</div>
-                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Last Hour', 'baskerville'); ?></div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Last Hour', 'baskerville'); ?></div>
                 </div>
 
                 <div class="live-stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                     <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🌍</div>
                     <div class="stat-value" id="top-country" style="font-size: 32px; font-weight: 700;">...</div>
-                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Top Country', 'baskerville'); ?></div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Top Country', 'baskerville'); ?></div>
                 </div>
 
                 <div class="live-stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
                     <div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">💾</div>
                     <div class="stat-value" id="requests-saved" style="font-size: 32px; font-weight: 700;">...</div>
-                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php _e('Saved Requests', 'baskerville'); ?></div>
+                    <div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Saved Requests', 'baskerville'); ?></div>
                 </div>
             </div>
 
@@ -1253,13 +1265,13 @@ class Baskerville_Admin {
                 <div class="live-feed" style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-height: 600px; overflow-y: auto;">
                     <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
                         <span class="dashicons dashicons-admin-site"></span>
-                        <?php _e('Live Feed', 'baskerville'); ?>
-                        <span style="font-size: 12px; color: #666; font-weight: normal; margin-left: auto;"><?php _e('Auto-refresh: 10s', 'baskerville'); ?></span>
+                        <?php esc_html_e('Live Feed', 'baskerville'); ?>
+                        <span style="font-size: 12px; color: #666; font-weight: normal; margin-left: auto;"><?php esc_html_e('Auto-refresh: 10s', 'baskerville'); ?></span>
                     </h3>
                     <div id="live-feed-items" style="font-family: 'Courier New', monospace; font-size: 13px;">
                         <div style="text-align: center; padding: 40px; color: #999;">
                             <span class="dashicons dashicons-update" style="font-size: 48px; animation: rotation 2s infinite linear;"></span>
-                            <p><?php _e('Loading live data...', 'baskerville'); ?></p>
+                            <p><?php esc_html_e('Loading live data...', 'baskerville'); ?></p>
                         </div>
                     </div>
                 </div>
@@ -1267,11 +1279,11 @@ class Baskerville_Admin {
                 <div class="top-attackers" style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                     <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
                         <span class="dashicons dashicons-warning"></span>
-                        <?php _e('Top Attackers', 'baskerville'); ?>
+                        <?php esc_html_e('Top Attackers', 'baskerville'); ?>
                     </h3>
                     <div id="top-attackers-list" style="font-size: 13px;">
                         <div style="text-align: center; padding: 20px; color: #999;">
-                            <?php _e('Loading...', 'baskerville'); ?>
+                            <?php esc_html_e('Loading...', 'baskerville'); ?>
                         </div>
                     </div>
                 </div>
@@ -1412,12 +1424,13 @@ class Baskerville_Admin {
                     }
 
                     const item = $('<div class="live-feed-item"></div>');
+                    const countryName = event.country_code ? getCountryName(event.country_code) : '';
                     item.html(
                         '<span class="feed-icon">' + icon + '</span> ' +
                         '<strong style="color: ' + color + ';">' + event.classification.toUpperCase().replace('_', ' ') + '</strong>' +
                         detectionBadge + ' ' +
                         event.ip + ' ' +
-                        (event.country_code ? '<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">' + event.country_code + '</span> ' : '') +
+                        (countryName ? '<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">' + countryName + '</span> ' : '') +
                         banBadge +
                         '<span style="color: #999; margin-left: 10px;">' + timeAgo + '</span><br>' +
                         '<span style="color: #666; font-size: 11px; margin-left: 28px;">' +
@@ -1477,6 +1490,53 @@ class Baskerville_Admin {
                 if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
                 if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
                 return Math.floor(seconds / 86400) + 'd ago';
+            }
+
+            function getCountryName(code) {
+                const countries = {
+                    'AF': 'Afghanistan', 'AL': 'Albania', 'DZ': 'Algeria', 'AS': 'American Samoa', 'AD': 'Andorra',
+                    'AO': 'Angola', 'AI': 'Anguilla', 'AQ': 'Antarctica', 'AG': 'Antigua and Barbuda', 'AR': 'Argentina',
+                    'AM': 'Armenia', 'AW': 'Aruba', 'AU': 'Australia', 'AT': 'Austria', 'AZ': 'Azerbaijan',
+                    'BS': 'Bahamas', 'BH': 'Bahrain', 'BD': 'Bangladesh', 'BB': 'Barbados', 'BY': 'Belarus',
+                    'BE': 'Belgium', 'BZ': 'Belize', 'BJ': 'Benin', 'BM': 'Bermuda', 'BT': 'Bhutan',
+                    'BO': 'Bolivia', 'BA': 'Bosnia and Herzegovina', 'BW': 'Botswana', 'BR': 'Brazil', 'BN': 'Brunei',
+                    'BG': 'Bulgaria', 'BF': 'Burkina Faso', 'BI': 'Burundi', 'KH': 'Cambodia', 'CM': 'Cameroon',
+                    'CA': 'Canada', 'CV': 'Cape Verde', 'KY': 'Cayman Islands', 'CF': 'Central African Republic', 'TD': 'Chad',
+                    'CL': 'Chile', 'CN': 'China', 'CO': 'Colombia', 'KM': 'Comoros', 'CG': 'Congo',
+                    'CD': 'Congo (DRC)', 'CK': 'Cook Islands', 'CR': 'Costa Rica', 'CI': 'Ivory Coast', 'HR': 'Croatia',
+                    'CU': 'Cuba', 'CY': 'Cyprus', 'CZ': 'Czech Republic', 'DK': 'Denmark', 'DJ': 'Djibouti',
+                    'DM': 'Dominica', 'DO': 'Dominican Republic', 'EC': 'Ecuador', 'EG': 'Egypt', 'SV': 'El Salvador',
+                    'GQ': 'Equatorial Guinea', 'ER': 'Eritrea', 'EE': 'Estonia', 'ET': 'Ethiopia', 'FJ': 'Fiji',
+                    'FI': 'Finland', 'FR': 'France', 'GA': 'Gabon', 'GM': 'Gambia', 'GE': 'Georgia',
+                    'DE': 'Germany', 'GH': 'Ghana', 'GI': 'Gibraltar', 'GR': 'Greece', 'GL': 'Greenland',
+                    'GD': 'Grenada', 'GU': 'Guam', 'GT': 'Guatemala', 'GN': 'Guinea', 'GW': 'Guinea-Bissau',
+                    'GY': 'Guyana', 'HT': 'Haiti', 'HN': 'Honduras', 'HK': 'Hong Kong', 'HU': 'Hungary',
+                    'IS': 'Iceland', 'IN': 'India', 'ID': 'Indonesia', 'IR': 'Iran', 'IQ': 'Iraq',
+                    'IE': 'Ireland', 'IL': 'Israel', 'IT': 'Italy', 'JM': 'Jamaica', 'JP': 'Japan',
+                    'JO': 'Jordan', 'KZ': 'Kazakhstan', 'KE': 'Kenya', 'KI': 'Kiribati', 'KP': 'North Korea',
+                    'KR': 'South Korea', 'KW': 'Kuwait', 'KG': 'Kyrgyzstan', 'LA': 'Laos', 'LV': 'Latvia',
+                    'LB': 'Lebanon', 'LS': 'Lesotho', 'LR': 'Liberia', 'LY': 'Libya', 'LI': 'Liechtenstein',
+                    'LT': 'Lithuania', 'LU': 'Luxembourg', 'MO': 'Macau', 'MK': 'North Macedonia', 'MG': 'Madagascar',
+                    'MW': 'Malawi', 'MY': 'Malaysia', 'MV': 'Maldives', 'ML': 'Mali', 'MT': 'Malta',
+                    'MH': 'Marshall Islands', 'MR': 'Mauritania', 'MU': 'Mauritius', 'MX': 'Mexico', 'FM': 'Micronesia',
+                    'MD': 'Moldova', 'MC': 'Monaco', 'MN': 'Mongolia', 'ME': 'Montenegro', 'MA': 'Morocco',
+                    'MZ': 'Mozambique', 'MM': 'Myanmar', 'NA': 'Namibia', 'NR': 'Nauru', 'NP': 'Nepal',
+                    'NL': 'Netherlands', 'NZ': 'New Zealand', 'NI': 'Nicaragua', 'NE': 'Niger', 'NG': 'Nigeria',
+                    'NO': 'Norway', 'OM': 'Oman', 'PK': 'Pakistan', 'PW': 'Palau', 'PS': 'Palestine',
+                    'PA': 'Panama', 'PG': 'Papua New Guinea', 'PY': 'Paraguay', 'PE': 'Peru', 'PH': 'Philippines',
+                    'PL': 'Poland', 'PT': 'Portugal', 'PR': 'Puerto Rico', 'QA': 'Qatar', 'RO': 'Romania',
+                    'RU': 'Russia', 'RW': 'Rwanda', 'WS': 'Samoa', 'SM': 'San Marino', 'SA': 'Saudi Arabia',
+                    'SN': 'Senegal', 'RS': 'Serbia', 'SC': 'Seychelles', 'SL': 'Sierra Leone', 'SG': 'Singapore',
+                    'SK': 'Slovakia', 'SI': 'Slovenia', 'SB': 'Solomon Islands', 'SO': 'Somalia', 'ZA': 'South Africa',
+                    'SS': 'South Sudan', 'ES': 'Spain', 'LK': 'Sri Lanka', 'SD': 'Sudan', 'SR': 'Suriname',
+                    'SZ': 'Eswatini', 'SE': 'Sweden', 'CH': 'Switzerland', 'SY': 'Syria', 'TW': 'Taiwan',
+                    'TJ': 'Tajikistan', 'TZ': 'Tanzania', 'TH': 'Thailand', 'TL': 'Timor-Leste', 'TG': 'Togo',
+                    'TO': 'Tonga', 'TT': 'Trinidad and Tobago', 'TN': 'Tunisia', 'TR': 'Turkey', 'TM': 'Turkmenistan',
+                    'TV': 'Tuvalu', 'UG': 'Uganda', 'UA': 'Ukraine', 'AE': 'UAE', 'GB': 'United Kingdom',
+                    'US': 'United States', 'UY': 'Uruguay', 'UZ': 'Uzbekistan', 'VU': 'Vanuatu', 'VA': 'Vatican City',
+                    'VE': 'Venezuela', 'VN': 'Vietnam', 'YE': 'Yemen', 'ZM': 'Zambia', 'ZW': 'Zimbabwe'
+                };
+                return countries[code] || code;
             }
 
             // Initial load
@@ -1606,28 +1666,66 @@ class Baskerville_Admin {
             <div class="baskerville-stats-grid">
                 <div class="baskerville-stat-card stat-grey">
                     <div class="stat-value"><?php echo number_format($stats['total_visits']); ?></div>
-                    <div class="stat-label"><?php _e('Total Visits', 'baskerville'); ?></div>
+                    <div class="stat-label"><?php esc_html_e('Total Visits', 'baskerville'); ?></div>
                 </div>
                 <div class="baskerville-stat-card stat-dark-grey">
                     <div class="stat-value"><?php echo number_format($stats['total_ips']); ?></div>
-                    <div class="stat-label"><?php _e('Total IPs', 'baskerville'); ?></div>
+                    <div class="stat-label"><?php esc_html_e('Total IPs', 'baskerville'); ?></div>
                 </div>
                 <div class="baskerville-stat-card stat-red">
                     <div class="stat-value"><?php echo number_format($stats['blocked_ips']); ?></div>
-                    <div class="stat-label"><?php _e('IPs Blocked', 'baskerville'); ?></div>
+                    <div class="stat-label"><?php esc_html_e('IPs Blocked', 'baskerville'); ?></div>
                 </div>
                 <div class="baskerville-stat-card stat-red">
-                    <div class="stat-value"><?php echo $stats['block_rate']; ?>%</div>
-                    <div class="stat-label"><?php _e('Block Rate', 'baskerville'); ?></div>
+                    <div class="stat-value"><?php echo esc_html($stats['block_rate']); ?>%</div>
+                    <div class="stat-label"><?php esc_html_e('Block Rate', 'baskerville'); ?></div>
                 </div>
             </div>
+
+            <!-- Log File Import Status -->
+            <?php
+            $options = get_option('baskerville_settings', array());
+            $log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'file';
+            if ($log_mode === 'file'):
+                $stats_obj = new Baskerville_Stats(new Baskerville_Core(), new Baskerville_AI_UA(new Baskerville_Core()));
+                $log_dir = $stats_obj->get_log_dir();
+                $pending_files = 0;
+                if (is_dir($log_dir)) {
+                    $files = glob($log_dir . '/visits-*.log');
+                    $pending_files = $files ? count($files) - 1 : 0; // -1 for today's file
+                    $pending_files = max(0, $pending_files);
+                }
+                $next_cron = wp_next_scheduled('baskerville_process_log_files');
+            ?>
+            <div class="notice notice-info inline" style="margin: 20px 0; padding: 15px;">
+                <h3 style="margin-top: 0;">
+                    <span class="dashicons dashicons-database-import"></span>
+                    <?php esc_html_e('Log File Import Status', 'baskerville'); ?>
+                </h3>
+                <p>
+                    <strong><?php esc_html_e('Logging Mode:', 'baskerville'); ?></strong> File logging (for performance)<br>
+                    <strong><?php esc_html_e('Pending log files:', 'baskerville'); ?></strong> <?php echo esc_html($pending_files); ?><br>
+                    <?php if ($next_cron): ?>
+                        <strong><?php esc_html_e('Next auto-import:', 'baskerville'); ?></strong> <?php echo esc_html(human_time_diff($next_cron, time()) . ' from now'); ?><br>
+                    <?php else: ?>
+                        <strong style="color: #d63638;"><?php esc_html_e('⚠️ Auto-import not scheduled! Logs won\'t be imported automatically.', 'baskerville'); ?></strong><br>
+                    <?php endif; ?>
+                </p>
+                <button type="button" class="button button-primary" id="import-logs-now">
+                    <?php esc_html_e('Import Logs Now', 'baskerville'); ?>
+                </button>
+                <span id="import-logs-result" style="margin-left: 10px;"></span>
+            </div>
+            <?php endif; ?>
 
             <!-- Charts Section -->
             <?php
             // Try to get timeseries data with error handling
             try {
                 $timeseries = $this->get_timeseries_data($stats['hours']);
+                $ts_count = is_array($timeseries) ? count($timeseries) : 0;
                 ?>
+                <!-- Debug: hours=<?php echo esc_html($stats['hours']); ?>, timeseries_count=<?php echo esc_html($ts_count); ?> -->
                 <div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
                     <div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                         <canvas id="baskervilleHumAutoBar"></canvas>
@@ -1636,30 +1734,36 @@ class Baskerville_Admin {
                         <canvas id="baskervilleHumAutoPie"></canvas>
                     </div>
                 </div>
-            <?php
-            } catch (Exception $e) {
-                echo '<div class="notice notice-error"><p>Charts Error: ' . esc_html($e->getMessage()) . '</p></div>';
-            }
-            ?>
-        </div>
 
-        <?php if (isset($timeseries) && !empty($timeseries)): ?>
-        <!-- Chart.js Library -->
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+                <?php if (is_array($timeseries)): ?>
+                <?php // phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Chart.js is enqueued but inline load ensures availability ?>
+                <script src="<?php echo esc_url(plugins_url('baskerville/assets/js/chart.min.js')); ?>"></script>
 
-        <script>
+                <script>
+        console.log('Chart script loading...');
         // Wait for Chart.js to load
         (function waitForChart() {
             if (typeof Chart === 'undefined') {
+                console.log('Chart.js not loaded yet, waiting...');
                 setTimeout(waitForChart, 100);
                 return;
             }
 
+            console.log('Chart.js loaded successfully!');
             const timeseries = <?php echo wp_json_encode($timeseries); ?>;
-            const hours = <?php echo $stats['hours']; ?>;
+            const hours = <?php echo absint($stats['hours']); ?>;
 
             console.log('Timeseries data:', timeseries);
+            console.log('Timeseries length:', timeseries ? timeseries.length : 0);
             console.log('Hours:', hours);
+
+            // Check if we have data
+            if (!timeseries || timeseries.length === 0) {
+                console.log('No timeseries data available');
+                document.getElementById('baskervilleHumAutoBar').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">No data available for the selected period</p>';
+                document.getElementById('baskervilleHumAutoPie').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">No data available</p>';
+                return;
+            }
 
             // Format time for labels
             function fmtHHMM(timeStr) {
@@ -1679,6 +1783,8 @@ class Baskerville_Admin {
             // Totals for pie chart
             const totalHumans = humans.reduce((a,b) => a+b, 0);
             const totalAutomated = automated.reduce((a,b) => a+b, 0);
+
+            console.log('Total humans:', totalHumans, 'Total automated:', totalAutomated);
 
             // 1) Stacked Bar: Humans vs Automated
             const barCtx = document.getElementById('baskervilleHumAutoBar').getContext('2d');
@@ -1760,6 +1866,13 @@ class Baskerville_Admin {
         </script>
         <?php endif; ?>
         <?php
+            } catch (Exception $e) {
+                echo '<div class="notice notice-error"><p>Charts Error: ' . esc_html($e->getMessage()) . '</p></div>';
+            }
+            ?>
+        </div>
+
+        <?php
     }
 
     public function ajax_install_maxmind() {
@@ -1790,6 +1903,7 @@ class Baskerville_Admin {
         $cleared = $core->fc_clear_geoip_cache();
 
         wp_send_json_success(array(
+            /* translators: %d is the number of cache entries cleared */
             'message' => sprintf(__('Cleared %d GeoIP cache entries', 'baskerville'), $cleared),
             'cleared' => $cleared
         ));
@@ -1797,7 +1911,8 @@ class Baskerville_Admin {
 
     private function render_geoip_test_tab() {
         // Always use current IP
-        $current_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for display only
+        $current_ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
         $results = null;
         $error = null;
 
@@ -1908,34 +2023,34 @@ class Baskerville_Admin {
 
         <div class="geoip-test-container">
             <div class="geoip-test-form">
-                <h2><?php _e('GeoIP Configuration Status', 'baskerville'); ?></h2>
-                <p><?php _e('This page shows which GeoIP sources are configured and working for your server.', 'baskerville'); ?></p>
+                <h2><?php esc_html_e('GeoIP Configuration Status', 'baskerville'); ?></h2>
+                <p><?php esc_html_e('This page shows which GeoIP sources are configured and working for your server.', 'baskerville'); ?></p>
             </div>
 
             <?php if ($error): ?>
                 <div style="background: #ffebee; border-left: 4px solid #d32f2f; padding: 20px; margin-top: 20px;">
-                    <h3 style="color: #d32f2f; margin-top: 0;">❌ <?php _e('Error', 'baskerville'); ?></h3>
-                    <p><strong><?php _e('Critical error occurred:', 'baskerville'); ?></strong></p>
+                    <h3 style="color: #d32f2f; margin-top: 0;">❌ <?php esc_html_e('Error', 'baskerville'); ?></h3>
+                    <p><strong><?php esc_html_e('Critical error occurred:', 'baskerville'); ?></strong></p>
                     <pre style="background: #fff; padding: 15px; border: 1px solid #ddd; overflow-x: auto; font-size: 12px;"><?php echo esc_html($error); ?></pre>
                     <p style="margin-bottom: 0;">
-                        <small><?php _e('Please report this error to plugin support.', 'baskerville'); ?></small>
+                        <small><?php esc_html_e('Please report this error to plugin support.', 'baskerville'); ?></small>
                     </p>
                 </div>
             <?php elseif ($results): ?>
                 <div class="geoip-info-box">
-                    <strong><?php _e('Your IP:', 'baskerville'); ?></strong> <code><?php echo esc_html($current_ip); ?></code>
-                    <br><strong><?php _e('Priority order:', 'baskerville'); ?></strong> NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → MaxMind
+                    <strong><?php esc_html_e('Your IP:', 'baskerville'); ?></strong> <code><?php echo esc_html($current_ip); ?></code>
+                    <br><strong><?php esc_html_e('Priority order:', 'baskerville'); ?></strong> NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → MaxMind
                 </div>
 
                 <div class="geoip-results">
-                    <h2><?php _e('GeoIP Test Results', 'baskerville'); ?></h2>
+                    <h2><?php esc_html_e('GeoIP Test Results', 'baskerville'); ?></h2>
 
                     <!-- NGINX GeoIP2 -->
                     <div class="geoip-source <?php echo $results['nginx_geoip2'] ? 'available' : 'unavailable'; ?>">
                         <div class="geoip-status-icon"><?php echo $results['nginx_geoip2'] ? '✅' : '❌'; ?></div>
                         <div class="geoip-source-name">NGINX GeoIP2</div>
                         <div class="geoip-source-result <?php echo $results['nginx_geoip2'] ? 'available' : 'unavailable'; ?>">
-                            <?php echo $results['nginx_geoip2'] ? esc_html($results['nginx_geoip2']) : __('Not configured', 'baskerville'); ?>
+                            <?php echo $results['nginx_geoip2'] ? esc_html($results['nginx_geoip2']) : esc_html__('Not configured', 'baskerville'); ?>
                         </div>
                     </div>
 
@@ -1944,7 +2059,7 @@ class Baskerville_Admin {
                         <div class="geoip-status-icon"><?php echo $results['nginx_geoip_legacy'] ? '✅' : '❌'; ?></div>
                         <div class="geoip-source-name">NGINX GeoIP (legacy)</div>
                         <div class="geoip-source-result <?php echo $results['nginx_geoip_legacy'] ? 'available' : 'unavailable'; ?>">
-                            <?php echo $results['nginx_geoip_legacy'] ? esc_html($results['nginx_geoip_legacy']) : __('Not configured', 'baskerville'); ?>
+                            <?php echo $results['nginx_geoip_legacy'] ? esc_html($results['nginx_geoip_legacy']) : esc_html__('Not configured', 'baskerville'); ?>
                         </div>
                     </div>
 
@@ -1953,7 +2068,7 @@ class Baskerville_Admin {
                         <div class="geoip-status-icon"><?php echo $results['nginx_custom_header'] ? '✅' : '❌'; ?></div>
                         <div class="geoip-source-name">NGINX Custom Header</div>
                         <div class="geoip-source-result <?php echo $results['nginx_custom_header'] ? 'available' : 'unavailable'; ?>">
-                            <?php echo $results['nginx_custom_header'] ? esc_html($results['nginx_custom_header']) : __('Not configured', 'baskerville'); ?>
+                            <?php echo $results['nginx_custom_header'] ? esc_html($results['nginx_custom_header']) : esc_html__('Not configured', 'baskerville'); ?>
                         </div>
                     </div>
 
@@ -1962,7 +2077,7 @@ class Baskerville_Admin {
                         <div class="geoip-status-icon"><?php echo $results['cloudflare'] ? '✅' : '❌'; ?></div>
                         <div class="geoip-source-name">Cloudflare</div>
                         <div class="geoip-source-result <?php echo $results['cloudflare'] ? 'available' : 'unavailable'; ?>">
-                            <?php echo $results['cloudflare'] ? esc_html($results['cloudflare']) : __('Not available', 'baskerville'); ?>
+                            <?php echo $results['cloudflare'] ? esc_html($results['cloudflare']) : esc_html__('Not available', 'baskerville'); ?>
                         </div>
                     </div>
 
@@ -1975,7 +2090,7 @@ class Baskerville_Admin {
                             if ($results['maxmind']) {
                                 echo esc_html($results['maxmind']);
                             } else {
-                                echo __('Database not found or not configured', 'baskerville');
+                                echo esc_html__('Database not found or not configured', 'baskerville');
                             }
                             ?>
                         </div>
@@ -1985,7 +2100,7 @@ class Baskerville_Admin {
                 <!-- MaxMind Debug Information -->
                 <?php if (isset($results['maxmind_debug'])): ?>
                 <div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-top: 20px;">
-                    <h3><?php _e('MaxMind Debug Information', 'baskerville'); ?></h3>
+                    <h3><?php esc_html_e('MaxMind Debug Information', 'baskerville'); ?></h3>
                     <table style="width: 100%; border-collapse: collapse; font-family: monospace; font-size: 13px;">
                         <tr style="border-bottom: 1px solid #ddd;">
                             <td style="padding: 8px; font-weight: bold; width: 200px;">Expected DB Path:</td>
@@ -2064,34 +2179,34 @@ class Baskerville_Admin {
                     if (!$results['maxmind_debug']['file_exists']):
                     ?>
                         <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
-                            <strong>⚠️ <?php _e('Database file not found!', 'baskerville'); ?></strong><br>
-                            <?php _e('Please upload GeoLite2-Country.mmdb to:', 'baskerville'); ?><br>
+                            <strong>⚠️ <?php esc_html_e('Database file not found!', 'baskerville'); ?></strong><br>
+                            <?php esc_html_e('Please upload GeoLite2-Country.mmdb to:', 'baskerville'); ?><br>
                             <code style="display: block; margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd;">
                                 <?php echo esc_html($results['maxmind_debug']['expected_path']); ?>
                             </code>
-                            <strong><?php _e('Download from:', 'baskerville'); ?></strong>
+                            <strong><?php esc_html_e('Download from:', 'baskerville'); ?></strong>
                             <a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank">MaxMind GeoLite2</a>
                         </div>
                     <?php elseif (!$results['maxmind_debug']['is_readable']): ?>
                         <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
-                            <strong>⚠️ <?php _e('Database file exists but is not readable!', 'baskerville'); ?></strong><br>
-                            <?php _e('Check file permissions. Try:', 'baskerville'); ?><br>
+                            <strong>⚠️ <?php esc_html_e('Database file exists but is not readable!', 'baskerville'); ?></strong><br>
+                            <?php esc_html_e('Check file permissions. Try:', 'baskerville'); ?><br>
                             <code style="display: block; margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd;">
                                 chmod 644 <?php echo esc_html($results['maxmind_debug']['expected_path']); ?>
                             </code>
                         </div>
                     <?php elseif (!$results['maxmind_debug']['autoload_exists']): ?>
                         <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
-                            <strong>⚠️ <?php _e('MaxMind PHP library not installed!', 'baskerville'); ?></strong><br>
-                            <?php _e('Click the button below to install automatically (no Composer required):', 'baskerville'); ?><br>
+                            <strong>⚠️ <?php esc_html_e('MaxMind PHP library not installed!', 'baskerville'); ?></strong><br>
+                            <?php esc_html_e('Click the button below to install automatically (no Composer required):', 'baskerville'); ?><br>
 
                             <button id="baskerville-install-maxmind" class="button button-primary" style="margin-top: 15px;">
-                                <?php _e('Install MaxMind Library', 'baskerville'); ?>
+                                <?php esc_html_e('Install MaxMind Library', 'baskerville'); ?>
                             </button>
                             <span id="baskerville-install-status" style="margin-left: 10px;"></span>
 
                             <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
-                                <small><strong><?php _e('Or install manually with Composer:', 'baskerville'); ?></strong></small><br>
+                                <small><strong><?php esc_html_e('Or install manually with Composer:', 'baskerville'); ?></strong></small><br>
                                 <code style="display: block; margin: 5px 0; padding: 10px; background: #fff; border: 1px solid #ddd; font-size: 11px;">
                                     cd <?php echo esc_html(BASKERVILLE_PLUGIN_PATH); ?><br>
                                     composer require geoip2/geoip2
@@ -2106,15 +2221,15 @@ class Baskerville_Admin {
                                 var $btn = $(this);
                                 var $status = $('#baskerville-install-status');
 
-                                $btn.prop('disabled', true).text('<?php _e('Installing...', 'baskerville'); ?>');
-                                $status.html('<span style="color: #666;">⏳ <?php _e('Downloading and installing library...', 'baskerville'); ?></span>');
+                                $btn.prop('disabled', true).text('<?php esc_html_e('Installing...', 'baskerville'); ?>');
+                                $status.html('<span style="color: #666;">⏳ <?php esc_html_e('Downloading and installing library...', 'baskerville'); ?></span>');
 
                                 $.ajax({
                                     url: ajaxurl,
                                     type: 'POST',
                                     data: {
                                         action: 'baskerville_install_maxmind',
-                                        nonce: '<?php echo wp_create_nonce('baskerville_install_maxmind'); ?>'
+                                        nonce: '<?php echo esc_js(wp_create_nonce('baskerville_install_maxmind')); ?>'
                                     },
                                     success: function(response) {
                                         if (response.success) {
@@ -2132,12 +2247,12 @@ class Baskerville_Admin {
                                             }
 
                                             $status.html(errorHtml);
-                                            $btn.prop('disabled', false).text('<?php _e('Retry Installation', 'baskerville'); ?>');
+                                            $btn.prop('disabled', false).text('<?php esc_html_e('Retry Installation', 'baskerville'); ?>');
                                         }
                                     },
                                     error: function() {
-                                        $status.html('<span style="color: #d32f2f;">✗ <?php _e('Installation failed. Please try again.', 'baskerville'); ?></span>');
-                                        $btn.prop('disabled', false).text('<?php _e('Install MaxMind Library', 'baskerville'); ?>');
+                                        $status.html('<span style="color: #d32f2f;">✗ <?php esc_html_e('Installation failed. Please try again.', 'baskerville'); ?></span>');
+                                        $btn.prop('disabled', false).text('<?php esc_html_e('Install MaxMind Library', 'baskerville'); ?>');
                                     }
                                 });
                             });
@@ -2145,8 +2260,8 @@ class Baskerville_Admin {
                         </script>
                     <?php elseif ($results['maxmind_debug']['file_size'] == 0): ?>
                         <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
-                            <strong>⚠️ <?php _e('Database file is empty (0 bytes)!', 'baskerville'); ?></strong><br>
-                            <?php _e('The file exists but has no data. Please re-download and upload the database.', 'baskerville'); ?>
+                            <strong>⚠️ <?php esc_html_e('Database file is empty (0 bytes)!', 'baskerville'); ?></strong><br>
+                            <?php esc_html_e('The file exists but has no data. Please re-download and upload the database.', 'baskerville'); ?>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -2175,22 +2290,22 @@ class Baskerville_Admin {
                 ?>
 
                 <div class="geoip-info-box" style="margin-top: 20px; background: #d4edda; border-left-color: #28a745;">
-                    <strong><?php _e('Active Source:', 'baskerville'); ?></strong>
-                    <?php echo $active_source ? esc_html($active_source) : __('None available', 'baskerville'); ?>
+                    <strong><?php esc_html_e('Active Source:', 'baskerville'); ?></strong>
+                    <?php echo $active_source ? esc_html($active_source) : esc_html__('None available', 'baskerville'); ?>
                     <?php if ($active_country): ?>
-                        <br><strong><?php _e('Country Code:', 'baskerville'); ?></strong>
+                        <br><strong><?php esc_html_e('Country Code:', 'baskerville'); ?></strong>
                         <span style="font-size: 16px; font-weight: bold; color: #155724;"><?php echo esc_html($active_country); ?></span>
                     <?php endif; ?>
                 </div>
 
                 <!-- Clear GeoIP Cache Button -->
                 <div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-top: 20px;">
-                    <h3><?php _e('GeoIP Cache Management', 'baskerville'); ?></h3>
-                    <p><?php _e('If you are using a VPN or your IP location has changed, you may need to clear the GeoIP cache to see the updated country detection.', 'baskerville'); ?></p>
-                    <p><?php _e('Cache TTL: 7 days', 'baskerville'); ?></p>
+                    <h3><?php esc_html_e('GeoIP Cache Management', 'baskerville'); ?></h3>
+                    <p><?php esc_html_e('If you are using a VPN or your IP location has changed, you may need to clear the GeoIP cache to see the updated country detection.', 'baskerville'); ?></p>
+                    <p><?php esc_html_e('Cache TTL: 7 days', 'baskerville'); ?></p>
 
                     <button id="baskerville-clear-geoip-cache" class="button button-secondary" style="margin-top: 10px;">
-                        🗑️ <?php _e('Clear GeoIP Cache', 'baskerville'); ?>
+                        🗑️ <?php esc_html_e('Clear GeoIP Cache', 'baskerville'); ?>
                     </button>
                     <span id="baskerville-clear-cache-status" style="margin-left: 10px;"></span>
                 </div>
@@ -2202,32 +2317,32 @@ class Baskerville_Admin {
                         var $btn = $(this);
                         var $status = $('#baskerville-clear-cache-status');
 
-                        $btn.prop('disabled', true).text('<?php _e('Clearing...', 'baskerville'); ?>');
-                        $status.html('<span style="color: #666;">⏳ <?php _e('Clearing cache...', 'baskerville'); ?></span>');
+                        $btn.prop('disabled', true).text('<?php esc_html_e('Clearing...', 'baskerville'); ?>');
+                        $status.html('<span style="color: #666;">⏳ <?php esc_html_e('Clearing cache...', 'baskerville'); ?></span>');
 
                         $.ajax({
                             url: ajaxurl,
                             type: 'POST',
                             data: {
                                 action: 'baskerville_clear_geoip_cache',
-                                nonce: '<?php echo wp_create_nonce('baskerville_clear_geoip_cache'); ?>'
+                                nonce: '<?php echo esc_js(wp_create_nonce('baskerville_clear_geoip_cache')); ?>'
                             },
                             success: function(response) {
                                 if (response.success) {
                                     $status.html('<span style="color: #2e7d32; font-weight: bold;">✓ ' + response.data.message + '</span>');
-                                    $btn.text('🗑️ <?php _e('Clear GeoIP Cache', 'baskerville'); ?>');
+                                    $btn.text('🗑️ <?php esc_html_e('Clear GeoIP Cache', 'baskerville'); ?>');
                                     setTimeout(function() {
                                         location.reload();
                                     }, 1500);
                                 } else {
                                     var errorMsg = response.data.message || 'Failed to clear cache';
                                     $status.html('<span style="color: #d32f2f;">✗ ' + errorMsg + '</span>');
-                                    $btn.prop('disabled', false).text('🗑️ <?php _e('Clear GeoIP Cache', 'baskerville'); ?>');
+                                    $btn.prop('disabled', false).text('🗑️ <?php esc_html_e('Clear GeoIP Cache', 'baskerville'); ?>');
                                 }
                             },
                             error: function() {
-                                $status.html('<span style="color: #d32f2f;">✗ <?php _e('Failed to clear cache. Please try again.', 'baskerville'); ?></span>');
-                                $btn.prop('disabled', false).text('🗑️ <?php _e('Clear GeoIP Cache', 'baskerville'); ?>');
+                                $status.html('<span style="color: #d32f2f;">✗ <?php esc_html_e('Failed to clear cache. Please try again.', 'baskerville'); ?></span>');
+                                $btn.prop('disabled', false).text('🗑️ <?php esc_html_e('Clear GeoIP Cache', 'baskerville'); ?>');
                             }
                         });
                     });
@@ -2240,7 +2355,8 @@ class Baskerville_Admin {
 
     public function admin_page() {
         // Get current tab
-        $current_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'overview';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Tab parameter for navigation
+        $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'overview';
         ?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
@@ -2249,27 +2365,27 @@ class Baskerville_Admin {
             <h2 class="nav-tab-wrapper">
                 <a href="?page=baskerville-settings&tab=overview"
                    class="nav-tab <?php echo $current_tab === 'overview' ? 'nav-tab-active' : ''; ?>">
-                    <?php _e('Overview', 'baskerville'); ?>
+                    <?php esc_html_e('Overview', 'baskerville'); ?>
                 </a>
                 <a href="?page=baskerville-settings&tab=countries"
                    class="nav-tab <?php echo $current_tab === 'countries' ? 'nav-tab-active' : ''; ?>">
-                    <?php _e('Countries', 'baskerville'); ?>
+                    <?php esc_html_e('Countries', 'baskerville'); ?>
                 </a>
                 <a href="?page=baskerville-settings&tab=settings"
                    class="nav-tab <?php echo $current_tab === 'settings' ? 'nav-tab-active' : ''; ?>">
-                    <?php _e('Settings', 'baskerville'); ?>
+                    <?php esc_html_e('Settings', 'baskerville'); ?>
                 </a>
                 <a href="?page=baskerville-settings&tab=ip-whitelist"
                    class="nav-tab <?php echo $current_tab === 'ip-whitelist' ? 'nav-tab-active' : ''; ?>">
-                    <?php _e('IP Whitelist', 'baskerville'); ?>
+                    <?php esc_html_e('IP Whitelist', 'baskerville'); ?>
                 </a>
                 <a href="?page=baskerville-settings&tab=geoip-test"
                    class="nav-tab <?php echo $current_tab === 'geoip-test' ? 'nav-tab-active' : ''; ?>">
-                    <?php _e('GeoIP Test', 'baskerville'); ?>
+                    <?php esc_html_e('GeoIP Test', 'baskerville'); ?>
                 </a>
                 <a href="?page=baskerville-settings&tab=performance"
                    class="nav-tab <?php echo $current_tab === 'performance' ? 'nav-tab-active' : ''; ?>">
-                    <?php _e('Performance', 'baskerville'); ?>
+                    <?php esc_html_e('Performance', 'baskerville'); ?>
                 </a>
             </h2>
 
@@ -2361,14 +2477,15 @@ class Baskerville_Admin {
     /* ===== IP Whitelist Tab ===== */
     private function render_ip_whitelist_tab() {
         $whitelist = get_option('baskerville_ip_whitelist', '');
-        $current_ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for display only
+        $current_ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : 'unknown';
         $ips_array = array_filter(preg_split('~[\s,]+~', $whitelist));
 
         // Handle form submission
         if (isset($_POST['baskerville_save_whitelist']) && check_admin_referer('baskerville_whitelist_save', 'baskerville_whitelist_nonce')) {
-            $new_whitelist = sanitize_textarea_field($_POST['baskerville_ip_whitelist'] ?? '');
+            $new_whitelist = isset($_POST['baskerville_ip_whitelist']) ? sanitize_textarea_field(wp_unslash($_POST['baskerville_ip_whitelist'])) : '';
             update_option('baskerville_ip_whitelist', $new_whitelist);
-            echo '<div class="notice notice-success"><p>' . __('IP Whitelist saved successfully!', 'baskerville') . '</p></div>';
+            echo '<div class="notice notice-success"><p>' . esc_html__('IP Whitelist saved successfully!', 'baskerville') . '</p></div>';
             $whitelist = $new_whitelist;
             $ips_array = array_filter(preg_split('~[\s,]+~', $whitelist));
         }
@@ -2380,33 +2497,35 @@ class Baskerville_Admin {
                 $current_ips[] = $current_ip;
                 $new_whitelist = implode("\n", $current_ips);
                 update_option('baskerville_ip_whitelist', $new_whitelist);
-                echo '<div class="notice notice-success"><p>' . sprintf(__('Added %s to whitelist!', 'baskerville'), esc_html($current_ip)) . '</p></div>';
+                /* translators: %s is the IP address added to whitelist */
+                echo '<div class="notice notice-success"><p>' . sprintf(esc_html__('Added %s to whitelist!', 'baskerville'), esc_html($current_ip)) . '</p></div>';
                 $whitelist = $new_whitelist;
                 $ips_array = $current_ips;
             } else {
-                echo '<div class="notice notice-info"><p>' . sprintf(__('%s is already in the whitelist.', 'baskerville'), esc_html($current_ip)) . '</p></div>';
+                /* translators: %s is the IP address already in whitelist */
+                echo '<div class="notice notice-info"><p>' . sprintf(esc_html__('%s is already in the whitelist.', 'baskerville'), esc_html($current_ip)) . '</p></div>';
             }
         }
         ?>
         <div class="baskerville-whitelist-tab">
-            <h2><?php _e('IP Whitelist', 'baskerville'); ?></h2>
+            <h2><?php esc_html_e('IP Whitelist', 'baskerville'); ?></h2>
 
             <div class="card" style="max-width: 800px; margin: 20px 0;">
-                <p><?php _e('Whitelisted IP addresses bypass all firewall checks and will never be blocked by Baskerville.', 'baskerville'); ?></p>
+                <p><?php esc_html_e('Whitelisted IP addresses bypass all firewall checks and will never be blocked by Baskerville.', 'baskerville'); ?></p>
 
                 <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
-                    <strong><?php _e('Your Current IP:', 'baskerville'); ?></strong>
+                    <strong><?php esc_html_e('Your Current IP:', 'baskerville'); ?></strong>
                     <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px; font-size: 14px;"><?php echo esc_html($current_ip); ?></code>
 
                     <?php if (!in_array($current_ip, $ips_array, true) && $current_ip !== 'unknown'): ?>
                         <form method="post" style="display: inline-block; margin-left: 10px;">
                             <?php wp_nonce_field('baskerville_whitelist_quick_add', 'baskerville_whitelist_quick_nonce'); ?>
                             <button type="submit" name="baskerville_quick_add_ip" class="button button-secondary" style="vertical-align: middle;">
-                                ➕ <?php _e('Add My IP', 'baskerville'); ?>
+                                ➕ <?php esc_html_e('Add My IP', 'baskerville'); ?>
                             </button>
                         </form>
                     <?php else: ?>
-                        <span style="color: #46b450; margin-left: 10px;">✅ <?php _e('Already whitelisted', 'baskerville'); ?></span>
+                        <span style="color: #46b450; margin-left: 10px;">✅ <?php esc_html_e('Already whitelisted', 'baskerville'); ?></span>
                     <?php endif; ?>
                 </div>
 
@@ -2416,7 +2535,7 @@ class Baskerville_Admin {
                     <table class="form-table">
                         <tr>
                             <th scope="row">
-                                <label for="baskerville_ip_whitelist"><?php _e('Whitelisted IPs', 'baskerville'); ?></label>
+                                <label for="baskerville_ip_whitelist"><?php esc_html_e('Whitelisted IPs', 'baskerville'); ?></label>
                             </th>
                             <td>
                                 <textarea
@@ -2428,8 +2547,8 @@ class Baskerville_Admin {
                                 ><?php echo esc_textarea($whitelist); ?></textarea>
 
                                 <p class="description">
-                                    <?php _e('Enter one IP address per line. You can also separate IPs with commas or spaces.', 'baskerville'); ?><br>
-                                    <strong><?php _e('Supported formats:', 'baskerville'); ?></strong><br>
+                                    <?php esc_html_e('Enter one IP address per line. You can also separate IPs with commas or spaces.', 'baskerville'); ?><br>
+                                    <strong><?php esc_html_e('Supported formats:', 'baskerville'); ?></strong><br>
                                     • IPv4: <code>192.168.1.1</code><br>
                                     • IPv6: <code>2001:0db8:85a3::8a2e:0370:7334</code><br>
                                     • Multiple per line: <code>1.2.3.4, 5.6.7.8</code>
@@ -2444,12 +2563,12 @@ class Baskerville_Admin {
 
             <?php if (!empty($ips_array)): ?>
             <div class="card" style="max-width: 800px; margin: 20px 0;">
-                <h3><?php _e('Currently Whitelisted IPs', 'baskerville'); ?> (<?php echo count($ips_array); ?>)</h3>
+                <h3><?php esc_html_e('Currently Whitelisted IPs', 'baskerville'); ?> (<?php echo count($ips_array); ?>)</h3>
                 <table class="widefat striped" style="margin-top: 10px;">
                     <thead>
                         <tr>
-                            <th><?php _e('IP Address', 'baskerville'); ?></th>
-                            <th><?php _e('Status', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('IP Address', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Status', 'baskerville'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2458,16 +2577,16 @@ class Baskerville_Admin {
                             <td>
                                 <code style="font-size: 13px;"><?php echo esc_html($ip); ?></code>
                                 <?php if ($ip === $current_ip): ?>
-                                    <span style="color: #2271b1; font-weight: bold;"> (<?php _e('Your IP', 'baskerville'); ?>)</span>
+                                    <span style="color: #2271b1; font-weight: bold;"> (<?php esc_html_e('Your IP', 'baskerville'); ?>)</span>
                                 <?php endif; ?>
                             </td>
                             <td>
                                 <?php if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)): ?>
-                                    <span style="color: #46b450;">✓ <?php _e('Valid IPv4', 'baskerville'); ?></span>
+                                    <span style="color: #46b450;">✓ <?php esc_html_e('Valid IPv4', 'baskerville'); ?></span>
                                 <?php elseif (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)): ?>
-                                    <span style="color: #46b450;">✓ <?php _e('Valid IPv6', 'baskerville'); ?></span>
+                                    <span style="color: #46b450;">✓ <?php esc_html_e('Valid IPv6', 'baskerville'); ?></span>
                                 <?php else: ?>
-                                    <span style="color: #d63638;">✗ <?php _e('Invalid IP', 'baskerville'); ?></span>
+                                    <span style="color: #d63638;">✗ <?php esc_html_e('Invalid IP', 'baskerville'); ?></span>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -2478,18 +2597,18 @@ class Baskerville_Admin {
             <?php endif; ?>
 
             <div class="card" style="max-width: 800px; margin: 20px 0;">
-                <h3><?php _e('Use Cases', 'baskerville'); ?></h3>
+                <h3><?php esc_html_e('Use Cases', 'baskerville'); ?></h3>
                 <ul style="line-height: 1.8;">
-                    <li><strong><?php _e('Load Testing:', 'baskerville'); ?></strong> <?php _e('Add your server IP to run Apache Bench or similar tools', 'baskerville'); ?></li>
-                    <li><strong><?php _e('Office Network:', 'baskerville'); ?></strong> <?php _e('Whitelist your company IP to ensure team members never get blocked', 'baskerville'); ?></li>
-                    <li><strong><?php _e('Development:', 'baskerville'); ?></strong> <?php _e('Add localhost (127.0.0.1) if testing locally', 'baskerville'); ?></li>
-                    <li><strong><?php _e('Monitoring Services:', 'baskerville'); ?></strong> <?php _e('Whitelist uptime monitors or site crawlers', 'baskerville'); ?></li>
-                    <li><strong><?php _e('API Clients:', 'baskerville'); ?></strong> <?php _e('Add IPs of your API consumers', 'baskerville'); ?></li>
+                    <li><strong><?php esc_html_e('Load Testing:', 'baskerville'); ?></strong> <?php esc_html_e('Add your server IP to run Apache Bench or similar tools', 'baskerville'); ?></li>
+                    <li><strong><?php esc_html_e('Office Network:', 'baskerville'); ?></strong> <?php esc_html_e('Whitelist your company IP to ensure team members never get blocked', 'baskerville'); ?></li>
+                    <li><strong><?php esc_html_e('Development:', 'baskerville'); ?></strong> <?php esc_html_e('Add localhost (127.0.0.1) if testing locally', 'baskerville'); ?></li>
+                    <li><strong><?php esc_html_e('Monitoring Services:', 'baskerville'); ?></strong> <?php esc_html_e('Whitelist uptime monitors or site crawlers', 'baskerville'); ?></li>
+                    <li><strong><?php esc_html_e('API Clients:', 'baskerville'); ?></strong> <?php esc_html_e('Add IPs of your API consumers', 'baskerville'); ?></li>
                 </ul>
 
                 <div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 12px; margin-top: 15px;">
-                    <strong>💡 <?php _e('Tip:', 'baskerville'); ?></strong>
-                    <?php _e('Whitelisted IPs completely bypass the firewall. For better security, consider using GeoIP whitelist or verified crawler detection instead when possible.', 'baskerville'); ?>
+                    <strong>💡 <?php esc_html_e('Tip:', 'baskerville'); ?></strong>
+                    <?php esc_html_e('Whitelisted IPs completely bypass the firewall. For better security, consider using GeoIP whitelist or verified crawler detection instead when possible.', 'baskerville'); ?>
                 </div>
             </div>
         </div>
@@ -2500,67 +2619,67 @@ class Baskerville_Admin {
     private function render_performance_tab() {
         ?>
         <div class="baskerville-performance-tab">
-            <h2><?php _e('Performance Benchmarks', 'baskerville'); ?></h2>
+            <h2><?php esc_html_e('Performance Benchmarks', 'baskerville'); ?></h2>
 
             <div class="card" style="max-width: 800px; margin: 20px 0;">
-                <h3><?php _e('Internal Benchmarks', 'baskerville'); ?></h3>
-                <p><?php _e('Run internal performance tests to measure the overhead of various Baskerville operations.', 'baskerville'); ?></p>
+                <h3><?php esc_html_e('Internal Benchmarks', 'baskerville'); ?></h3>
+                <p><?php esc_html_e('Run internal performance tests to measure the overhead of various Baskerville operations.', 'baskerville'); ?></p>
 
                 <table class="widefat" style="margin-top: 15px;">
                     <thead>
                         <tr>
-                            <th><?php _e('Test', 'baskerville'); ?></th>
-                            <th><?php _e('Description', 'baskerville'); ?></th>
-                            <th><?php _e('Action', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Test', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Description', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Action', 'baskerville'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><strong><?php _e('GeoIP Lookup', 'baskerville'); ?></strong></td>
-                            <td><?php _e('Measure time to perform 100 GeoIP lookups', 'baskerville'); ?></td>
+                            <td><strong><?php esc_html_e('GeoIP Lookup', 'baskerville'); ?></strong></td>
+                            <td><?php esc_html_e('Measure time to perform 100 GeoIP lookups', 'baskerville'); ?></td>
                             <td>
                                 <button type="button" class="button benchmark-btn" data-test="geoip">
-                                    <?php _e('Run Test', 'baskerville'); ?>
+                                    <?php esc_html_e('Run Test', 'baskerville'); ?>
                                 </button>
                                 <span class="benchmark-result" data-test="geoip"></span>
                             </td>
                         </tr>
                         <tr>
-                            <td><strong><?php _e('AI/UA Classification', 'baskerville'); ?></strong></td>
-                            <td><?php _e('Measure time to classify 100 user agents', 'baskerville'); ?></td>
+                            <td><strong><?php esc_html_e('AI/UA Classification', 'baskerville'); ?></strong></td>
+                            <td><?php esc_html_e('Measure time to classify 100 user agents', 'baskerville'); ?></td>
                             <td>
                                 <button type="button" class="button benchmark-btn" data-test="ai-ua">
-                                    <?php _e('Run Test', 'baskerville'); ?>
+                                    <?php esc_html_e('Run Test', 'baskerville'); ?>
                                 </button>
                                 <span class="benchmark-result" data-test="ai-ua"></span>
                             </td>
                         </tr>
                         <tr>
-                            <td><strong><?php _e('Cache Operations', 'baskerville'); ?></strong></td>
-                            <td><?php _e('Measure cache set/get performance (APCu: 1000 ops, File: 100 ops)', 'baskerville'); ?></td>
+                            <td><strong><?php esc_html_e('Cache Operations', 'baskerville'); ?></strong></td>
+                            <td><?php esc_html_e('Measure cache set/get performance (APCu: 1000 ops, File: 100 ops)', 'baskerville'); ?></td>
                             <td>
                                 <button type="button" class="button benchmark-btn" data-test="cache">
-                                    <?php _e('Run Test', 'baskerville'); ?>
+                                    <?php esc_html_e('Run Test', 'baskerville'); ?>
                                 </button>
                                 <span class="benchmark-result" data-test="cache"></span>
                             </td>
                         </tr>
                         <tr>
-                            <td><strong><?php _e('Full Firewall Check', 'baskerville'); ?></strong></td>
-                            <td><?php _e('Simulate 100 complete firewall checks', 'baskerville'); ?></td>
+                            <td><strong><?php esc_html_e('Full Firewall Check', 'baskerville'); ?></strong></td>
+                            <td><?php esc_html_e('Simulate 100 complete firewall checks', 'baskerville'); ?></td>
                             <td>
                                 <button type="button" class="button benchmark-btn" data-test="firewall">
-                                    <?php _e('Run Test', 'baskerville'); ?>
+                                    <?php esc_html_e('Run Test', 'baskerville'); ?>
                                 </button>
                                 <span class="benchmark-result" data-test="firewall"></span>
                             </td>
                         </tr>
                         <tr>
-                            <td><strong><?php _e('Run All Tests', 'baskerville'); ?></strong></td>
-                            <td><?php _e('Execute all benchmarks sequentially', 'baskerville'); ?></td>
+                            <td><strong><?php esc_html_e('Run All Tests', 'baskerville'); ?></strong></td>
+                            <td><?php esc_html_e('Execute all benchmarks sequentially', 'baskerville'); ?></td>
                             <td>
                                 <button type="button" class="button button-primary benchmark-btn" data-test="all">
-                                    <?php _e('Run All', 'baskerville'); ?>
+                                    <?php esc_html_e('Run All', 'baskerville'); ?>
                                 </button>
                                 <span class="benchmark-result" data-test="all"></span>
                             </td>
@@ -2570,28 +2689,33 @@ class Baskerville_Admin {
             </div>
 
             <div class="card" style="max-width: 800px; margin: 20px 0;">
-                <h3><?php _e('External Load Testing', 'baskerville'); ?></h3>
+                <h3><?php esc_html_e('External Load Testing', 'baskerville'); ?></h3>
 
-                <h4><?php _e('Method 1: File Logging Mode (Recommended)', 'baskerville'); ?> ✅</h4>
-                <p><?php _e('Test with firewall ACTIVE but using fast file logging:', 'baskerville'); ?></p>
+                <h4><?php esc_html_e('Method 1: File Logging Mode (Recommended)', 'baskerville'); ?> ✅</h4>
+                <p><?php esc_html_e('Test with firewall ACTIVE but using fast file logging:', 'baskerville'); ?></p>
                 <ol style="line-height: 1.8;">
-                    <li><?php _e('Go to Settings tab → Select "File Logging" mode', 'baskerville'); ?></li>
-                    <li><?php _e('Run your tests - firewall will process requests normally', 'baskerville'); ?></li>
-                    <li><?php _e('Deactivate plugin and test again to compare', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Go to Settings tab → Select "File Logging" mode', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Run your tests - firewall will process requests normally', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Deactivate plugin and test again to compare', 'baskerville'); ?></li>
                 </ol>
-                <p style="color: #2196F3;"><strong><?php _e('Expected overhead: ~50-70ms (5%)', 'baskerville'); ?></strong></p>
+                <p style="color: #2196F3;"><strong><?php esc_html_e('Expected overhead: ~50-70ms (5%)', 'baskerville'); ?></strong></p>
 
-                <h4 style="margin-top: 20px;"><?php _e('Method 2: Whitelist Your IP', 'baskerville'); ?></h4>
-                <p><?php _e('Test with firewall BYPASSED (shows minimum overhead):', 'baskerville'); ?></p>
-                <p><?php _e('Go to IP Whitelist tab → Click "Add My IP" button → Run your tests', 'baskerville'); ?></p>
+                <h4 style="margin-top: 20px;"><?php esc_html_e('Method 2: Whitelist Your IP', 'baskerville'); ?></h4>
+                <p><?php esc_html_e('Test with firewall BYPASSED (shows minimum overhead):', 'baskerville'); ?></p>
+                <p><?php esc_html_e('Go to IP Whitelist tab → Click "Add My IP" button → Run your tests', 'baskerville'); ?></p>
 
                 <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
-                    <strong><?php _e('Your Current IP:', 'baskerville'); ?></strong>
-                    <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px; font-size: 14px; margin-left: 5px;"><?php echo esc_html($_SERVER['REMOTE_ADDR'] ?? 'unknown'); ?></code>
+                    <strong><?php esc_html_e('Your Current IP:', 'baskerville'); ?></strong>
+                    <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px; font-size: 14px; margin-left: 5px;">
+                        <?php
+                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is escaped with esc_html
+                        echo esc_html(isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : 'unknown');
+                        ?>
+                    </code>
                 </div>
-                <p style="color: #4CAF50;"><strong><?php _e('Expected overhead: ~0-5ms (0%)', 'baskerville'); ?></strong></p>
+                <p style="color: #4CAF50;"><strong><?php esc_html_e('Expected overhead: ~0-5ms (0%)', 'baskerville'); ?></strong></p>
 
-                <h4 style="margin-top: 20px;"><?php _e('Testing Commands', 'baskerville'); ?></h4>
+                <h4 style="margin-top: 20px;"><?php esc_html_e('Testing Commands', 'baskerville'); ?></h4>
                 <pre style="background: #f5f5f5; padding: 10px; overflow-x: auto; margin-top: 10px;"># Test WITH plugin (10 samples with pauses)
 echo "=== WITH BASKERVILLE ==="
 for i in {1..10}; do
@@ -2610,63 +2734,63 @@ done
 
 # Compare average times to calculate overhead</pre>
 
-                <h4 style="margin-top: 20px;"><?php _e('Expected Performance by Mode', 'baskerville'); ?></h4>
+                <h4 style="margin-top: 20px;"><?php esc_html_e('Expected Performance by Mode', 'baskerville'); ?></h4>
                 <table class="widefat" style="margin-top: 10px;">
                     <thead>
                         <tr>
-                            <th><?php _e('Logging Mode', 'baskerville'); ?></th>
-                            <th><?php _e('Overhead', 'baskerville'); ?></th>
-                            <th><?php _e('Analytics', 'baskerville'); ?></th>
-                            <th><?php _e('Best For', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Logging Mode', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Overhead', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Analytics', 'baskerville'); ?></th>
+                            <th><?php esc_html_e('Best For', 'baskerville'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><strong><?php _e('File Logging', 'baskerville'); ?></strong></td>
+                            <td><strong><?php esc_html_e('File Logging', 'baskerville'); ?></strong></td>
                             <td style="color: #4CAF50;">~50-70ms (5%)</td>
-                            <td>✅ <?php _e('Full (5min delay)', 'baskerville'); ?></td>
-                            <td><?php _e('Production', 'baskerville'); ?> ✅</td>
+                            <td>✅ <?php esc_html_e('Full (5min delay)', 'baskerville'); ?></td>
+                            <td><?php esc_html_e('Production', 'baskerville'); ?> ✅</td>
                         </tr>
                         <tr>
-                            <td><strong><?php _e('Disabled', 'baskerville'); ?></strong></td>
+                            <td><strong><?php esc_html_e('Disabled', 'baskerville'); ?></strong></td>
                             <td style="color: #4CAF50;">~0ms (0%)</td>
-                            <td>❌ <?php _e('None', 'baskerville'); ?></td>
-                            <td><?php _e('Testing/Dev', 'baskerville'); ?></td>
+                            <td>❌ <?php esc_html_e('None', 'baskerville'); ?></td>
+                            <td><?php esc_html_e('Testing/Dev', 'baskerville'); ?></td>
                         </tr>
                         <tr>
-                            <td><strong><?php _e('Database', 'baskerville'); ?></strong></td>
+                            <td><strong><?php esc_html_e('Database', 'baskerville'); ?></strong></td>
                             <td style="color: #ff9800;">~500ms (36%)</td>
-                            <td>✅ <?php _e('Instant', 'baskerville'); ?></td>
-                            <td><?php _e('VPS only', 'baskerville'); ?> ⚠️</td>
+                            <td>✅ <?php esc_html_e('Instant', 'baskerville'); ?></td>
+                            <td><?php esc_html_e('VPS only', 'baskerville'); ?> ⚠️</td>
                         </tr>
                         <tr>
-                            <td><strong><?php _e('Whitelisted IP', 'baskerville'); ?></strong></td>
+                            <td><strong><?php esc_html_e('Whitelisted IP', 'baskerville'); ?></strong></td>
                             <td style="color: #4CAF50;">~0-5ms (0%)</td>
-                            <td>✅ <?php _e('Partial', 'baskerville'); ?></td>
-                            <td><?php _e('Load testing', 'baskerville'); ?></td>
+                            <td>✅ <?php esc_html_e('Partial', 'baskerville'); ?></td>
+                            <td><?php esc_html_e('Load testing', 'baskerville'); ?></td>
                         </tr>
                     </tbody>
                 </table>
 
                 <div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 12px; margin-top: 15px;">
-                    <strong>💡 <?php _e('Recommendation:', 'baskerville'); ?></strong>
-                    <?php _e('Use <strong>File Logging</strong> mode (default) for production. It provides full analytics with minimal overhead (~5%), perfect for shared hosting.', 'baskerville'); ?>
+                    <strong>💡 <?php esc_html_e('Recommendation:', 'baskerville'); ?></strong>
+                    <?php esc_html_e('Use <strong>File Logging</strong> mode (default) for production. It provides full analytics with minimal overhead (~5%), perfect for shared hosting.', 'baskerville'); ?>
                 </div>
 
                 <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-top: 15px;">
-                    <strong>⚠️ <?php _e('Note:', 'baskerville'); ?></strong>
-                    <?php _e('Absolute response times vary by server, but overhead percentage is consistent. Focus on the % difference, not absolute milliseconds.', 'baskerville'); ?>
+                    <strong>⚠️ <?php esc_html_e('Note:', 'baskerville'); ?></strong>
+                    <?php esc_html_e('Absolute response times vary by server, but overhead percentage is consistent. Focus on the % difference, not absolute milliseconds.', 'baskerville'); ?>
                 </div>
             </div>
 
             <div class="card" style="max-width: 800px; margin: 20px 0;">
-                <h3><?php _e('Performance Tips', 'baskerville'); ?></h3>
+                <h3><?php esc_html_e('Performance Tips', 'baskerville'); ?></h3>
                 <ul style="line-height: 1.8;">
-                    <li><?php _e('Enable APCu for faster caching (file-based cache is slower)', 'baskerville'); ?></li>
-                    <li><?php _e('Use NGINX GeoIP2 module for fastest country detection', 'baskerville'); ?></li>
-                    <li><?php _e('Whitelist verified crawlers to reduce unnecessary checks', 'baskerville'); ?></li>
-                    <li><?php _e('The firewall only runs on public HTML pages (not wp-admin, REST API, or AJAX)', 'baskerville'); ?></li>
-                    <li><?php _e('Database writes are batched and use prepared statements', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Enable APCu for faster caching (file-based cache is slower)', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Use NGINX GeoIP2 module for fastest country detection', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Whitelist verified crawlers to reduce unnecessary checks', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('The firewall only runs on public HTML pages (not wp-admin, REST API, or AJAX)', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Database writes are batched and use prepared statements', 'baskerville'); ?></li>
                 </ul>
             </div>
         </div>
@@ -2699,25 +2823,25 @@ done
                 var $result = $('.benchmark-result[data-test="' + test + '"]');
 
                 $btn.prop('disabled', true);
-                $result.removeClass('success error').addClass('loading').text('<?php _e('Running...', 'baskerville'); ?>');
+                $result.removeClass('success error').addClass('loading').text('<?php esc_html_e('Running...', 'baskerville'); ?>');
 
                 $.ajax({
                     url: ajaxurl,
                     type: 'POST',
                     data: {
                         action: 'baskerville_run_benchmark',
-                        nonce: '<?php echo wp_create_nonce('baskerville_benchmark'); ?>',
+                        nonce: '<?php echo esc_js(wp_create_nonce('baskerville_benchmark')); ?>',
                         test: test
                     },
                     success: function(response) {
                         if (response.success) {
                             $result.removeClass('loading').addClass('success').html(response.data.message);
                         } else {
-                            $result.removeClass('loading').addClass('error').text(response.data.message || '<?php _e('Error', 'baskerville'); ?>');
+                            $result.removeClass('loading').addClass('error').text(response.data.message || '<?php esc_html_e('Error', 'baskerville'); ?>');
                         }
                     },
                     error: function() {
-                        $result.removeClass('loading').addClass('error').text('<?php _e('AJAX error', 'baskerville'); ?>');
+                        $result.removeClass('loading').addClass('error').text('<?php esc_html_e('AJAX error', 'baskerville'); ?>');
                     },
                     complete: function() {
                         $btn.prop('disabled', false);
@@ -2738,7 +2862,7 @@ done
                 return;
             }
 
-            $test = isset($_POST['test']) ? sanitize_text_field($_POST['test']) : '';
+            $test = isset($_POST['test']) ? sanitize_text_field(wp_unslash($_POST['test'])) : '';
 
             if (empty($test)) {
                 wp_send_json_error(array('message' => 'No test specified.'));
@@ -2817,14 +2941,14 @@ done
             wp_send_json_success($results);
 
         } catch (Exception $e) {
-            error_log('Baskerville benchmark error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            // error_log('Baskerville benchmark error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             wp_send_json_error(array(
                 'message' => 'Benchmark failed: ' . $e->getMessage(),
                 'file' => basename($e->getFile()),
                 'line' => $e->getLine()
             ));
         } catch (Error $e) {
-            error_log('Baskerville benchmark fatal error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            // error_log('Baskerville benchmark fatal error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             wp_send_json_error(array(
                 'message' => 'Fatal error: ' . $e->getMessage(),
                 'file' => basename($e->getFile()),
@@ -2983,15 +3107,15 @@ done
                    name="baskerville_settings[honeypot_enabled]"
                    value="1"
                    <?php checked($enabled, true); ?> />
-            <?php _e('Enable AI bot honeypot trap', 'baskerville'); ?>
+            <?php esc_html_e('Enable AI bot honeypot trap', 'baskerville'); ?>
         </label>
         <p class="description">
-            <?php _e('Adds a hidden link to your site footer that is invisible to humans but visible to AI crawlers in HTML.', 'baskerville'); ?><br>
-            <?php _e('When an IP accesses this link, it is immediately marked as an AI bot.', 'baskerville'); ?><br>
-            <strong><?php _e('Honeypot URL:', 'baskerville'); ?></strong> <code><?php echo esc_html(home_url('/ai-training-data/')); ?></code><br>
-            <em style="color: #d63638;"><?php _e('⚠️ The URL name "ai-training-data" is designed to attract AI bots looking for training content!', 'baskerville'); ?></em><br>
+            <?php esc_html_e('Adds a hidden link to your site footer that is invisible to humans but visible to AI crawlers in HTML.', 'baskerville'); ?><br>
+            <?php esc_html_e('When an IP accesses this link, it is immediately marked as an AI bot.', 'baskerville'); ?><br>
+            <strong><?php esc_html_e('Honeypot URL:', 'baskerville'); ?></strong> <code><?php echo esc_html(home_url('/ai-training-data/')); ?></code><br>
+            <em style="color: #d63638;"><?php esc_html_e('⚠️ The URL name "ai-training-data" is designed to attract AI bots looking for training content!', 'baskerville'); ?></em><br>
             <strong style="color: #d63638;">⚠️ IMPORTANT:</strong> After enabling, go to
-            <a href="<?php echo admin_url('options-permalink.php'); ?>" target="_blank">Settings → Permalinks</a>
+            <a href="<?php echo esc_url(admin_url('options-permalink.php')); ?>" target="_blank">Settings → Permalinks</a>
             and click "Save Changes" to activate the honeypot URL!
         </p>
         <?php
@@ -3009,11 +3133,11 @@ done
                    value="1"
                    <?php checked($ban_enabled, true); ?>
                    <?php disabled(!$honeypot_enabled); ?> />
-            <?php _e('Ban IPs that trigger honeypot with 403', 'baskerville'); ?>
+            <?php esc_html_e('Ban IPs that trigger honeypot with 403', 'baskerville'); ?>
         </label>
         <p class="description">
-            <?php _e('When enabled, IPs accessing the honeypot will be banned for 24 hours and receive a 403 Forbidden response.', 'baskerville'); ?><br>
-            <?php _e('When disabled, the visit is still logged as AI bot, but the honeypot page is displayed normally.', 'baskerville'); ?><br>
+            <?php esc_html_e('When enabled, IPs accessing the honeypot will be banned for 24 hours and receive a 403 Forbidden response.', 'baskerville'); ?><br>
+            <?php esc_html_e('When disabled, the visit is still logged as AI bot, but the honeypot page is displayed normally.', 'baskerville'); ?><br>
             <strong style="color: #d63638;">⚠️ IMPORTANT:</strong> Make sure "Enable 403 ban for detected bots" is checked in the General tab above for this to work!
         </p>
         <?php
@@ -3029,14 +3153,15 @@ done
         // Get last 30 unique IPs (blocked/suspicious) - one event per IP
         // Note: using classification_reason (actual column name), aliasing as 'reason' for frontend
         // Use subquery to get the latest record for each IP
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
         $events = $wpdb->get_results($wpdb->prepare(
             "SELECT t1.ip, t1.country_code, t1.classification, t1.classification_reason as reason,
                     t1.score, t1.user_agent as ua, UNIX_TIMESTAMP(t1.created_at) as timestamp,
                     t1.event_type, t1.block_reason
-             FROM $table t1
+             FROM " . esc_sql($table) . " t1
              INNER JOIN (
                  SELECT ip, MAX(created_at) as max_created
-                 FROM $table
+                 FROM " . esc_sql($table) . "
                  WHERE classification IN ('bad_bot', 'ai_bot', 'bot') OR score >= 50
                  GROUP BY ip
              ) t2 ON t1.ip = t2.ip AND t1.created_at = t2.max_created
@@ -3068,23 +3193,26 @@ done
         $table = $wpdb->prefix . 'baskerville_stats';
 
         // Blocks today
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
         $blocks_today = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM $table
+            "SELECT COUNT(*) FROM " . esc_sql($table) . "
              WHERE classification IN ('bad_bot', 'ai_bot')
                AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
         );
 
         // Blocks last hour
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
         $blocks_hour = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM $table
+            "SELECT COUNT(*) FROM " . esc_sql($table) . "
              WHERE classification IN ('bad_bot', 'ai_bot')
                AND created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)"
         );
 
         // Top attacking IPs today
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
         $top_ips = $wpdb->get_results(
             "SELECT ip, country_code, COUNT(*) as count
-             FROM $table
+             FROM " . esc_sql($table) . "
              WHERE classification IN ('bad_bot', 'ai_bot')
                AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
              GROUP BY ip
@@ -3094,9 +3222,10 @@ done
         );
 
         // Top attacking countries today
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
         $top_countries = $wpdb->get_results(
             "SELECT country_code, COUNT(*) as count
-             FROM $table
+             FROM " . esc_sql($table) . "
              WHERE classification IN ('bad_bot', 'ai_bot')
                AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
              GROUP BY country_code

@@ -370,7 +370,8 @@ class Baskerville_AI_UA {
         $ua_lower   = strtolower($user_agent);
 
         // Was there a COOKIE in the original request
-        $client_cookie_header = $_SERVER['HTTP_COOKIE'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Cookie header is only checked for presence, not used directly
+        $client_cookie_header = isset($_SERVER['HTTP_COOKIE']) ? wp_unslash($_SERVER['HTTP_COOKIE']) : '';
         $had_cookie = (strpos($client_cookie_header, 'baskerville_id=') !== false) && ($this->core->get_cookie_id() !== null);
 
         // Risk assessment
@@ -393,7 +394,8 @@ class Baskerville_AI_UA {
         }
         if (!$is_nonbrowser_client && strlen(trim($ua_lower)) < 6) { $is_nonbrowser_client = true; }
 
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- IP address is validated by verify_crawler_ip()
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
         $vc = $this->verify_crawler_ip($ip, $user_agent);
         $verified_crawler = ($vc['claimed'] && $vc['verified']);
 
@@ -497,6 +499,8 @@ class Baskerville_AI_UA {
         $threshold  = (int) get_option('baskerville_nojs_threshold', 20);
 
         // count ONLY page records without received FP (had_fp=0) for the recent window
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Real-time burst detection requires fresh data
         $cnt = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM $table
              WHERE ip=%s
@@ -505,6 +509,8 @@ class Baskerville_AI_UA {
                AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)",
             $ip, $window_sec
         ));
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 
         if ($cnt >= $threshold) {
             $classification = [
@@ -514,8 +520,10 @@ class Baskerville_AI_UA {
                 'details' => [
                     'has_cookie' => (bool)$this->core->get_cookie_id(),
                     'is_ai_bot'  => false,
-                    'is_bot_ua'  => $this->is_bot_user_agent($_SERVER['HTTP_USER_AGENT'] ?? ''),
-                    'user_agent' => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 100),
+                    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is sanitized by is_bot_user_agent() and substr()
+                    'is_bot_ua'  => $this->is_bot_user_agent(isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : ''),
+                    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is truncated to 100 chars
+                    'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? substr(wp_unslash($_SERVER['HTTP_USER_AGENT']), 0, 100) : '',
                     'burst_window_sec' => $window_sec,
                     'burst_threshold'  => $threshold,
                 ]

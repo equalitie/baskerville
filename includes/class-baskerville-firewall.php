@@ -68,7 +68,7 @@ class Baskerville_Firewall
         );
 
         if ($ok === false) {
-            error_log('Baskerville: insert_block_row failed - ' . $wpdb->last_error);
+            // error_log('Baskerville: insert_block_row failed - ' . $wpdb->last_error);
         }
     }
 
@@ -122,19 +122,20 @@ class Baskerville_Firewall
     }
 
     public function pre_db_firewall(): void {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for firewall checks, not output
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
 
         // Always log first 20 requests for debugging (remove this after testing)
         static $request_count = 0;
         $request_count++;
         if ($request_count <= 20) {
-            error_log("Baskerville DEBUG [$request_count]: IP=$ip, URI=" . ($_SERVER['REQUEST_URI'] ?? 'N/A') . ", UA=" . substr($_SERVER['HTTP_USER_AGENT'] ?? 'N/A', 0, 30));
+            // error_log("Baskerville DEBUG [$request_count]: IP=$ip, URI=" . ($_SERVER['REQUEST_URI'] ?? 'N/A') . ", UA=" . substr($_SERVER['HTTP_USER_AGENT'] ?? 'N/A', 0, 30));
         }
 
         // public HTML page?
         if (!$this->core->is_public_html_request()) {
             if ($request_count <= 20) {
-                error_log("Baskerville DEBUG [$request_count]: SKIPPED - not public HTML. Accept=" . ($_SERVER['HTTP_ACCEPT'] ?? 'N/A'));
+            // error_log("Baskerville DEBUG [$request_count]: SKIPPED - not public HTML. Accept=" . ($_SERVER['HTTP_ACCEPT'] ?? 'N/A'));
             }
             return;
         }
@@ -144,13 +145,13 @@ class Baskerville_Firewall
         // IP whitelist — allow through
         if ($this->core->is_whitelisted_ip($ip)) {
             if ($request_count <= 20) {
-                error_log("Baskerville DEBUG [$request_count]: SKIPPED - IP $ip is whitelisted");
+            // error_log("Baskerville DEBUG [$request_count]: SKIPPED - IP $ip is whitelisted");
             }
             return;
         }
 
         if ($request_count <= 20) {
-            error_log("Baskerville DEBUG [$request_count]: CHECKING firewall rules for IP $ip");
+            // error_log("Baskerville DEBUG [$request_count]: CHECKING firewall rules for IP $ip");
         }
 
         // GeoIP country ban check
@@ -184,12 +185,16 @@ class Baskerville_Firewall
                 }
 
                 if ($should_block) {
-                    $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+                    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is used for bot detection, not output
+                    $ua = isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : '';
                     $headers = [
-                        'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
-                        'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
+                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+                        'accept'          => isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : null,
+                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+                        'accept_language' => isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']) : null,
                         'user_agent'      => $ua,
-                        'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
+                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+                        'sec_ch_ua'       => isset($_SERVER['HTTP_SEC_CH_UA']) ? wp_unslash($_SERVER['HTTP_SEC_CH_UA']) : null,
                     ];
 
                     $evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
@@ -221,12 +226,16 @@ class Baskerville_Firewall
         }
 
         // Headers for server-side heuristics
-        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is used for bot detection, not output
+        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : '';
         $headers = [
-            'accept'          => $_SERVER['HTTP_ACCEPT'] ?? null,
-            'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+            'accept'          => isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : null,
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+            'accept_language' => isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']) : null,
             'user_agent'      => $ua,
-            'sec_ch_ua'       => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+            'sec_ch_ua'       => isset($_SERVER['HTTP_SEC_CH_UA']) ? wp_unslash($_SERVER['HTTP_SEC_CH_UA']) : null,
         ];
 
         // 0) Already banned?

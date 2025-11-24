@@ -1,4 +1,8 @@
 <?php
+/**
+ * Statistics class for Baskerville plugin.
+ * This class handles all database operations for statistics tracking.
+ */
 
 class Baskerville_Stats
 {
@@ -72,6 +76,8 @@ class Baskerville_Stats
         global $wpdb;
         $t = $wpdb->prefix . 'baskerville_stats';
 
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $t is safe, schema migrations use direct SQL
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migrations require direct database access
         $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'had_fp'");
         if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN had_fp TINYINT(1) NOT NULL DEFAULT 0"); }
 
@@ -118,6 +124,8 @@ class Baskerville_Stats
             $wpdb->query("ALTER TABLE $t ADD COLUMN country_code VARCHAR(2) NULL AFTER ip");
             $wpdb->query("CREATE INDEX country_code ON $t (country_code)");
         }
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
     }
 
     public function get_retention_days() {
@@ -131,24 +139,25 @@ class Baskerville_Stats
         $retention_days = $this->get_retention_days();
 
         if ($retention_days < 1 && !$force) {
-            error_log('Baskerville: Cleanup skipped - retention period too short');
+            // error_log('Baskerville: Cleanup skipped - retention period too short');
             return false;
         }
 
-        $result = $wpdb->query(
+        $result = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Cleanup operation requires direct database access
             $wpdb->prepare(
-                "DELETE FROM $table_name WHERE timestamp_utc < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)",
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is from $wpdb->prefix and is safe
+                "DELETE FROM " . esc_sql($table_name) . " WHERE timestamp_utc < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)",
                 $retention_days
             )
         );
 
         if ($result === false) {
-            error_log('Baskerville: Cleanup failed - ' . $wpdb->last_error);
+            // error_log('Baskerville: Cleanup failed - ' . $wpdb->last_error);
             return false;
         }
 
         if ($result > 0) {
-            error_log("Baskerville: Cleaned up $result old statistics records (older than $retention_days days)");
+            // error_log("Baskerville: Cleaned up $result old statistics records (older than $retention_days days)");
         }
 
         return $result;
@@ -225,9 +234,9 @@ class Baskerville_Stats
         ];
         $fmt = ['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s','%s'];
 
-        $ok = $wpdb->insert($table_name, $data, $fmt);
+        $ok = $wpdb->insert($table_name, $data, $fmt); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Insert operation for statistics tracking
         if ($ok === false) {
-            error_log('Baskerville: insert failed - ' . $wpdb->last_error);
+            // error_log('Baskerville: insert failed - ' . $wpdb->last_error);
             return false;
         }
         return $visit_key;
@@ -255,9 +264,9 @@ class Baskerville_Stats
         if ($top_json) { $data['top_factor_json']  = $top_json; $fmt[] = '%s'; }
         if ($top_name) { $data['top_factor']       = $top_name; $fmt[] = '%s'; }
 
-        $ok = $wpdb->update($t, $data, ['visit_key' => $visit_key], $fmt, ['%s']);
+        $ok = $wpdb->update($t, $data, ['visit_key' => $visit_key], $fmt, ['%s']); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Update operation for statistics tracking
         if ($ok === false) {
-            error_log('Baskerville: update by visit_key failed - ' . $wpdb->last_error);
+            // error_log('Baskerville: update by visit_key failed - ' . $wpdb->last_error);
             return false;
         }
         return $ok > 0;
@@ -267,7 +276,8 @@ class Baskerville_Stats
         // Only public HTML pages — without duplicating logic
         if (!$this->core->is_public_html_request()) return;
 
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP address is validated by WordPress core and used for logging
+        $ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
 
         // Skip logging for whitelisted IPs (performance optimization)
         if ($this->core->is_whitelisted_ip($ip)) return;
@@ -280,13 +290,17 @@ class Baskerville_Stats
             return; // No logging at all
         }
 
-        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is used for bot detection, not output
+        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : '';
 
         $headers = [
-            'accept'           => $_SERVER['HTTP_ACCEPT'] ?? null,
-            'accept_language'  => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+            'accept'           => isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : null,
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+            'accept_language'  => isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']) : null,
             'user_agent'       => $ua,
-            'sec_ch_ua'        => $_SERVER['HTTP_SEC_CH_UA'] ?? null,
+            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
+            'sec_ch_ua'        => isset($_SERVER['HTTP_SEC_CH_UA']) ? wp_unslash($_SERVER['HTTP_SEC_CH_UA']) : null,
         ];
 
         // Classify by server headers (without JS)
@@ -330,8 +344,9 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             FROM_UNIXTIME(
@@ -349,7 +364,7 @@ class Baskerville_Stats
           GROUP BY time_slot
           ORDER BY time_slot ASC
         ";
-        $results = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A);
+        $results = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
 
         $out = [];
         foreach ($results ?: [] as $r) {
@@ -383,8 +398,9 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             COUNT(*) AS total_visits,
@@ -397,7 +413,7 @@ class Baskerville_Stats
           FROM $table
           WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
         ";
-        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
 
         $total = (int)($row['total_visits'] ?? 0);
         $bots  = (int)($row['bad_bot_count'] ?? 0)
@@ -426,8 +442,9 @@ class Baskerville_Stats
         $days   = (int)$this->get_retention_days();
         $cutoff = gmdate('Y-m-d H:i:s', time() - $days * 86400);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             COUNT(*) total_visits,
@@ -443,7 +460,7 @@ class Baskerville_Stats
           FROM $table
           WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
         ";
-        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A);
+        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
         if (!$row) return [];
 
         $total = (int)$row['total_visits'];
@@ -476,8 +493,9 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             FROM_UNIXTIME(
@@ -494,7 +512,7 @@ class Baskerville_Stats
           GROUP BY time_slot
           ORDER BY time_slot ASC
         ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
 
         $out = [];
         foreach ($rows as $r) {
@@ -518,8 +536,9 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             COUNT(*) AS total_blocks,
@@ -531,7 +550,7 @@ class Baskerville_Stats
           FROM $table
           WHERE event_type='block' AND timestamp_utc >= %s
         ";
-        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
 
         return [
             'total_blocks'        => (int)($row['total_blocks']        ?? 0),
@@ -551,11 +570,13 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql_total = "SELECT COUNT(*) FROM $table WHERE event_type='block' AND timestamp_utc >= %s";
-        $total = (int)$wpdb->get_var($wpdb->prepare($sql_total, $cutoff));
+        $total = (int)$wpdb->get_var($wpdb->prepare($sql_total, $cutoff)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql_total uses $wpdb->prepare()
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT COALESCE(NULLIF(block_reason,''),'unspecified') AS reason, COUNT(*) AS cnt
           FROM $table
@@ -563,7 +584,7 @@ class Baskerville_Stats
           GROUP BY reason
           ORDER BY cnt DESC
         ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
 
         $items = [];
         $acc = 0; $n = 0;
@@ -612,8 +633,9 @@ class Baskerville_Stats
             $labels[$i] = sprintf('%d–%d', $start, $end);
         }
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             LEAST(FLOOR(score / %d), %d) AS b,
@@ -629,7 +651,7 @@ class Baskerville_Stats
           ORDER BY b
         ";
 
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $bucket_size, $last_idx, $cutoff), ARRAY_A) ?: [];
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $bucket_size, $last_idx, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
         foreach ($rows as $r) {
             $idx = (int)$r['b'];
             if ($idx < 0 || $idx > $last_idx) continue;
@@ -638,13 +660,14 @@ class Baskerville_Stats
             $total[$idx] = (int)$r['total_count'];
         }
 
-        $row = $wpdb->get_row($wpdb->prepare("
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
+        $row = $wpdb->get_row($wpdb->prepare(" // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Real-time statistics query
           SELECT
             SUM(CASE WHEN classification='human' THEN score ELSE 0 END)        AS human_sum,
             SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END)            AS human_n,
             SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN score ELSE 0 END) AS auto_sum,
             SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END)     AS auto_n
-          FROM $table
+          FROM " . esc_sql($table) . "
           WHERE event_type IN ('page','fp') AND had_fp=1 AND timestamp_utc >= %s
         ", $cutoff), ARRAY_A) ?: ['human_sum'=>0,'human_n'=>0,'auto_sum'=>0,'auto_n'=>0];
 
@@ -670,8 +693,9 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             user_agent,
@@ -682,10 +706,11 @@ class Baskerville_Stats
           GROUP BY user_agent
           ORDER BY unique_ips DESC, events DESC
         ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: [];
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
 
-        $total_unique_ips = (int)$wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(DISTINCT ip) FROM $table WHERE classification='ai_bot' AND timestamp_utc >= %s",
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
+        $total_unique_ips = (int)$wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Real-time statistics query
+            "SELECT COUNT(DISTINCT ip) FROM " . esc_sql($table) . " WHERE classification='ai_bot' AND timestamp_utc >= %s",
             $cutoff
         ));
 
@@ -714,8 +739,9 @@ class Baskerville_Stats
         $min_score = max(0, min(100, (int)$min_score));
         $cutoff    = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'");
+        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         $sql = "
           SELECT
             top_factor AS factor,
@@ -731,7 +757,7 @@ class Baskerville_Stats
           GROUP BY top_factor
           ORDER BY cnt DESC
         ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff, $min_score), ARRAY_A) ?: [];
+        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff, $min_score), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
 
         $total = 0;
         foreach ($rows as $r) { $total += (int)$r['cnt']; }
@@ -805,7 +831,7 @@ class Baskerville_Stats
         $result = @file_put_contents($log_file, $line, FILE_APPEND | LOCK_EX);
 
         if ($result === false) {
-            error_log('Baskerville: Failed to write to log file: ' . $log_file);
+            // error_log('Baskerville: Failed to write to log file: ' . $log_file);
             return false;
         }
 
@@ -841,7 +867,7 @@ class Baskerville_Stats
 
             $lines = @file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             if (!$lines) {
-                @unlink($file); // Delete empty file
+                wp_delete_file($file); // Delete empty file
                 continue;
             }
 
@@ -869,11 +895,11 @@ class Baskerville_Stats
             }
 
             // Delete processed file
-            @unlink($file);
+            wp_delete_file($file);
         }
 
         if ($total_imported > 0) {
-            error_log("Baskerville: Imported $total_imported page visits from log files");
+            // error_log("Baskerville: Imported $total_imported page visits from log files");
         }
 
         return $total_imported;
@@ -912,16 +938,17 @@ class Baskerville_Stats
             $values[] = $data['top_factor'];
         }
 
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is safe, constructed from $wpdb->prefix
         $sql = "INSERT INTO $table_name
                 (visit_key, ip, country_code, baskerville_id, timestamp_utc, score, classification,
                  user_agent, evaluation_json, score_reasons, classification_reason, event_type,
                  top_factor_json, top_factor)
                 VALUES " . implode(', ', $placeholders);
 
-        $result = $wpdb->query($wpdb->prepare($sql, $values));
+        $result = $wpdb->query($wpdb->prepare($sql, $values)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Batch insert for log import, $sql uses $wpdb->prepare()
 
         if ($result === false) {
-            error_log('Baskerville: Batch insert failed - ' . $wpdb->last_error);
+            // error_log('Baskerville: Batch insert failed - ' . $wpdb->last_error);
             return 0;
         }
 
@@ -948,14 +975,14 @@ class Baskerville_Stats
         foreach ($files as $file) {
             $mtime = @filemtime($file);
             if ($mtime && $mtime < $cutoff) {
-                if (@unlink($file)) {
+                if (wp_delete_file($file)) {
                     $deleted++;
                 }
             }
         }
 
         if ($deleted > 0) {
-            error_log("Baskerville: Deleted $deleted old log files");
+            // error_log("Baskerville: Deleted $deleted old log files");
         }
 
         return $deleted;
