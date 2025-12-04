@@ -68,6 +68,7 @@ class Baskerville_AI_UA {
             'facebot',               // Meta
             'amazonbot',             // Amazon AI research
             'cohere',                // Cohere.ai
+            'perplexitybot',         // Perplexity
             'ai\scrawler',           // catch-all
             'meta-externalagent',    // facebook training
         ];
@@ -112,6 +113,7 @@ class Baskerville_AI_UA {
             'meta-externalagent'  => 'Meta',
             'amazonbot'           => 'Amazon',
             'cohere'              => 'Cohere',
+            'perplexitybot'       => 'Perplexity',
             'ai\scrawler'         => 'Generic',
             'ai crawler'          => 'Generic',
         ];
