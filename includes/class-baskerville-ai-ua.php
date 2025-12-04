@@ -214,6 +214,16 @@ class Baskerville_AI_UA {
             $contrib[] = ['key'=>'missing_hints_chrome', 'delta'=>5, 'why'=>'Missing Client Hints for Chrome-like UA'];
         }
 
+        // Check HTTP protocol version - modern browsers use HTTP/2 or HTTP/3
+        $server_protocol = strtoupper($svh['server_protocol'] ?? '');
+        if (!empty($server_protocol) && preg_match('~^HTTP/1\.[01]$~', $server_protocol)) {
+            // HTTP/1.0 or HTTP/1.1 - likely a bot/script
+            // Modern browsers (Chrome, Firefox, Safari, Edge) use HTTP/2 or HTTP/3
+            $score += 15;
+            $reasons[] = 'Using HTTP/1.x (modern browsers use HTTP/2+)';
+            $contrib[] = ['key'=>'http1_protocol', 'delta'=>15, 'why'=>'Using HTTP/1.x instead of HTTP/2+'];
+        }
+
         if ($this->is_bot_user_agent($ua_server)) {
             $score += 25;
             if ($score < 70) $score = 70;
@@ -370,9 +380,7 @@ class Baskerville_AI_UA {
         $ua_lower   = strtolower($user_agent);
 
         // Was there a COOKIE in the original request
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Cookie header is only checked for presence, not used directly
-        $client_cookie_header = isset($_SERVER['HTTP_COOKIE']) ? wp_unslash($_SERVER['HTTP_COOKIE']) : '';
-        $had_cookie = (strpos($client_cookie_header, 'baskerville_id=') !== false) && ($this->core->get_cookie_id() !== null);
+        $had_cookie = isset($_COOKIE['baskerville_id']) && ($this->core->get_cookie_id() !== null);
 
         // Risk assessment
         $evaluation = $this->baskerville_score_fp($payload, $server_ctx);
@@ -394,8 +402,7 @@ class Baskerville_AI_UA {
         }
         if (!$is_nonbrowser_client && strlen(trim($ua_lower)) < 6) { $is_nonbrowser_client = true; }
 
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated, WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- IP address is validated by verify_crawler_ip()
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+        $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
         $vc = $this->verify_crawler_ip($ip, $user_agent);
         $verified_crawler = ($vc['claimed'] && $vc['verified']);
 
@@ -520,10 +527,8 @@ class Baskerville_AI_UA {
                 'details' => [
                     'has_cookie' => (bool)$this->core->get_cookie_id(),
                     'is_ai_bot'  => false,
-                    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is sanitized by is_bot_user_agent() and substr()
-                    'is_bot_ua'  => $this->is_bot_user_agent(isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : ''),
-                    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is truncated to 100 chars
-                    'user_agent' => isset($_SERVER['HTTP_USER_AGENT']) ? substr(wp_unslash($_SERVER['HTTP_USER_AGENT']), 0, 100) : '',
+                    'is_bot_ua'  => $this->is_bot_user_agent(sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''))),
+                    'user_agent' => substr(sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 100),
                     'burst_window_sec' => $window_sec,
                     'burst_threshold'  => $threshold,
                 ]

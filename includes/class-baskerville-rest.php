@@ -37,7 +37,48 @@ class Baskerville_REST {
         ]);
     }
 
+    /**
+     * Check API rate limiting
+     * Returns WP_REST_Response with 429 if rate limit exceeded, null otherwise
+     */
+    private function check_api_rate_limit() {
+        $options = get_option('baskerville_settings', array());
+        $rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+
+        if (!$rate_limit_enabled) {
+            return null; // Rate limiting disabled
+        }
+
+        $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+
+        // Check if IP is whitelisted
+        if ($this->core->is_whitelisted_ip($ip)) {
+            return null; // Whitelisted IPs bypass rate limiting
+        }
+
+        $max_requests = isset($options['api_rate_limit_requests']) ? (int)$options['api_rate_limit_requests'] : 100;
+        $window_sec = isset($options['api_rate_limit_window']) ? (int)$options['api_rate_limit_window'] : 60;
+
+        $key = "api_ratelimit:{$ip}";
+        $count = $this->core->fc_inc_in_window($key, $window_sec);
+
+        if ($count > $max_requests) {
+            return new WP_REST_Response([
+                'error' => 'rate_limit_exceeded',
+                'message' => sprintf('Rate limit exceeded. Maximum %d requests per %d seconds.', $max_requests, $window_sec),
+                'retry_after' => $window_sec
+            ], 429);
+        }
+
+        return null;
+    }
+
     public function handle_fp( WP_REST_Request $request ) {
+        // Check rate limit
+        $rate_limit_response = $this->check_api_rate_limit();
+        if ($rate_limit_response) {
+            return $rate_limit_response;
+        }
         $nonce = $request->get_header('x-wp-nonce');
         if ($nonce && !wp_verify_nonce($nonce, 'wp_rest')) {
             return new WP_REST_Response(['error' => 'invalid_nonce'], 403);
@@ -48,17 +89,13 @@ class Baskerville_REST {
             return new WP_REST_Response(['error' => 'empty_payload'], 400);
         }
 
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for logging, not output
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
+        $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
         $headers = [
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'accept'          => isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : null,
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'accept_language' => isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']) : null,
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'user_agent'      => isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : null,
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'sec_ch_ua'       => isset($_SERVER['HTTP_SEC_CH_UA']) ? wp_unslash($_SERVER['HTTP_SEC_CH_UA']) : null,
+            'accept'          => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? '')),
+            'accept_language' => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '')),
+            'user_agent'      => sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? '')),
+            'sec_ch_ua'       => sanitize_text_field(wp_unslash($_SERVER['HTTP_SEC_CH_UA'] ?? '')),
+            'server_protocol' => sanitize_text_field(wp_unslash($_SERVER['SERVER_PROTOCOL'] ?? '')),
         ];
         $cookie_id = $this->core->get_cookie_id();
 
@@ -134,14 +171,18 @@ class Baskerville_REST {
         $attach_window_sec = (int) get_option('baskerville_fp_attach_window_sec', 180);
         $row_id = null;
         if ($ip && $cookie_id) {
-            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
-            $row_id = $wpdb->get_var($wpdb->prepare(
-                "SELECT id FROM " . esc_sql($table) . "
-                 WHERE ip=%s AND baskerville_id=%s AND event_type='page' AND had_fp=0
-                   AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)
-                 ORDER BY timestamp_utc DESC LIMIT 1",
-                $ip, $cookie_id, $attach_window_sec
-            ));
+            $row_id = $wpdb->get_var(
+                $wpdb->prepare(
+                    sprintf(
+                        "SELECT id FROM %s
+                         WHERE ip=%%s AND baskerville_id=%%s AND event_type='page' AND had_fp=0
+                           AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %%d SECOND)
+                         ORDER BY timestamp_utc DESC LIMIT 1",
+                        esc_sql($table)
+                    ),
+                    $ip, $cookie_id, $attach_window_sec
+                )
+            );
         }
 
         [$top_json, $top_name] = $this->stats->extract_top_factors($evaluation, $this->core->read_fp_cookie());
@@ -205,6 +246,12 @@ class Baskerville_REST {
     }
 
     public function handle_stats( WP_REST_Request $request ) {
+        // Check rate limit
+        $rate_limit_response = $this->check_api_rate_limit();
+        if ($rate_limit_response) {
+            return $rate_limit_response;
+        }
+
         // Return HTML page for statistics visualization
         $stats_url = rest_url('baskerville/v1/stats/data');
 
@@ -220,8 +267,7 @@ class Baskerville_REST {
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Baskerville Statistics</title>
-            <?php // phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Standalone REST endpoint, not within WordPress admin context ?>
-            <script src="<?php echo esc_url(plugins_url('baskerville/assets/js/chart.min.js')); ?>"></script>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-jGsMQM3myBVH/uFd4WWKE8E6TSqJ3p9V0OYFBYhD1LmJLcW3e+1bLQjMQPCBrJMb" crossorigin="anonymous"></script>
             <style>
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -1041,12 +1087,17 @@ class Baskerville_REST {
         </body>
         </html>
         <?php
-        $html = ob_get_clean();
-        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- HTML output is safely generated by the plugin itself
-        wp_die($html, 'Baskerville Statistics', ['response' => 200]);
+        ob_end_flush();
+        exit;
     }
 
     public function handle_stats_data( WP_REST_Request $request ) {
+        // Check rate limit
+        $rate_limit_response = $this->check_api_rate_limit();
+        if ($rate_limit_response) {
+            return $rate_limit_response;
+        }
+
         if (!headers_sent()) {
             header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
             header('Pragma: no-cache');

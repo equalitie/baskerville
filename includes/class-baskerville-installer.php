@@ -38,7 +38,7 @@ class Baskerville_Installer {
         if (get_option('baskerville_ip_whitelist') === false)         add_option('baskerville_ip_whitelist', '');
         if (get_option('baskerville_honeypot_ban_ttl') === false)     add_option('baskerville_honeypot_ban_ttl', 86400); // 24 hours
 
-        // Default honeypot settings
+        // Default honeypot and logging settings
         $settings = get_option('baskerville_settings', array());
         $needs_update = false;
         if (!isset($settings['honeypot_enabled'])) {
@@ -47,6 +47,11 @@ class Baskerville_Installer {
         }
         if (!isset($settings['honeypot_ban'])) {
             $settings['honeypot_ban'] = true; // Ban by default
+            $needs_update = true;
+        }
+        // Set default log_mode only if not already set (preserve existing user choice)
+        if (!isset($settings['log_mode'])) {
+            $settings['log_mode'] = 'database'; // Database logging by default
             $needs_update = true;
         }
         if ($needs_update) {

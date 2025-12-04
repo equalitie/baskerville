@@ -27,6 +27,14 @@ class Baskerville_Admin {
         // Enqueue Select2 (local files)
         wp_enqueue_style('select2', plugins_url('baskerville/assets/css/select2.min.css'), array(), '4.1.0');
         wp_enqueue_script('select2', plugins_url('baskerville/assets/js/select2.min.js'), array('jquery'), '4.1.0', true);
+
+        // Enqueue Chart.js (local file)
+        wp_enqueue_script('chartjs', plugins_url('baskerville/assets/js/chart.min.js'), array(), '4.4.0', true);
+
+        // Pass nonce to admin.js
+        wp_localize_script('select2', 'baskervilleAdmin', array(
+            'importLogsNonce' => wp_create_nonce('baskerville_import_logs')
+        ));
     }
 
     public function add_admin_menu() {
@@ -45,6 +53,63 @@ class Baskerville_Admin {
             'baskerville_settings_group',
             'baskerville_settings',
             array($this, 'sanitize_settings')
+        );
+
+        // Register burst protection threshold options separately
+        register_setting(
+            'baskerville_settings_group',
+            'baskerville_nocookie_threshold',
+            array(
+                'type' => 'integer',
+                'sanitize_callback' => function($value) {
+                    return max(1, min(1000, (int) $value));
+                },
+                'default' => 10
+            )
+        );
+        register_setting(
+            'baskerville_settings_group',
+            'baskerville_nocookie_window_sec',
+            array(
+                'type' => 'integer',
+                'sanitize_callback' => function($value) {
+                    return max(10, min(3600, (int) $value));
+                },
+                'default' => 60
+            )
+        );
+        register_setting(
+            'baskerville_settings_group',
+            'baskerville_nojs_threshold',
+            array(
+                'type' => 'integer',
+                'sanitize_callback' => function($value) {
+                    return max(1, min(1000, (int) $value));
+                },
+                'default' => 20
+            )
+        );
+        register_setting(
+            'baskerville_settings_group',
+            'baskerville_nojs_window_sec',
+            array(
+                'type' => 'integer',
+                'sanitize_callback' => function($value) {
+                    return max(10, min(3600, (int) $value));
+                },
+                'default' => 60
+            )
+        );
+        register_setting(
+            'baskerville_settings_group',
+            'baskerville_ban_ttl_sec',
+            array(
+                'type' => 'integer',
+                'sanitize_callback' => function($value) {
+                    return max(60, min(86400, (int) $value));
+                },
+                'default' => 600
+            )
         );
 
         // General tab settings section
@@ -87,6 +152,15 @@ class Baskerville_Admin {
             'honeypot_ban',
             __('Ban on Honeypot Trigger', 'baskerville'),
             array($this, 'render_honeypot_ban_field'),
+            'baskerville-general',
+            'baskerville_general_section'
+        );
+
+        // Burst protection enabled field
+        add_settings_field(
+            'enable_burst_protection',
+            __('Burst Protection', 'baskerville'),
+            array($this, 'render_burst_protection_field'),
             'baskerville-general',
             'baskerville_general_section'
         );
@@ -135,7 +209,7 @@ class Baskerville_Admin {
 
         if (isset($input['log_mode'])) {
             $mode = sanitize_text_field($input['log_mode']);
-            $sanitized['log_mode'] = in_array($mode, array('disabled', 'file', 'database')) ? $mode : 'file';
+            $sanitized['log_mode'] = in_array($mode, array('disabled', 'file', 'database')) ? $mode : 'database';
         }
 
         if (isset($input['geoip_mode'])) {
@@ -181,6 +255,18 @@ class Baskerville_Admin {
         $sanitized['honeypot_enabled'] = isset($input['honeypot_enabled']) ? (bool) $input['honeypot_enabled'] : false;
         $sanitized['honeypot_ban'] = isset($input['honeypot_ban']) ? (bool) $input['honeypot_ban'] : false;
 
+        // Burst protection enabled (checkbox)
+        $sanitized['enable_burst_protection'] = isset($input['enable_burst_protection']) ? (bool) $input['enable_burst_protection'] : false;
+
+        // API rate limiting settings
+        $sanitized['api_rate_limit_enabled'] = isset($input['api_rate_limit_enabled']) ? (bool) $input['api_rate_limit_enabled'] : false;
+        if (isset($input['api_rate_limit_requests'])) {
+            $sanitized['api_rate_limit_requests'] = max(1, min(10000, (int) $input['api_rate_limit_requests']));
+        }
+        if (isset($input['api_rate_limit_window'])) {
+            $sanitized['api_rate_limit_window'] = max(10, min(3600, (int) $input['api_rate_limit_window']));
+        }
+
         // Flush rewrite rules when settings are saved (for honeypot route)
         flush_rewrite_rules();
 
@@ -204,8 +290,8 @@ class Baskerville_Admin {
 
     public function render_log_page_visits_field() {
         $options = get_option('baskerville_settings', array());
-        // Default to 'file' for best balance (performance + analytics)
-        $mode = isset($options['log_mode']) ? $options['log_mode'] : 'file';
+        // Default to 'database' for immediate blocking and analytics
+        $mode = isset($options['log_mode']) ? $options['log_mode'] : 'database';
         ?>
         <fieldset>
             <legend class="screen-reader-text"><span><?php esc_html_e('Page Visit Logging Mode', 'baskerville'); ?></span></legend>
@@ -768,15 +854,15 @@ class Baskerville_Admin {
         $where_clause = $wpdb->prepare("WHERE timestamp_utc >= %s", $time_threshold);
 
         // Total visits
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table and $where_clause are safe
+
         $total_visits = (int) $wpdb->get_var("SELECT COUNT(*) FROM $table $where_clause");
 
         // Total unique IPs
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table and $where_clause are safe
+
         $total_ips = (int) $wpdb->get_var("SELECT COUNT(DISTINCT ip) FROM $table $where_clause");
 
         // Blocked IPs (unique IPs that have block_reason)
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table and $where_clause are safe
+
         $blocked_ips = (int) $wpdb->get_var("SELECT COUNT(DISTINCT ip) FROM $table $where_clause AND block_reason IS NOT NULL AND block_reason != ''");
 
         // Calculate block rate
@@ -812,7 +898,7 @@ class Baskerville_Admin {
 
         $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is safe, $bucket_seconds is sanitized integer
+
         $sql = "
           SELECT
             FROM_UNIXTIME(
@@ -830,7 +916,7 @@ class Baskerville_Admin {
           GROUP BY time_slot
           ORDER BY time_slot ASC
         ";
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql uses $wpdb->prepare() with placeholder
+
         $results = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A);
 
         $out = [];
@@ -862,7 +948,7 @@ class Baskerville_Admin {
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
         // Get stats grouped by country_code directly from database
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
+
         $sql = $wpdb->prepare("
             SELECT
                 COALESCE(NULLIF(country_code, ''), 'XX') as country_code,
@@ -874,7 +960,7 @@ class Baskerville_Admin {
             ORDER BY total_requests DESC
         ", $cutoff);
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql is prepared with $wpdb->prepare()
+
         $results = $wpdb->get_results($sql, ARRAY_A);
         $all_countries = $this->get_countries_list();
 
@@ -902,7 +988,7 @@ class Baskerville_Admin {
 
     private function render_countries_tab() {
         // Get selected period from URL, default to 1day
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display parameter
+
         $period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
         $valid_periods = array('12h', '1day', '3days', '7days');
         if (!in_array($period, $valid_periods)) {
@@ -1113,9 +1199,6 @@ class Baskerville_Admin {
         </div>
 
         <?php if (!empty($country_stats)): ?>
-        <?php // phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Chart.js is enqueued but inline load ensures availability ?>
-        <script src="<?php echo esc_url(plugins_url('baskerville/assets/js/chart.min.js')); ?>"></script>
-
         <script>
         (function waitForChart() {
             if (typeof Chart === 'undefined') {
@@ -1212,7 +1295,7 @@ class Baskerville_Admin {
 
     private function render_traffic_tab() {
         // Get selected period from URL, default to 1day
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only display parameter
+
         $period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
         $valid_periods = array('12h', '1day', '3days', '7days');
         if (!in_array($period, $valid_periods)) {
@@ -1682,11 +1765,25 @@ class Baskerville_Admin {
                 </div>
             </div>
 
-            <!-- Log File Import Status -->
+            <!-- Logging Status -->
             <?php
             $options = get_option('baskerville_settings', array());
-            $log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'file';
-            if ($log_mode === 'file'):
+            $log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'database';
+            ?>
+            <?php if ($log_mode === 'database'): ?>
+            <div class="notice notice-success inline" style="margin: 20px 0; padding: 15px;">
+                <h3 style="margin-top: 0;">
+                    <span class="dashicons dashicons-database"></span>
+                    <?php esc_html_e('Logging Status', 'baskerville'); ?>
+                </h3>
+                <p>
+                    <strong><?php esc_html_e('Mode:', 'baskerville'); ?></strong> Direct to Database<br>
+                    <span style="color: #46b450;">✓</span> Logs are written directly to the database. No import needed, charts update in real-time.<br>
+                    <br>
+                    💡 <strong>Note:</strong> This mode is slower (~500ms per request) but ensures data is always up-to-date. Consider switching to "File logging" mode for better performance on high-traffic sites.
+                </p>
+            </div>
+            <?php elseif ($log_mode === 'file'):
                 $stats_obj = new Baskerville_Stats(new Baskerville_Core(), new Baskerville_AI_UA(new Baskerville_Core()));
                 $log_dir = $stats_obj->get_log_dir();
                 $pending_files = 0;
@@ -1696,25 +1793,98 @@ class Baskerville_Admin {
                     $pending_files = max(0, $pending_files);
                 }
                 $next_cron = wp_next_scheduled('baskerville_process_log_files');
+
+                // Check if WP-Cron is disabled
+                $wp_cron_disabled = defined('DISABLE_WP_CRON') && DISABLE_WP_CRON;
+
+                // Get last successful import (we'll store this in options)
+                $last_import = get_option('baskerville_last_log_import', 0);
+                $last_import_time = $last_import ? human_time_diff($last_import, time()) . ' ago' : 'Never';
+
+                // Determine cron health
+                $cron_health = 'good';
+                $cron_message = '';
+                if (!$next_cron) {
+                    $cron_health = 'error';
+                    $cron_message = '⚠️ Auto-import not scheduled!';
+                } elseif ($wp_cron_disabled) {
+                    $cron_health = 'warning';
+                    $cron_message = '⚠️ WP-Cron is disabled (DISABLE_WP_CRON=true). You must set up a real cron job.';
+                } elseif ($pending_files > 5) {
+                    $cron_health = 'warning';
+                    $cron_message = '⚠️ Many pending files - cron might not be running frequently.';
+                }
             ?>
-            <div class="notice notice-info inline" style="margin: 20px 0; padding: 15px;">
+            <div class="notice notice-<?php echo $cron_health === 'good' ? 'info' : ($cron_health === 'error' ? 'error' : 'warning'); ?> inline" style="margin: 20px 0; padding: 15px;">
                 <h3 style="margin-top: 0;">
                     <span class="dashicons dashicons-database-import"></span>
                     <?php esc_html_e('Log File Import Status', 'baskerville'); ?>
                 </h3>
-                <p>
-                    <strong><?php esc_html_e('Logging Mode:', 'baskerville'); ?></strong> File logging (for performance)<br>
-                    <strong><?php esc_html_e('Pending log files:', 'baskerville'); ?></strong> <?php echo esc_html($pending_files); ?><br>
+                <table style="margin: 10px 0;">
+                    <tr>
+                        <td><strong><?php esc_html_e('Logging Mode:', 'baskerville'); ?></strong></td>
+                        <td style="padding-left: 15px;">File logging (for performance)</td>
+                    </tr>
+                    <tr>
+                        <td><strong><?php esc_html_e('Pending log files:', 'baskerville'); ?></strong></td>
+                        <td style="padding-left: 15px;"><?php echo esc_html($pending_files); ?></td>
+                    </tr>
+                    <tr>
+                        <td><strong><?php esc_html_e('Last import:', 'baskerville'); ?></strong></td>
+                        <td style="padding-left: 15px;"><?php echo esc_html($last_import_time); ?></td>
+                    </tr>
+                    <tr>
+                        <td><strong><?php esc_html_e('WP-Cron status:', 'baskerville'); ?></strong></td>
+                        <td style="padding-left: 15px;">
+                            <?php if ($wp_cron_disabled): ?>
+                                <span style="color: #d63638;">❌ Disabled (DISABLE_WP_CRON=true)</span>
+                            <?php else: ?>
+                                <span style="color: #46b450;">✓ Enabled</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
                     <?php if ($next_cron): ?>
-                        <strong><?php esc_html_e('Next auto-import:', 'baskerville'); ?></strong> <?php echo esc_html(human_time_diff($next_cron, time()) . ' from now'); ?><br>
-                    <?php else: ?>
-                        <strong style="color: #d63638;"><?php esc_html_e('⚠️ Auto-import not scheduled! Logs won\'t be imported automatically.', 'baskerville'); ?></strong><br>
+                    <tr>
+                        <td><strong><?php esc_html_e('Next auto-import:', 'baskerville'); ?></strong></td>
+                        <td style="padding-left: 15px;"><?php echo esc_html(human_time_diff($next_cron, time())); ?> from now</td>
+                    </tr>
                     <?php endif; ?>
-                </p>
+                </table>
+
+                <?php if ($cron_message): ?>
+                    <div style="background: <?php echo $cron_health === 'error' ? '#f8d7da' : '#fff3cd'; ?>; border-left: 4px solid <?php echo $cron_health === 'error' ? '#dc3545' : '#ffc107'; ?>; padding: 12px; margin: 15px 0;">
+                        <?php echo esc_html($cron_message); ?>
+                        <?php if ($wp_cron_disabled): ?>
+                            <br><br>
+                            <strong>Fix:</strong> Add this to your server crontab:<br>
+                            <code style="background: #f5f5f5; padding: 5px; display: block; margin-top: 5px;">
+                                * * * * * wget -q -O - <?php echo esc_url(site_url('wp-cron.php?doing_wp_cron')); ?> &>/dev/null || curl -s <?php echo esc_url(site_url('wp-cron.php?doing_wp_cron')); ?> &>/dev/null
+                            </code>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+
                 <button type="button" class="button button-primary" id="import-logs-now">
                     <?php esc_html_e('Import Logs Now', 'baskerville'); ?>
                 </button>
                 <span id="import-logs-result" style="margin-left: 10px;"></span>
+
+                <p style="margin-top: 15px; font-size: 12px; color: #666;">
+                    💡 <strong>Tip:</strong> Auto-import runs every minute. If you have many visitors, consider switching to "Direct to Database" mode in Settings (slower but no import delay).
+                </p>
+            </div>
+            <?php elseif ($log_mode === 'disabled'): ?>
+            <div class="notice notice-warning inline" style="margin: 20px 0; padding: 15px;">
+                <h3 style="margin-top: 0;">
+                    <span class="dashicons dashicons-warning"></span>
+                    <?php esc_html_e('Logging Status', 'baskerville'); ?>
+                </h3>
+                <p>
+                    <strong><?php esc_html_e('Mode:', 'baskerville'); ?></strong> Disabled<br>
+                    <span style="color: #d63638;">⚠️</span> Logging is completely disabled. No statistics or charts will be available.<br>
+                    <br>
+                    💡 Go to Settings tab to enable logging (either "File logging" or "Direct to Database").
+                </p>
             </div>
             <?php endif; ?>
 
@@ -1723,9 +1893,7 @@ class Baskerville_Admin {
             // Try to get timeseries data with error handling
             try {
                 $timeseries = $this->get_timeseries_data($stats['hours']);
-                $ts_count = is_array($timeseries) ? count($timeseries) : 0;
                 ?>
-                <!-- Debug: hours=<?php echo esc_html($stats['hours']); ?>, timeseries_count=<?php echo esc_html($ts_count); ?> -->
                 <div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
                     <div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                         <canvas id="baskervilleHumAutoBar"></canvas>
@@ -1736,9 +1904,6 @@ class Baskerville_Admin {
                 </div>
 
                 <?php if (is_array($timeseries)): ?>
-                <?php // phpcs:ignore WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Chart.js is enqueued but inline load ensures availability ?>
-                <script src="<?php echo esc_url(plugins_url('baskerville/assets/js/chart.min.js')); ?>"></script>
-
                 <script>
         console.log('Chart script loading...');
         // Wait for Chart.js to load
@@ -1911,8 +2076,7 @@ class Baskerville_Admin {
 
     private function render_geoip_test_tab() {
         // Always use current IP
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for display only
-        $current_ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
+        $current_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
         $results = null;
         $error = null;
 
@@ -2022,6 +2186,133 @@ class Baskerville_Admin {
         </style>
 
         <div class="geoip-test-container">
+            <?php
+            // Get GeoIP ban settings
+            $options = get_option('baskerville_settings', array());
+            $geoip_mode = isset($options['geoip_mode']) ? $options['geoip_mode'] : 'allow_all';
+            $blacklist_countries = isset($options['blacklist_countries']) ? $options['blacklist_countries'] : '';
+            $whitelist_countries = isset($options['whitelist_countries']) ? $options['whitelist_countries'] : '';
+            $core = new Baskerville_Core();
+            $detected_country = $current_ip ? $core->get_country_by_ip($current_ip) : null;
+            $is_whitelisted = $current_ip ? $core->is_whitelisted_ip($current_ip) : false;
+
+            // Determine if would be blocked
+            $would_block = false;
+            $block_reason = '';
+            if ($current_ip && !$is_whitelisted && $geoip_mode !== 'allow_all' && $detected_country) {
+                if ($geoip_mode === 'blacklist' && !empty($blacklist_countries)) {
+                    $blacklist_arr = array_map('trim', array_map('strtoupper', explode(',', $blacklist_countries)));
+                    $would_block = in_array($detected_country, $blacklist_arr, true);
+                    $block_reason = $would_block ? 'Country IS in blacklist' : 'Country NOT in blacklist';
+                } elseif ($geoip_mode === 'whitelist' && !empty($whitelist_countries)) {
+                    $whitelist_arr = array_map('trim', array_map('strtoupper', explode(',', $whitelist_countries)));
+                    $would_block = !in_array($detected_country, $whitelist_arr, true);
+                    $block_reason = $would_block ? 'Country NOT in whitelist' : 'Country in whitelist';
+                }
+            }
+            ?>
+
+            <!-- GeoIP Ban Status Card -->
+            <div class="geoip-test-form" style="margin-bottom: 20px;">
+                <h2>🚫 <?php esc_html_e('GeoIP Country Ban Status', 'baskerville'); ?></h2>
+                <table class="widefat" style="margin-top: 15px;">
+                    <tr>
+                        <td style="width: 200px; font-weight: bold;"><?php esc_html_e('Your IP Address', 'baskerville'); ?></td>
+                        <td><code><?php echo esc_html($current_ip); ?></code></td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold;"><?php esc_html_e('Detected Country', 'baskerville'); ?></td>
+                        <td>
+                            <?php if ($detected_country): ?>
+                                <strong style="font-size: 16px; color: #2271b1;"><?php echo esc_html($detected_country); ?></strong>
+                            <?php else: ?>
+                                <span style="color: #d63638;">❌ <?php esc_html_e('NOT DETECTED - GeoIP not configured', 'baskerville'); ?></span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold;"><?php esc_html_e('GeoIP Mode', 'baskerville'); ?></td>
+                        <td>
+                            <strong><?php echo esc_html($geoip_mode); ?></strong>
+                            <?php if ($geoip_mode === 'allow_all'): ?>
+                                <span style="color: #46b450;"> (<?php esc_html_e('All countries allowed', 'baskerville'); ?>)</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php if ($geoip_mode === 'blacklist'): ?>
+                    <tr>
+                        <td style="font-weight: bold;"><?php esc_html_e('Blacklist Countries', 'baskerville'); ?></td>
+                        <td>
+                            <?php if (!empty($blacklist_countries)): ?>
+                                <code><?php echo esc_html($blacklist_countries); ?></code>
+                            <?php else: ?>
+                                <em style="color: #999;"><?php esc_html_e('(empty - no countries blacklisted)', 'baskerville'); ?></em>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
+                    <?php if ($geoip_mode === 'whitelist'): ?>
+                    <tr>
+                        <td style="font-weight: bold;"><?php esc_html_e('Whitelist Countries', 'baskerville'); ?></td>
+                        <td>
+                            <?php if (!empty($whitelist_countries)): ?>
+                                <code><?php echo esc_html($whitelist_countries); ?></code>
+                            <?php else: ?>
+                                <em style="color: #999;"><?php esc_html_e('(empty - all countries blocked)', 'baskerville'); ?></em>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
+                    <tr>
+                        <td style="font-weight: bold;"><?php esc_html_e('IP in Whitelist?', 'baskerville'); ?></td>
+                        <td>
+                            <?php if ($is_whitelisted): ?>
+                                <span style="color: #46b450; font-weight: bold;">✓ YES (bypasses all protection)</span>
+                            <?php else: ?>
+                                <span style="color: #999;">NO</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Decision Box -->
+                <div style="margin-top: 20px; padding: 20px; border-radius: 4px; <?php
+                    if ($is_whitelisted || !$detected_country || $geoip_mode === 'allow_all' || !$would_block) {
+                        echo 'background: #e8f5e9; border: 2px solid #4caf50;';
+                    } else {
+                        echo 'background: #ffebee; border: 2px solid #f44336;';
+                    }
+                ?>">
+                    <h3 style="margin-top: 0;">
+                        <?php if ($is_whitelisted): ?>
+                            ✅ <span style="color: #2e7d32;"><?php esc_html_e('ALLOWED', 'baskerville'); ?></span>
+                        <?php elseif (!$detected_country): ?>
+                            ⚠️ <span style="color: #f57c00;"><?php esc_html_e('ALLOWED (by default)', 'baskerville'); ?></span>
+                        <?php elseif ($geoip_mode === 'allow_all'): ?>
+                            ✅ <span style="color: #2e7d32;"><?php esc_html_e('ALLOWED', 'baskerville'); ?></span>
+                        <?php elseif ($would_block): ?>
+                            ❌ <span style="color: #c62828;"><?php esc_html_e('BLOCKED', 'baskerville'); ?></span>
+                        <?php else: ?>
+                            ✅ <span style="color: #2e7d32;"><?php esc_html_e('ALLOWED', 'baskerville'); ?></span>
+                        <?php endif; ?>
+                    </h3>
+                    <p style="margin: 0; font-size: 14px;">
+                        <?php if ($is_whitelisted): ?>
+                            <?php esc_html_e('This IP is in the IP Whitelist and bypasses all protection including GeoIP bans.', 'baskerville'); ?>
+                        <?php elseif (!$detected_country): ?>
+                            <?php esc_html_e('Country not detected. GeoIP database might be missing. Go to "GeoIP Configuration Status" below to check.', 'baskerville'); ?>
+                        <?php elseif ($geoip_mode === 'allow_all'): ?>
+                            <?php esc_html_e('GeoIP mode is set to "Allow All". Go to Countries tab to enable blocking.', 'baskerville'); ?>
+                        <?php elseif ($would_block): ?>
+                            <strong><?php esc_html_e('Reason:', 'baskerville'); ?></strong> <?php echo esc_html($block_reason); ?><br>
+                            <?php esc_html_e('This IP would receive 403 Forbidden on the website.', 'baskerville'); ?>
+                        <?php else: ?>
+                            <strong><?php esc_html_e('Reason:', 'baskerville'); ?></strong> <?php echo esc_html($block_reason); ?>
+                        <?php endif; ?>
+                    </p>
+                </div>
+            </div>
+
             <div class="geoip-test-form">
                 <h2><?php esc_html_e('GeoIP Configuration Status', 'baskerville'); ?></h2>
                 <p><?php esc_html_e('This page shows which GeoIP sources are configured and working for your server.', 'baskerville'); ?></p>
@@ -2355,7 +2646,7 @@ class Baskerville_Admin {
 
     public function admin_page() {
         // Get current tab
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Tab parameter for navigation
+
         $current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'overview';
         ?>
         <div class="wrap">
@@ -2386,6 +2677,10 @@ class Baskerville_Admin {
                 <a href="?page=baskerville-settings&tab=performance"
                    class="nav-tab <?php echo $current_tab === 'performance' ? 'nav-tab-active' : ''; ?>">
                     <?php esc_html_e('Performance', 'baskerville'); ?>
+                </a>
+                <a href="?page=baskerville-settings&tab=api"
+                   class="nav-tab <?php echo $current_tab === 'api' ? 'nav-tab-active' : ''; ?>">
+                    <?php esc_html_e('API', 'baskerville'); ?>
                 </a>
             </h2>
 
@@ -2458,6 +2753,16 @@ class Baskerville_Admin {
                         <?php
                         break;
 
+                    case 'api':
+                        ?>
+                        </form>
+                        <?php
+                        $this->render_api_tab();
+                        ?>
+                        <form method="post" action="options.php">
+                        <?php
+                        break;
+
                     default:
                         ?>
                         </form>
@@ -2477,8 +2782,7 @@ class Baskerville_Admin {
     /* ===== IP Whitelist Tab ===== */
     private function render_ip_whitelist_tab() {
         $whitelist = get_option('baskerville_ip_whitelist', '');
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for display only
-        $current_ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : 'unknown';
+        $current_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
         $ips_array = array_filter(preg_split('~[\s,]+~', $whitelist));
 
         // Handle form submission
@@ -2708,8 +3012,7 @@ class Baskerville_Admin {
                     <strong><?php esc_html_e('Your Current IP:', 'baskerville'); ?></strong>
                     <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px; font-size: 14px; margin-left: 5px;">
                         <?php
-                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is escaped with esc_html
-                        echo esc_html(isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : 'unknown');
+                        echo esc_html(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? 'unknown')));
                         ?>
                     </code>
                 </div>
@@ -2850,6 +3153,192 @@ done
             });
         });
         </script>
+        <?php
+    }
+
+    /* ===== API Tab ===== */
+    private function render_api_tab() {
+        $options = get_option('baskerville_settings', array());
+        $rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+        $rate_limit_requests = isset($options['api_rate_limit_requests']) ? (int)$options['api_rate_limit_requests'] : 100;
+        $rate_limit_window = isset($options['api_rate_limit_window']) ? (int)$options['api_rate_limit_window'] : 60;
+        ?>
+        <div class="baskerville-api-tab">
+            <h2><?php esc_html_e('API Protection Settings', 'baskerville'); ?></h2>
+
+            <!-- How API Detection Works -->
+            <div class="card" style="max-width: 1000px; margin: 20px 0;">
+                <h3><?php esc_html_e('How API Auto-Detection Works', 'baskerville'); ?></h3>
+
+                <p><?php esc_html_e('Baskerville automatically detects API requests and applies special protection rules. API requests BYPASS the firewall (no 403 bans, no burst protection) and only use rate limiting.', 'baskerville'); ?></p>
+
+                <h4><?php esc_html_e('Detection Methods:', 'baskerville'); ?></h4>
+
+                <div style="background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <strong>1. <?php esc_html_e('Content-Type Headers:', 'baskerville'); ?></strong>
+                    <p style="margin: 8px 0 0 20px; color: #555;">
+                        <code>application/json</code>, <code>application/xml</code>, <code>application/graphql</code>,
+                        <code>application/ld+json</code>, <code>multipart/form-data</code>
+                    </p>
+                </div>
+
+                <div style="background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <strong>2. <?php esc_html_e('URL Patterns:', 'baskerville'); ?></strong>
+                    <p style="margin: 8px 0 0 20px; color: #555;">
+                        <code>/api/</code>, <code>/v1/</code>, <code>/v2/</code>, <code>/v3/</code>,
+                        <code>/rest/</code>, <code>/graphql/</code>, <code>/wp-json/</code>,
+                        <code>/webhook/</code>, <code>/payment/</code>, <code>/checkout/</code>,
+                        <code>/auth/</code>, <code>/oauth/</code>, <code>/token/</code>
+                    </p>
+                </div>
+
+                <div style="background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 4px;">
+                    <strong>3. <?php esc_html_e('Accept Headers:', 'baskerville'); ?></strong>
+                    <p style="margin: 8px 0 0 20px; color: #555;">
+                        <?php esc_html_e('Requests with Accept header requesting JSON or XML format', 'baskerville'); ?>
+                    </p>
+                </div>
+
+                <div style="background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 15px 0;">
+                    <strong>✓ <?php esc_html_e('What happens to API requests:', 'baskerville'); ?></strong>
+                    <ul style="margin: 10px 0 0 20px;">
+                        <li><?php esc_html_e('Bypass all firewall rules (GeoIP, burst protection, bot detection)', 'baskerville'); ?></li>
+                        <li><?php esc_html_e('Never receive 403 Forbidden responses', 'baskerville'); ?></li>
+                        <li><?php esc_html_e('Only subject to rate limiting (429 Too Many Requests)', 'baskerville'); ?></li>
+                        <li><?php esc_html_e('Whitelisted IPs bypass rate limiting completely', 'baskerville'); ?></li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Rate Limiting Settings -->
+            <div class="card" style="max-width: 1000px; margin: 20px 0;">
+                <h3><?php esc_html_e('API Rate Limiting', 'baskerville'); ?></h3>
+
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0;">
+                    <strong><?php esc_html_e('How Rate Limiting Works:', 'baskerville'); ?></strong>
+                    <p style="margin: 8px 0;">
+                        <?php esc_html_e('Rate limiting counts requests per IP address in a sliding time window. When the limit is exceeded, API requests receive HTTP 429 (Too Many Requests) with a Retry-After header.', 'baskerville'); ?>
+                    </p>
+                    <p style="margin: 8px 0;">
+                        <strong><?php esc_html_e('Example:', 'baskerville'); ?></strong>
+                        <?php esc_html_e('100 requests / 60 seconds means each IP can make maximum 100 API requests per minute. The 101st request returns 429 error.', 'baskerville'); ?>
+                    </p>
+                </div>
+
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">
+                            <label for="api_rate_limit_enabled">
+                                <?php esc_html_e('Enable Rate Limiting', 'baskerville'); ?>
+                            </label>
+                        </th>
+                        <td>
+                            <label>
+                                <input type="checkbox"
+                                       id="api_rate_limit_enabled"
+                                       name="baskerville_settings[api_rate_limit_enabled]"
+                                       value="1"
+                                       <?php checked($rate_limit_enabled, true); ?> />
+                                <?php esc_html_e('Enable rate limiting for REST API endpoints', 'baskerville'); ?>
+                            </label>
+                            <p class="description">
+                                <?php esc_html_e('When enabled, API requests exceeding the limit will receive a 429 Too Many Requests response.', 'baskerville'); ?>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th scope="row">
+                            <label for="api_rate_limit_requests">
+                                <?php esc_html_e('Request Limit', 'baskerville'); ?>
+                            </label>
+                        </th>
+                        <td>
+                            <input type="number"
+                                   id="api_rate_limit_requests"
+                                   name="baskerville_settings[api_rate_limit_requests]"
+                                   value="<?php echo esc_attr($rate_limit_requests); ?>"
+                                   min="1"
+                                   max="10000"
+                                   class="small-text" />
+                            <?php esc_html_e('requests', 'baskerville'); ?>
+                            <p class="description">
+                                <?php esc_html_e('Maximum number of requests allowed per IP address.', 'baskerville'); ?>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th scope="row">
+                            <label for="api_rate_limit_window">
+                                <?php esc_html_e('Time Window', 'baskerville'); ?>
+                            </label>
+                        </th>
+                        <td>
+                            <input type="number"
+                                   id="api_rate_limit_window"
+                                   name="baskerville_settings[api_rate_limit_window]"
+                                   value="<?php echo esc_attr($rate_limit_window); ?>"
+                                   min="10"
+                                   max="3600"
+                                   class="small-text" />
+                            <?php esc_html_e('seconds', 'baskerville'); ?>
+                            <p class="description">
+                                <?php esc_html_e('Time window for the rate limit (60 seconds = 1 minute).', 'baskerville'); ?>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+                <div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 15px; margin: 15px 0;">
+                    <strong><?php esc_html_e('Current Configuration:', 'baskerville'); ?></strong>
+                    <?php if ($rate_limit_enabled): ?>
+                        <p style="margin: 5px 0 0 0;">
+                            <?php
+                            echo sprintf(
+                                /* translators: %1$d is number of requests, %2$d is time in seconds */
+                                esc_html__('Rate limiting is ENABLED: %1$d requests per %2$d seconds per IP address', 'baskerville'),
+                                esc_attr($rate_limit_requests),
+                                esc_attr($rate_limit_window)
+                            );
+                            ?>
+                        </p>
+                    <?php else: ?>
+                        <p style="margin: 5px 0 0 0; color: #d63638;">
+                            <?php esc_html_e('Rate limiting is DISABLED: API endpoints have no rate limits', 'baskerville'); ?>
+                        </p>
+                    <?php endif; ?>
+                </div>
+
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0;">
+                    <strong>💡 <?php esc_html_e('Recommended Settings:', 'baskerville'); ?></strong>
+                    <ul style="margin: 10px 0;">
+                        <li><strong><?php esc_html_e('Low Traffic:', 'baskerville'); ?></strong> 100 requests/60s</li>
+                        <li><strong><?php esc_html_e('Medium Traffic:', 'baskerville'); ?></strong> 500 requests/60s</li>
+                        <li><strong><?php esc_html_e('High Traffic:', 'baskerville'); ?></strong> 1000 requests/60s</li>
+                    </ul>
+                    <p style="margin: 5px 0 0 0;">
+                        <?php esc_html_e('IPs in the whitelist bypass rate limiting completely.', 'baskerville'); ?>
+                    </p>
+                </div>
+
+                <p class="submit">
+                    <input type="submit" name="submit" id="submit" class="button button-primary" value="<?php esc_attr_e('Save API Settings', 'baskerville'); ?>">
+                </p>
+            </div>
+        </div>
+
+        <style>
+            .badge {
+                display: inline-block;
+                padding: 3px 8px;
+                font-size: 11px;
+                font-weight: 600;
+                border-radius: 3px;
+                background: #0073aa;
+                color: #fff;
+            }
+        </style>
         <?php
     }
 
@@ -3143,6 +3632,198 @@ done
         <?php
     }
 
+    public function render_burst_protection_field() {
+        $options = get_option('baskerville_settings', array());
+        // Default to true (enabled) if not set
+        $burst_enabled = !isset($options['enable_burst_protection']) || $options['enable_burst_protection'];
+
+        // Get current thresholds
+        $nocookie_threshold = (int) get_option('baskerville_nocookie_threshold', 10);
+        $nocookie_window = (int) get_option('baskerville_nocookie_window_sec', 60);
+        $nojs_threshold = (int) get_option('baskerville_nojs_threshold', 20);
+        $nojs_window = (int) get_option('baskerville_nojs_window_sec', 60);
+        $ban_ttl = (int) get_option('baskerville_ban_ttl_sec', 600);
+        ?>
+        <label>
+            <input type="checkbox"
+                   name="baskerville_settings[enable_burst_protection]"
+                   value="1"
+                   <?php checked($burst_enabled, true); ?> />
+            <?php esc_html_e('Enable automatic burst protection', 'baskerville'); ?>
+        </label>
+        <p class="description">
+            <?php esc_html_e('Burst protection blocks IPs making too many requests in a short time, even if "Enable 403 ban" is disabled.', 'baskerville'); ?>
+        </p>
+
+        <div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 15px; margin: 15px 0;">
+            <h4 style="margin-top: 0;"><?php esc_html_e('What is Burst Protection?', 'baskerville'); ?></h4>
+            <p><?php esc_html_e('Burst protection prevents abuse by blocking IPs that make too many requests too quickly. It works independently of bot classification and the "Enable 403 ban" setting.', 'baskerville'); ?></p>
+
+            <p><?php esc_html_e('When an IP exceeds the threshold, it receives a 403 Forbidden response and is temporarily banned. All burst types are counted separately per IP address using sliding time windows.', 'baskerville'); ?></p>
+
+            <strong><?php esc_html_e('4 Types of Burst Protection:', 'baskerville'); ?></strong>
+            <table style="margin: 10px 0; width: 100%; max-width: 900px; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f9f9f9;">
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;"><?php esc_html_e('Type', 'baskerville'); ?></th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;"><?php esc_html_e('Trigger Condition', 'baskerville'); ?></th>
+                        <th style="padding: 10px; border: 1px solid #ddd; text-align: left;"><?php esc_html_e('Purpose', 'baskerville'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #fff;">
+                        <td style="padding: 8px; border: 1px solid #ddd;"><strong><?php esc_html_e('No-Cookie Burst', 'baskerville'); ?></strong></td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">
+                            &gt;<?php echo esc_html($nocookie_threshold); ?> <?php esc_html_e('requests', 'baskerville'); ?>/<?php echo esc_html($nocookie_window); ?><?php esc_html_e('s without valid cookie', 'baskerville'); ?>
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd;"><?php esc_html_e('Blocks bots that don\'t accept cookies', 'baskerville'); ?></td>
+                    </tr>
+                    <tr style="background: #f9f9f9;">
+                        <td style="padding: 8px; border: 1px solid #ddd;"><strong><?php esc_html_e('No-JS Burst', 'baskerville'); ?></strong></td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">
+                            &gt;<?php echo esc_html($nojs_threshold); ?> <?php esc_html_e('requests', 'baskerville'); ?>/<?php echo esc_html($nojs_window); ?><?php esc_html_e('s without JavaScript', 'baskerville'); ?>
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd;"><?php esc_html_e('Blocks bots that don\'t execute JavaScript', 'baskerville'); ?></td>
+                    </tr>
+                    <tr style="background: #fff;">
+                        <td style="padding: 8px; border: 1px solid #ddd;"><strong><?php esc_html_e('Non-Browser UA Burst', 'baskerville'); ?></strong></td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">
+                            &gt;<?php echo esc_html($nocookie_threshold); ?> <?php esc_html_e('requests', 'baskerville'); ?>/<?php echo esc_html($nocookie_window); ?><?php esc_html_e('s with non-browser User-Agent', 'baskerville'); ?>
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd;"><?php esc_html_e('Blocks scripts (curl, wget, python-requests, etc.)', 'baskerville'); ?></td>
+                    </tr>
+                    <tr style="background: #f9f9f9;">
+                        <td style="padding: 8px; border: 1px solid #ddd;"><strong><?php esc_html_e('Bad Bot Burst', 'baskerville'); ?></strong></td>
+                        <td style="padding: 8px; border: 1px solid #ddd;">
+                            &gt;<?php echo esc_html($nocookie_threshold); ?> <?php esc_html_e('requests', 'baskerville'); ?>/<?php echo esc_html($nocookie_window); ?><?php esc_html_e('s for classified bad bots', 'baskerville'); ?>
+                        </td>
+                        <td style="padding: 8px; border: 1px solid #ddd;"><?php esc_html_e('Aggressive blocking for known malicious bots', 'baskerville'); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
+                <strong>💡 <?php esc_html_e('How it works:', 'baskerville'); ?></strong>
+                <ul style="margin: 8px 0;">
+                    <li><?php esc_html_e('Each burst type is counted separately per IP address', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Uses sliding time windows (not fixed intervals)', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Verified crawlers (Google, Bing, etc.) bypass all burst protection', 'baskerville'); ?></li>
+                    <li><?php esc_html_e('Whitelisted IPs bypass all burst protection', 'baskerville'); ?></li>
+                </ul>
+            </div>
+
+            <div style="background: #ffe5e5; border-left: 4px solid #d63638; padding: 12px; margin-top: 15px;">
+                <strong>⚠️ <?php esc_html_e('For Testing:', 'baskerville'); ?></strong>
+                <?php esc_html_e('If you\'re testing with scripts or non-browser tools, add your IP to the', 'baskerville'); ?>
+                <strong><?php esc_html_e('IP Whitelist', 'baskerville'); ?></strong>
+                <?php esc_html_e('tab to bypass all protection.', 'baskerville'); ?>
+            </div>
+        </div>
+
+        <!-- Burst Protection Thresholds Configuration -->
+        <div style="background: #fff; border: 1px solid #ddd; padding: 20px; margin: 15px 0;">
+            <h4 style="margin-top: 0;"><?php esc_html_e('Burst Protection Thresholds', 'baskerville'); ?></h4>
+            <p class="description"><?php esc_html_e('Configure the thresholds for each burst protection type. Lower values = more aggressive protection.', 'baskerville'); ?></p>
+
+            <table class="form-table" style="margin-top: 20px;">
+                <tr>
+                    <th scope="row" colspan="2">
+                        <strong><?php esc_html_e('No-Cookie & Non-Browser UA Burst', 'baskerville'); ?></strong>
+                    </th>
+                </tr>
+                <tr>
+                    <td style="padding-left: 20px;">
+                        <label for="nocookie_threshold">
+                            <?php esc_html_e('Request Limit', 'baskerville'); ?>
+                        </label>
+                    </td>
+                    <td>
+                        <input type="number"
+                               id="nocookie_threshold"
+                               name="baskerville_nocookie_threshold"
+                               value="<?php echo esc_attr($nocookie_threshold); ?>"
+                               min="1"
+                               max="1000"
+                               class="small-text" />
+                        <?php esc_html_e('requests per', 'baskerville'); ?>
+                        <input type="number"
+                               id="nocookie_window"
+                               name="baskerville_nocookie_window_sec"
+                               value="<?php echo esc_attr($nocookie_window); ?>"
+                               min="10"
+                               max="3600"
+                               class="small-text" />
+                        <?php esc_html_e('seconds', 'baskerville'); ?>
+                        <p class="description">
+                            <?php esc_html_e('Default: 10 requests / 60 seconds. Applies to no-cookie, non-browser UA, and bad bot burst types.', 'baskerville'); ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row" colspan="2" style="padding-top: 20px;">
+                        <strong><?php esc_html_e('No-JavaScript Burst', 'baskerville'); ?></strong>
+                    </th>
+                </tr>
+                <tr>
+                    <td style="padding-left: 20px;">
+                        <label for="nojs_threshold">
+                            <?php esc_html_e('Request Limit', 'baskerville'); ?>
+                        </label>
+                    </td>
+                    <td>
+                        <input type="number"
+                               id="nojs_threshold"
+                               name="baskerville_nojs_threshold"
+                               value="<?php echo esc_attr($nojs_threshold); ?>"
+                               min="1"
+                               max="1000"
+                               class="small-text" />
+                        <?php esc_html_e('requests per', 'baskerville'); ?>
+                        <input type="number"
+                               id="nojs_window"
+                               name="baskerville_nojs_window_sec"
+                               value="<?php echo esc_attr($nojs_window); ?>"
+                               min="10"
+                               max="3600"
+                               class="small-text" />
+                        <?php esc_html_e('seconds', 'baskerville'); ?>
+                        <p class="description">
+                            <?php esc_html_e('Default: 20 requests / 60 seconds. Applies when JavaScript fingerprint is not received.', 'baskerville'); ?>
+                        </p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <th scope="row" colspan="2" style="padding-top: 20px;">
+                        <strong><?php esc_html_e('Ban Duration', 'baskerville'); ?></strong>
+                    </th>
+                </tr>
+                <tr>
+                    <td style="padding-left: 20px;">
+                        <label for="ban_ttl">
+                            <?php esc_html_e('Ban TTL', 'baskerville'); ?>
+                        </label>
+                    </td>
+                    <td>
+                        <input type="number"
+                               id="ban_ttl"
+                               name="baskerville_ban_ttl_sec"
+                               value="<?php echo esc_attr($ban_ttl); ?>"
+                               min="60"
+                               max="86400"
+                               class="small-text" />
+                        <?php esc_html_e('seconds', 'baskerville'); ?>
+                        <p class="description">
+                            <?php esc_html_e('Default: 600 seconds (10 minutes). How long to ban IPs that trigger burst protection.', 'baskerville'); ?>
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+        <?php
+    }
+
     /**
      * AJAX: Get live feed of recent bot blocks
      */
@@ -3153,7 +3834,7 @@ done
         // Get last 30 unique IPs (blocked/suspicious) - one event per IP
         // Note: using classification_reason (actual column name), aliasing as 'reason' for frontend
         // Use subquery to get the latest record for each IP
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
+
         $events = $wpdb->get_results($wpdb->prepare(
             "SELECT t1.ip, t1.country_code, t1.classification, t1.classification_reason as reason,
                     t1.score, t1.user_agent as ua, UNIX_TIMESTAMP(t1.created_at) as timestamp,
@@ -3193,7 +3874,7 @@ done
         $table = $wpdb->prefix . 'baskerville_stats';
 
         // Blocks today
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
+
         $blocks_today = (int) $wpdb->get_var(
             "SELECT COUNT(*) FROM " . esc_sql($table) . "
              WHERE classification IN ('bad_bot', 'ai_bot')
@@ -3201,7 +3882,7 @@ done
         );
 
         // Blocks last hour
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
+
         $blocks_hour = (int) $wpdb->get_var(
             "SELECT COUNT(*) FROM " . esc_sql($table) . "
              WHERE classification IN ('bad_bot', 'ai_bot')
@@ -3209,7 +3890,7 @@ done
         );
 
         // Top attacking IPs today
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
+
         $top_ips = $wpdb->get_results(
             "SELECT ip, country_code, COUNT(*) as count
              FROM " . esc_sql($table) . "
@@ -3222,7 +3903,7 @@ done
         );
 
         // Top attacking countries today
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
+
         $top_countries = $wpdb->get_results(
             "SELECT country_code, COUNT(*) as count
              FROM " . esc_sql($table) . "
@@ -3240,5 +3921,33 @@ done
             'top_ips' => $top_ips,
             'top_countries' => $top_countries
         ]);
+    }
+
+    public function ajax_import_logs() {
+        check_ajax_referer('baskerville_import_logs', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions.'));
+        }
+
+        $core = new Baskerville_Core();
+        $aiua = new Baskerville_AI_UA($core);
+        $stats = new Baskerville_Stats($core, $aiua);
+
+        $imported = $stats->process_log_files_to_db();
+
+        // Store last import time
+        if ($imported > 0) {
+            update_option('baskerville_last_log_import', time());
+        }
+
+        wp_send_json_success(array(
+            'message' => sprintf(
+                /* translators: %d is the number of records imported */
+                __('Successfully imported %d records from log files', 'baskerville'),
+                $imported
+            ),
+            'imported' => $imported
+        ));
     }
 }

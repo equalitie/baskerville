@@ -261,12 +261,13 @@ class Baskerville_MaxMind_Installer {
             return;
         }
 
-        $files = array_diff(scandir($dir), array('.', '..'));
-        foreach ($files as $file) {
-            $path = $dir . '/' . $file;
-            is_dir($path) ? $this->recursive_delete($path) : wp_delete_file($path);
+        global $wp_filesystem;
+        if (!function_exists('WP_Filesystem')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
         }
-        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Required for cleanup of temporary directories
-        rmdir($dir);
+        WP_Filesystem();
+
+
+        $wp_filesystem->rmdir($dir, true);
     }
 }

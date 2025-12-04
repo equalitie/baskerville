@@ -56,8 +56,6 @@ class Baskerville_Core {
     }
 
     public function init() {
-        // phpcs:ignore PluginCheck.CodeAnalysis.DiscouragedFunctions.load_plugin_textdomainFound -- Required for plugins not hosted on WordPress.org
-        load_plugin_textdomain('baskerville', false, dirname(plugin_basename(BASKERVILLE_PLUGIN_FILE)).'/languages');
         add_action('wp_footer', [$this, 'add_fingerprinting_script']);
     }
 
@@ -105,8 +103,7 @@ class Baskerville_Core {
     public function make_cookie_value(): string {
         $token = bin2hex(random_bytes(16));
         $ts    = time();
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for cookie signing, not output
-        $ipk   = $this->ip_key(isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '');
+        $ipk   = $this->ip_key(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '')));
         $sig   = $this->sign_cookie($token, $ts, $ipk);
         // new format: token.ts.ipk.sig
         return $token . '.' . $ts . '.' . $ipk . '.' . $sig;
@@ -114,16 +111,14 @@ class Baskerville_Core {
 
     /** Returns token if signature is valid and not expired. Supports legacy format (3 parts). */
     public function get_cookie_id(): ?string {
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Cookie is validated below
-        $raw = isset($_COOKIE['baskerville_id']) ? wp_unslash($_COOKIE['baskerville_id']) : '';
+        $raw = $_COOKIE['baskerville_id'] ?? '';
         if (!$raw) return null;
         $parts = explode('.', $raw);
 
         if (count($parts) === 4) {
             [$token, $ts, $ipk, $sig] = $parts;
             if (!ctype_xdigit($token) || !ctype_digit($ts)) return null;
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for cookie validation, not output
-            $cur_ipk = $this->ip_key(isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '');
+            $cur_ipk = $this->ip_key(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '')));
             // signature from CURRENT ip_key
             if (!hash_equals($this->sign_cookie($token, (int)$ts, $cur_ipk), $sig)) return null;
             if ((int)$ts < time() - 60*60*24*90) return null;
@@ -164,21 +159,20 @@ class Baskerville_Core {
         }
     }
 
-    // ---- ARRIVAL COOKIE CHECK (by raw header) ----
+    // ---- ARRIVAL COOKIE CHECK ----
     public function arrival_has_valid_cookie(): bool {
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Cookie header is validated below
-        $hdr = isset($_SERVER['HTTP_COOKIE']) ? wp_unslash($_SERVER['HTTP_COOKIE']) : '';
-        if ($hdr === '' || strpos($hdr, 'baskerville_id=') === false) return false;
-        if (!preg_match('~(?:^|;\s*)baskerville_id=([^;]+)~i', $hdr, $m)) return false;
-        $raw = urldecode($m[1]);
+        if (!isset($_COOKIE['baskerville_id'])) {
+            return false;
+        }
+
+        $raw = $_COOKIE['baskerville_id'];
         $parts = explode('.', $raw);
 
         // new format: token.ts.ipk.sig
         if (count($parts) === 4) {
             [$token, $ts, $ipk, $sig] = $parts;
             if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for cookie validation, not output
-            $cur_ipk = $this->ip_key(isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '');
+            $cur_ipk = $this->ip_key(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '')));
             $calc = $this->sign_cookie($token, (int)$ts, $cur_ipk);
             if (!hash_equals($calc, $sig)) return false;
             if ((int)$ts < time() - 60*60*24*90) return false;
@@ -199,8 +193,7 @@ class Baskerville_Core {
     }
 
     public function read_fp_cookie(): ?array {
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Cookie is validated below
-        $raw = isset($_COOKIE['baskerville_fp']) ? wp_unslash($_COOKIE['baskerville_fp']) : '';
+        $raw = $_COOKIE['baskerville_fp'] ?? '';
         if (!$raw) return null;
         $p = explode('.', $raw, 2);
         if (count($p) !== 2) return null;
@@ -216,10 +209,8 @@ class Baskerville_Core {
         if (!$ts || !$ttl || (time() - $ts) > $ttl) return null;
 
         // Binding to ip_key and UA-hash
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP and UA are used for validation, not output
-        $ipk_now = $this->ip_key(isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '');
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- UA is hashed, not output
-        $ua_hash = sha1(isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : '');
+        $ipk_now = $this->ip_key(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '')));
+        $ua_hash = sha1(sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? '')));
         if (($data['ipk'] ?? '') !== $ipk_now) return null;
         if (($data['ua']  ?? '') !== substr($ua_hash, 0, 16)) return null;
 
@@ -411,16 +402,60 @@ class Baskerville_Core {
         if (defined('REST_REQUEST') && REST_REQUEST) return false;
         if (wp_doing_ajax()) return false;
         if (is_feed() || is_trackback()) return false;
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- URI is used for path check, not output
-        $uri = isset($_SERVER['REQUEST_URI']) ? wp_unslash($_SERVER['REQUEST_URI']) : '';
+        $uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
         if (strpos($uri, '/wp-json/') === 0) return false;
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Accept header is used for content type check, not output
-        $accept = isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : '';
+        $accept = sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? ''));
         if ($accept && !preg_match('~text/html|application/xhtml\+xml|\*/\*~i', $accept)) return false;
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Method is used for request type check, not output
-        $method = isset($_SERVER['REQUEST_METHOD']) ? wp_unslash($_SERVER['REQUEST_METHOD']) : 'GET';
+        $method = sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? 'GET'));
         if (!in_array($method, ['GET','HEAD'], true)) return false;
         return true;
+    }
+
+    /**
+     * Detect if current request is an API request (REST, GraphQL, webhooks, etc.)
+     * API requests should use rate limiting instead of 403 bans
+     */
+    public function is_api_request(): bool {
+        $content_type = strtolower(sanitize_text_field(wp_unslash($_SERVER['CONTENT_TYPE'] ?? '')));
+
+        // Check Content-Type header
+        // NOTE: multipart/form-data and application/x-www-form-urlencoded are used by regular HTML forms,
+        // so we DON'T include them here to avoid treating all form submissions as API requests
+        $api_content_types = [
+            'application/json',
+            'application/xml',
+            'application/graphql',
+            'application/ld+json'
+        ];
+
+        foreach ($api_content_types as $type) {
+            if (strpos($content_type, $type) !== false) {
+                return true;
+            }
+        }
+
+        // Check URL patterns
+        $uri = strtolower(sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '')));
+
+        $api_paths = [
+            '/api/', '/v1/', '/v2/', '/v3/', '/rest/', '/graphql/', '/gql/',
+            '/auth/', '/oauth/', '/token/', '/webhook/', '/webhooks/',
+            '/callback/', '/payment/', '/checkout/', '/orders/',
+            '/system/', '/monitoring/', '/health/', '/status/',
+            '/wp-json/', '/wp-admin/admin-ajax.php'
+        ];
+
+        foreach ($api_paths as $path) {
+            if (strpos($uri, $path) !== false) {
+                return true;
+            }
+        }
+
+        // NOTE: We DON'T check Accept header because browsers often send
+        // "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        // which contains application/xml as a fallback, but it's NOT an API request
+
+        return false;
     }
 
     public function is_whitelisted_ip(string $ip): bool {
@@ -459,21 +494,17 @@ class Baskerville_Core {
 
         // 1. Check NGINX GeoIP variables (fastest)
         if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country code is validated and uppercased, not output directly
-            $country = strtoupper(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE']));
+            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
         }
         elseif (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country code is validated and uppercased, not output directly
-            $country = strtoupper(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE']));
+            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
         }
         elseif (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country code is validated and uppercased, not output directly
-            $country = strtoupper(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE']));
+            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
         }
         // 2. Check Cloudflare header
         elseif (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country code is validated and uppercased, not output directly
-            $country = strtoupper(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY']));
+            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
         }
         // 3. Fallback to MaxMind local database
         else {
@@ -527,8 +558,7 @@ class Baskerville_Core {
      * @return array
      */
     public function test_geoip_sources($ip) {
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for comparison, not output
-        $current_ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
+        $current_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
         $is_current_ip = ($ip === $current_ip);
 
         $results = array(
@@ -546,22 +576,18 @@ class Baskerville_Core {
         if ($is_current_ip) {
             // Check NGINX variables (these are set per-request, so we check current $_SERVER)
             if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
-                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country codes are validated and uppercased
-                $results['nginx_geoip2'] = strtoupper(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE']));
+                $results['nginx_geoip2'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
             }
             if (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
-                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country codes are validated and uppercased
-                $results['nginx_geoip_legacy'] = strtoupper(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE']));
+                $results['nginx_geoip_legacy'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
             }
             if (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
-                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country codes are validated and uppercased
-                $results['nginx_custom_header'] = strtoupper(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE']));
+                $results['nginx_custom_header'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
             }
 
             // Check Cloudflare header
             if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
-                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Country codes are validated and uppercased
-                $results['cloudflare'] = strtoupper(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY']));
+                $results['cloudflare'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
             }
         } else {
             // For non-current IPs, note that server-side sources only work for current IP
@@ -610,10 +636,10 @@ class Baskerville_Core {
     }
 
     public function handle_widget_toggle() {
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Debug parameter for development, no sensitive operation
+
         if (!isset($_GET['baskerville_debug'])) return;
 
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Debug parameter for development, no sensitive operation
+
         $v = strtolower(sanitize_text_field(wp_unslash($_GET['baskerville_debug'])));
         $enable  = in_array($v, ['1','on','true','yes'], true);
         $disable = in_array($v, ['0','off','false','no','clear'], true);
