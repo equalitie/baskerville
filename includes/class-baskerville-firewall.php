@@ -122,45 +122,66 @@ class Baskerville_Firewall
     }
 
     public function pre_db_firewall(): void {
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP is used for firewall checks, not output
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
-
-        // Always log first 20 requests for debugging (remove this after testing)
-        static $request_count = 0;
-        $request_count++;
-        if ($request_count <= 20) {
-            // error_log("Baskerville DEBUG [$request_count]: IP=$ip, URI=" . ($_SERVER['REQUEST_URI'] ?? 'N/A') . ", UA=" . substr($_SERVER['HTTP_USER_AGENT'] ?? 'N/A', 0, 30));
-        }
-
-        // public HTML page?
-        if (!$this->core->is_public_html_request()) {
-            if ($request_count <= 20) {
-            // error_log("Baskerville DEBUG [$request_count]: SKIPPED - not public HTML. Accept=" . ($_SERVER['HTTP_ACCEPT'] ?? 'N/A'));
-            }
-            return;
-        }
+        $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
 
         if ($ip === '') return;
 
         // IP whitelist — allow through
         if ($this->core->is_whitelisted_ip($ip)) {
-            if ($request_count <= 20) {
-            // error_log("Baskerville DEBUG [$request_count]: SKIPPED - IP $ip is whitelisted");
-            }
             return;
         }
 
-        if ($request_count <= 20) {
-            // error_log("Baskerville DEBUG [$request_count]: CHECKING firewall rules for IP $ip");
+        // Check if this is WordPress admin area or login page - always allow
+        $request_uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
+        $is_admin_area = (strpos($request_uri, '/wp-admin/') !== false ||
+                         strpos($request_uri, '/wp-login.php') !== false ||
+                         is_admin());
+
+        if ($is_admin_area) {
+            return;
         }
 
-        // GeoIP country ban check
+        // Check if this is an API request (REST, GraphQL, webhooks, etc.)
+        $is_api = $this->core->is_api_request();
+        if ($is_api) {
+            // API requests: apply rate limiting only, no 403 bans
+            $options = get_option('baskerville_settings', array());
+            $rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+
+            if ($rate_limit_enabled) {
+                $max_requests = isset($options['api_rate_limit_requests']) ? (int)$options['api_rate_limit_requests'] : 100;
+                $window_sec = isset($options['api_rate_limit_window']) ? (int)$options['api_rate_limit_window'] : 60;
+
+                $key = "api_global_ratelimit:{$ip}";
+                $count = $this->core->fc_inc_in_window($key, $window_sec);
+
+                if ($count > $max_requests) {
+                    // Send 429 Too Many Requests
+                    http_response_code(429);
+                    header('Retry-After: ' . $window_sec);
+                    header('Content-Type: application/json');
+
+                    echo wp_json_encode([
+                        'error' => 'rate_limit_exceeded',
+                        'message' => sprintf('Rate limit exceeded. Maximum %d requests per %d seconds.', $max_requests, $window_sec),
+                        'retry_after' => $window_sec
+                    ]);
+                    exit;
+                }
+            }
+
+            // API requests bypass firewall, only rate limiting applies
+            return;
+        }
+
+        // GeoIP country ban check (applies to frontend requests only, NOT wp-admin)
         $options = get_option('baskerville_settings', array());
         $mode = isset($options['geoip_mode']) ? $options['geoip_mode'] : 'allow_all';
 
         // Only process GeoIP checks if not in "allow_all" mode
         if ($mode !== 'allow_all') {
             $country = $this->core->get_country_by_ip($ip);
+
             if ($country) {
                 $should_block = false;
                 $reason_prefix = '';
@@ -185,16 +206,13 @@ class Baskerville_Firewall
                 }
 
                 if ($should_block) {
-                    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is used for bot detection, not output
-                    $ua = isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : '';
+                    $ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
                     $headers = [
-                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-                        'accept'          => isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : null,
-                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-                        'accept_language' => isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']) : null,
+                        'accept'          => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? '')),
+                        'accept_language' => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '')),
                         'user_agent'      => $ua,
-                        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-                        'sec_ch_ua'       => isset($_SERVER['HTTP_SEC_CH_UA']) ? wp_unslash($_SERVER['HTTP_SEC_CH_UA']) : null,
+                        'sec_ch_ua'       => sanitize_text_field(wp_unslash($_SERVER['HTTP_SEC_CH_UA'] ?? '')),
+                        'server_protocol' => sanitize_text_field(wp_unslash($_SERVER['SERVER_PROTOCOL'] ?? '')),
                     ];
 
                     $evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
@@ -219,6 +237,12 @@ class Baskerville_Firewall
             }
         }
 
+        // Check if this is a public HTML page (GET/HEAD with HTML Accept header)
+        // Burst protection and bot detection only apply to public HTML pages
+        if (!$this->core->is_public_html_request()) {
+            return;
+        }
+
         // If there's a valid FP cookie — suppress no-JS triggers
         $fp_cookie = $this->core->read_fp_cookie();
         if ($fp_cookie) {
@@ -226,16 +250,13 @@ class Baskerville_Firewall
         }
 
         // Headers for server-side heuristics
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is used for bot detection, not output
-        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : '';
+        $ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
         $headers = [
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'accept'          => isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : null,
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'accept_language' => isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']) : null,
+            'accept'          => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? '')),
+            'accept_language' => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '')),
             'user_agent'      => $ua,
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'sec_ch_ua'       => isset($_SERVER['HTTP_SEC_CH_UA']) ? wp_unslash($_SERVER['HTTP_SEC_CH_UA']) : null,
+            'sec_ch_ua'       => sanitize_text_field(wp_unslash($_SERVER['HTTP_SEC_CH_UA'] ?? '')),
+            'server_protocol' => sanitize_text_field(wp_unslash($_SERVER['SERVER_PROTOCOL'] ?? '')),
         ];
 
         // 0) Already banned?
@@ -269,8 +290,12 @@ class Baskerville_Firewall
         // Check if has valid session cookie on arrival
         $has_valid_cookie = $this->core->arrival_has_valid_cookie();
 
+        // Check if burst protection is enabled (default: true)
+        $options = get_option('baskerville_settings', array());
+        $burst_enabled = !isset($options['enable_burst_protection']) || $options['enable_burst_protection'];
+
         // 1) no-cookie burst: ANY IP without valid cookie making too many requests
-        if (!$has_valid_cookie && !$verified_crawler) {
+        if ($burst_enabled && !$has_valid_cookie && !$verified_crawler) {
             $window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
             $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
             $cnt        = $this->core->fc_inc_in_window("nocookie_burst:{$ip}", $window_sec);
@@ -298,7 +323,7 @@ class Baskerville_Firewall
 
         // 3) no-JS burst: count only pages for which we haven't seen FP "recently"
         $fp_seen_recent = (bool) $this->core->fc_get("fp_seen_ip:{$ip}");
-        if (!$fp_seen_recent && !$verified_crawler) {
+        if ($burst_enabled && !$fp_seen_recent && !$verified_crawler) {
             $window_sec = (int) get_option('baskerville_nojs_window_sec', 60);
             $threshold  = (int) get_option('baskerville_nojs_threshold', 20);
             $cnt        = $this->core->fc_inc_in_window("nojs_cnt:{$ip}", $window_sec);
@@ -355,7 +380,7 @@ class Baskerville_Firewall
             }
         }
 
-        if ($is_nonbrowser && !$verified_crawler) {
+        if ($burst_enabled && $is_nonbrowser && !$verified_crawler) {
             $window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
             $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
 
@@ -390,7 +415,7 @@ class Baskerville_Firewall
         $classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
         $risk           = (int)($evaluation['score'] ?? 0);
 
-        if (($classification['classification'] ?? '') === 'bad_bot' && !$verified_crawler) {
+        if ($burst_enabled && ($classification['classification'] ?? '') === 'bad_bot' && !$verified_crawler) {
             $window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
             $threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
             $cnt        = $this->core->fc_inc_in_window("badbot_cnt:{$ip}", $window_sec);

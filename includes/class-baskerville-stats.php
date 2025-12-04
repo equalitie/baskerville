@@ -143,9 +143,9 @@ class Baskerville_Stats
             return false;
         }
 
-        $result = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Cleanup operation requires direct database access
+        $result = $wpdb->query(
             $wpdb->prepare(
-                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is from $wpdb->prefix and is safe
+
                 "DELETE FROM " . esc_sql($table_name) . " WHERE timestamp_utc < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)",
                 $retention_days
             )
@@ -234,7 +234,7 @@ class Baskerville_Stats
         ];
         $fmt = ['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s','%s'];
 
-        $ok = $wpdb->insert($table_name, $data, $fmt); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Insert operation for statistics tracking
+        $ok = $wpdb->insert($table_name, $data, $fmt);
         if ($ok === false) {
             // error_log('Baskerville: insert failed - ' . $wpdb->last_error);
             return false;
@@ -264,7 +264,7 @@ class Baskerville_Stats
         if ($top_json) { $data['top_factor_json']  = $top_json; $fmt[] = '%s'; }
         if ($top_name) { $data['top_factor']       = $top_name; $fmt[] = '%s'; }
 
-        $ok = $wpdb->update($t, $data, ['visit_key' => $visit_key], $fmt, ['%s']); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Update operation for statistics tracking
+        $ok = $wpdb->update($t, $data, ['visit_key' => $visit_key], $fmt, ['%s']);
         if ($ok === false) {
             // error_log('Baskerville: update by visit_key failed - ' . $wpdb->last_error);
             return false;
@@ -276,31 +276,27 @@ class Baskerville_Stats
         // Only public HTML pages — without duplicating logic
         if (!$this->core->is_public_html_request()) return;
 
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- IP address is validated by WordPress core and used for logging
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? wp_unslash($_SERVER['REMOTE_ADDR']) : '';
+        $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
 
         // Skip logging for whitelisted IPs (performance optimization)
         if ($this->core->is_whitelisted_ip($ip)) return;
 
         // Check logging mode (disabled/file/database)
         $options = get_option('baskerville_settings', array());
-        $log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'file'; // Default to 'file'
+        $log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'database'; // Default to 'database'
 
         if ($log_mode === 'disabled') {
             return; // No logging at all
         }
 
-        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- User agent is used for bot detection, not output
-        $ua = isset($_SERVER['HTTP_USER_AGENT']) ? wp_unslash($_SERVER['HTTP_USER_AGENT']) : '';
+        $ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
 
         $headers = [
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'accept'           => isset($_SERVER['HTTP_ACCEPT']) ? wp_unslash($_SERVER['HTTP_ACCEPT']) : null,
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'accept_language'  => isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE']) : null,
+            'accept'           => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? '')),
+            'accept_language'  => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '')),
             'user_agent'       => $ua,
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Headers are used for bot detection, not output
-            'sec_ch_ua'        => isset($_SERVER['HTTP_SEC_CH_UA']) ? wp_unslash($_SERVER['HTTP_SEC_CH_UA']) : null,
+            'sec_ch_ua'        => sanitize_text_field(wp_unslash($_SERVER['HTTP_SEC_CH_UA'] ?? '')),
+            'server_protocol'  => sanitize_text_field(wp_unslash($_SERVER['SERVER_PROTOCOL'] ?? '')),
         ];
 
         // Classify by server headers (without JS)
@@ -344,27 +340,32 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            FROM_UNIXTIME(
-              FLOOR(UNIX_TIMESTAMP(CONVERT_TZ(timestamp_utc,'+00:00','+00:00'))/900)*900
-            ) AS time_slot,
-            COUNT(*) AS total_visits,
-            SUM(CASE WHEN classification='human'   THEN 1 ELSE 0 END) AS human_count,
-            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_count,
-            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_count,
-            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_count,
-            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
-            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
-          FROM $table_name
-          WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
-          GROUP BY time_slot
-          ORDER BY time_slot ASC
-        ";
-        $results = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is escaped with esc_sql()
+        $results = $wpdb->get_results(
+            $wpdb->prepare(
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                "SELECT
+                    FROM_UNIXTIME(
+                      FLOOR(UNIX_TIMESTAMP(CONVERT_TZ(timestamp_utc,'+00:00','+00:00'))/900)*900
+                    ) AS time_slot,
+                    COUNT(*) AS total_visits,
+                    SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
+                    SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
+                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
+                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
+                    AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score
+                  FROM " . esc_sql($table_name) . "
+                  WHERE event_type IN ('page','fp')
+                    AND timestamp_utc >= %s
+                  GROUP BY time_slot
+                  ORDER BY time_slot ASC",
+                $cutoff
+            ),
+            ARRAY_A
+        );
 
         $out = [];
         foreach ($results ?: [] as $r) {
@@ -398,22 +399,25 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            COUNT(*) AS total_visits,
-            SUM(CASE WHEN classification='human'   THEN 1 ELSE 0 END) AS human_count,
-            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_count,
-            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_count,
-            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_count,
-            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
-            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
-          FROM $table
-          WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
-        ";
-        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT
+                    COUNT(*) AS total_visits,
+                    SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
+                    SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
+                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
+                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
+                    AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score
+                  FROM {$table}
+                  WHERE event_type IN ('page','fp')
+                    AND timestamp_utc >= %s",
+                $cutoff
+            ),
+            ARRAY_A
+        ) ?: [];
 
         $total = (int)($row['total_visits'] ?? 0);
         $bots  = (int)($row['bad_bot_count'] ?? 0)
@@ -442,25 +446,28 @@ class Baskerville_Stats
         $days   = (int)$this->get_retention_days();
         $cutoff = gmdate('Y-m-d H:i:s', time() - $days * 86400);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            COUNT(*) total_visits,
-            COUNT(DISTINCT ip) unique_ips,
-            SUM(CASE WHEN classification='human'   THEN 1 ELSE 0 END) human_count,
-            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) bad_bot_count,
-            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) ai_bot_count,
-            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) bot_count,
-            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
-            AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score,
-            MIN(timestamp_utc) first_record,
-            MAX(timestamp_utc) last_record
-          FROM $table
-          WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
-        ";
-        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT
+                    COUNT(*) total_visits,
+                    COUNT(DISTINCT ip) unique_ips,
+                    SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
+                    SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
+                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
+                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
+                    AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score,
+                    MIN(timestamp_utc) first_record,
+                    MAX(timestamp_utc) last_record
+                  FROM {$table}
+                  WHERE event_type IN ('page','fp')
+                    AND timestamp_utc >= %s",
+                $cutoff
+            ),
+            ARRAY_A
+        );
         if (!$row) return [];
 
         $total = (int)$row['total_visits'];
@@ -493,26 +500,29 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            FROM_UNIXTIME(
-              FLOOR(UNIX_TIMESTAMP(CONVERT_TZ(timestamp_utc,'+00:00','+00:00'))/900)*900
-            ) AS time_slot,
-            COUNT(*) AS total_blocks,
-            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_blocks,
-            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_blocks,
-            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_blocks,
-            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
-            SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
-          FROM $table
-          WHERE event_type='block' AND timestamp_utc >= %s
-          GROUP BY time_slot
-          ORDER BY time_slot ASC
-        ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT
+                    FROM_UNIXTIME(
+                      FLOOR(UNIX_TIMESTAMP(CONVERT_TZ(timestamp_utc,'+00:00','+00:00'))/900)*900
+                    ) AS time_slot,
+                    COUNT(*) AS total_blocks,
+                    SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_blocks,
+                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_blocks,
+                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
+                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
+                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+                  FROM {$table}
+                  WHERE event_type='block'
+                    AND timestamp_utc >= %s
+                  GROUP BY time_slot
+                  ORDER BY time_slot ASC",
+                $cutoff
+            ),
+            ARRAY_A
+        ) ?: [];
 
         $out = [];
         foreach ($rows as $r) {
@@ -536,21 +546,24 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            COUNT(*) AS total_blocks,
-            SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_blocks,
-            SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_blocks,
-            SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_blocks,
-            SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
-            SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
-          FROM $table
-          WHERE event_type='block' AND timestamp_utc >= %s
-        ";
-        $row = $wpdb->get_row($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT
+                    COUNT(*) AS total_blocks,
+                    SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_blocks,
+                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_blocks,
+                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
+                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
+                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+                  FROM {$table}
+                  WHERE event_type='block'
+                    AND timestamp_utc >= %s",
+                $cutoff
+            ),
+            ARRAY_A
+        ) ?: [];
 
         return [
             'total_blocks'        => (int)($row['total_blocks']        ?? 0),
@@ -570,21 +583,31 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql_total = "SELECT COUNT(*) FROM $table WHERE event_type='block' AND timestamp_utc >= %s";
-        $total = (int)$wpdb->get_var($wpdb->prepare($sql_total, $cutoff)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql_total uses $wpdb->prepare()
+        $total = (int)$wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*)
+                  FROM {$table}
+                  WHERE event_type='block'
+                    AND timestamp_utc >= %s",
+                $cutoff
+            )
+        );
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT COALESCE(NULLIF(block_reason,''),'unspecified') AS reason, COUNT(*) AS cnt
-          FROM $table
-          WHERE event_type='block' AND timestamp_utc >= %s
-          GROUP BY reason
-          ORDER BY cnt DESC
-        ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT COALESCE(NULLIF(block_reason,''),'unspecified') AS reason,
+                        COUNT(*) AS cnt
+                  FROM {$table}
+                  WHERE event_type='block'
+                    AND timestamp_utc >= %s
+                  GROUP BY reason
+                  ORDER BY cnt DESC",
+                $cutoff
+            ),
+            ARRAY_A
+        ) ?: [];
 
         $items = [];
         $acc = 0; $n = 0;
@@ -633,25 +656,28 @@ class Baskerville_Stats
             $labels[$i] = sprintf('%d–%d', $start, $end);
         }
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            LEAST(FLOOR(score / %d), %d) AS b,
-            SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END) AS human_count,
-            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
-            COUNT(*) AS total_count
-          FROM $table
-          WHERE event_type IN ('page','fp')
-            AND timestamp_utc >= %s
-            AND score IS NOT NULL
-            AND had_fp = 1
-          GROUP BY b
-          ORDER BY b
-        ";
-
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $bucket_size, $last_idx, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT
+                    LEAST(FLOOR(score / %d), %d) AS b,
+                    SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END) AS human_count,
+                    SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
+                    COUNT(*) AS total_count
+                  FROM {$table}
+                  WHERE event_type IN ('page','fp')
+                    AND timestamp_utc >= %s
+                    AND score IS NOT NULL
+                    AND had_fp = 1
+                  GROUP BY b
+                  ORDER BY b",
+                $bucket_size,
+                $last_idx,
+                $cutoff
+            ),
+            ARRAY_A
+        ) ?: [];
         foreach ($rows as $r) {
             $idx = (int)$r['b'];
             if ($idx < 0 || $idx > $last_idx) continue;
@@ -660,8 +686,8 @@ class Baskerville_Stats
             $total[$idx] = (int)$r['total_count'];
         }
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
-        $row = $wpdb->get_row($wpdb->prepare(" // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Real-time statistics query
+
+        $row = $wpdb->get_row($wpdb->prepare("
           SELECT
             SUM(CASE WHEN classification='human' THEN score ELSE 0 END)        AS human_sum,
             SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END)            AS human_n,
@@ -693,26 +719,34 @@ class Baskerville_Stats
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            user_agent,
-            COUNT(DISTINCT ip) AS unique_ips,
-            COUNT(*) AS events
-          FROM $table
-          WHERE classification='ai_bot' AND timestamp_utc >= %s
-          GROUP BY user_agent
-          ORDER BY unique_ips DESC, events DESC
-        ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT
+                    user_agent,
+                    COUNT(DISTINCT ip) AS unique_ips,
+                    COUNT(*) AS events
+                  FROM {$table}
+                  WHERE classification='ai_bot'
+                    AND timestamp_utc >= %s
+                  GROUP BY user_agent
+                  ORDER BY unique_ips DESC, events DESC",
+                $cutoff
+            ),
+            ARRAY_A
+        ) ?: [];
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is from $wpdb->prefix, safe
-        $total_unique_ips = (int)$wpdb->get_var($wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Real-time statistics query
-            "SELECT COUNT(DISTINCT ip) FROM " . esc_sql($table) . " WHERE classification='ai_bot' AND timestamp_utc >= %s",
-            $cutoff
-        ));
+
+        $total_unique_ips = (int)$wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(DISTINCT ip)
+                  FROM {$table}
+                  WHERE classification='ai_bot'
+                    AND timestamp_utc >= %s",
+                $cutoff
+            )
+        );
 
         $items = array_map(function($r){
             $ua = (string)$r['user_agent'];
@@ -739,25 +773,28 @@ class Baskerville_Stats
         $min_score = max(0, min(100, (int)$min_score));
         $cutoff    = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
 
-        $wpdb->query("SET time_zone = '+00:00'"); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Timezone setting for statistics queries
+        $wpdb->query("SET time_zone = '+00:00'");
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
-        $sql = "
-          SELECT
-            top_factor AS factor,
-            COUNT(*)   AS cnt,
-            AVG(score) AS avg_score
-          FROM $table
-          WHERE event_type IN ('page','fp')
-            AND timestamp_utc >= %s
-            AND had_fp = 1
-            AND score > %d
-            AND top_factor IS NOT NULL
-            AND top_factor <> ''
-          GROUP BY top_factor
-          ORDER BY cnt DESC
-        ";
-        $rows = $wpdb->get_results($wpdb->prepare($sql, $cutoff, $min_score), ARRAY_A) ?: []; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Real-time statistics query, $sql uses $wpdb->prepare()
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT
+                    top_factor AS factor,
+                    COUNT(*)   AS cnt,
+                    AVG(score) AS avg_score
+                  FROM {$table}
+                  WHERE event_type IN ('page','fp')
+                    AND timestamp_utc >= %s
+                    AND had_fp = 1
+                    AND score > %d
+                    AND top_factor IS NOT NULL
+                    AND top_factor <> ''
+                  GROUP BY top_factor
+                  ORDER BY cnt DESC",
+                $cutoff,
+                $min_score
+            ),
+            ARRAY_A
+        ) ?: [];
 
         $total = 0;
         foreach ($rows as $r) { $total += (int)$r['cnt']; }
@@ -782,7 +819,7 @@ class Baskerville_Stats
 
     /* ===== File-based logging (performance optimization) ===== */
 
-    private function get_log_dir(): string {
+    public function get_log_dir(): string {
         $dir = WP_CONTENT_DIR . '/cache/baskerville/logs';
         if (!is_dir($dir)) {
             @wp_mkdir_p($dir);
@@ -900,6 +937,7 @@ class Baskerville_Stats
 
         if ($total_imported > 0) {
             // error_log("Baskerville: Imported $total_imported page visits from log files");
+            update_option('baskerville_last_log_import', time());
         }
 
         return $total_imported;
@@ -938,14 +976,16 @@ class Baskerville_Stats
             $values[] = $data['top_factor'];
         }
 
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table_name is safe, constructed from $wpdb->prefix
-        $sql = "INSERT INTO $table_name
+        $result = $wpdb->query(
+            $wpdb->prepare(
+                "INSERT INTO {$table_name}
                 (visit_key, ip, country_code, baskerville_id, timestamp_utc, score, classification,
                  user_agent, evaluation_json, score_reasons, classification_reason, event_type,
                  top_factor_json, top_factor)
-                VALUES " . implode(', ', $placeholders);
-
-        $result = $wpdb->query($wpdb->prepare($sql, $values)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared -- Batch insert for log import, $sql uses $wpdb->prepare()
+                VALUES " . implode(', ', $placeholders),
+                $values
+            )
+        );
 
         if ($result === false) {
             // error_log('Baskerville: Batch insert failed - ' . $wpdb->last_error);

@@ -47,13 +47,14 @@ add_action('plugins_loaded', function () {
     $aiua  = new Baskerville_AI_UA($core);       // AI_UA should receive $core in constructor
     $stats = new Baskerville_Stats($core, $aiua); // Stats receives Core and AI_UA
 
+    // pre-DB firewall (MUST run IMMEDIATELY, before any other hooks)
+    // This runs directly in plugins_loaded to catch requests as early as possible
+    $fw = new Baskerville_Firewall($core, $stats, $aiua);
+    $fw->pre_db_firewall();
+
     // i18n + frontend JS + widget toggle
     add_action('init', [$core, 'init']);                         // load_plugin_textdomain + add_fingerprinting_script
     add_action('init', [$core, 'handle_widget_toggle'], 0);      // earlier — to set/remove cookie
-
-    // pre-DB firewall (MUST run BEFORE any caching or template loading)
-    $fw = new Baskerville_Firewall($core, $stats, $aiua);
-    add_action('init', [$fw, 'pre_db_firewall'], -999999);
 
     // early identifier setup (before output)
     add_action('send_headers', [$core, 'ensure_baskerville_cookie'], 0);
