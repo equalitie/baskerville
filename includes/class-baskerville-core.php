@@ -111,7 +111,8 @@ class Baskerville_Core {
 
     /** Returns token if signature is valid and not expired. Supports legacy format (3 parts). */
     public function get_cookie_id(): ?string {
-        $raw = $_COOKIE['baskerville_id'] ?? '';
+        $raw = isset( $_COOKIE['baskerville_id'] ) ? sanitize_text_field( wp_unslash( $_COOKIE['baskerville_id'] ) ) : '';
+
         if (!$raw) return null;
         $parts = explode('.', $raw);
 
@@ -165,7 +166,8 @@ class Baskerville_Core {
             return false;
         }
 
-        $raw = $_COOKIE['baskerville_id'];
+        $raw = sanitize_text_field( wp_unslash( $_COOKIE['baskerville_id'] ) );
+
         $parts = explode('.', $raw);
 
         // new format: token.ts.ipk.sig
@@ -193,7 +195,8 @@ class Baskerville_Core {
     }
 
     public function read_fp_cookie(): ?array {
-        $raw = $_COOKIE['baskerville_fp'] ?? '';
+        $raw = isset( $_COOKIE['baskerville_fp'] ) ? sanitize_text_field( wp_unslash( $_COOKIE['baskerville_fp'] ) ) : '';
+
         if (!$raw) return null;
         $p = explode('.', $raw, 2);
         if (count($p) !== 2) return null;
@@ -666,6 +669,7 @@ class Baskerville_Core {
 
         // Hint to cache not to cache this output
         if (!headers_sent()) {
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Known cache-bypass constant used by caching plugins.
             if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
             nocache_headers();
         }

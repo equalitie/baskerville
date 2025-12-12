@@ -511,12 +511,14 @@ class Baskerville_AI_UA {
         // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table is safe, constructed from $wpdb->prefix
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Real-time burst detection requires fresh data
         $cnt = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table
+            "SELECT COUNT(*) FROM %i
              WHERE ip=%s
                AND event_type='page'
                AND had_fp=0
                AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)",
-            $ip, $window_sec
+            $table,
+            $ip,
+            $window_sec
         ));
         // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching

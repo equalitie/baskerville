@@ -165,7 +165,7 @@ class Baskerville_REST {
 
         // fallback: attach to last page hit without FP
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
         $wpdb->query("SET time_zone = '+00:00'");
 
         $attach_window_sec = (int) get_option('baskerville_fp_attach_window_sec', 180);
@@ -173,15 +173,15 @@ class Baskerville_REST {
         if ($ip && $cookie_id) {
             $row_id = $wpdb->get_var(
                 $wpdb->prepare(
-                    sprintf(
-                        "SELECT id FROM %s
-                         WHERE ip=%%s AND baskerville_id=%%s AND event_type='page' AND had_fp=0
-                           AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %%d SECOND)
-                         ORDER BY timestamp_utc DESC LIMIT 1",
-                        esc_sql($table)
-                    ),
-                    $ip, $cookie_id, $attach_window_sec
-                )
+                      "SELECT id FROM %i
+                        WHERE ip=%s AND baskerville_id=%s AND event_type='page' AND had_fp=0
+                          AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)
+                        ORDER BY timestamp_utc DESC LIMIT 1",
+                      $table,
+                      $ip,
+                      $cookie_id,
+                      $attach_window_sec
+                  )
             );
         }
 

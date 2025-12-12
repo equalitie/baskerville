@@ -74,57 +74,142 @@ class Baskerville_Stats
 
     public function maybe_upgrade_schema() {
         global $wpdb;
-        $t = $wpdb->prefix . 'baskerville_stats';
+        $table_name = $wpdb->prefix . 'baskerville_stats';
 
-        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $t is safe, schema migrations use direct SQL
-        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Schema migrations require direct database access
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'had_fp'");
-        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN had_fp TINYINT(1) NOT NULL DEFAULT 0"); }
-
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'fp_received_at'");
-        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN fp_received_at DATETIME NULL"); }
-
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'visit_count'");
-        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN visit_count INT(11) NOT NULL DEFAULT 1"); }
-
-        $idx_any    = $wpdb->get_var("SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='{$t}' AND index_name='visit_key' LIMIT 1");
-        $idx_unique = $wpdb->get_var("SELECT 1 FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='{$t}' AND index_name='visit_key' AND non_unique=0 LIMIT 1");
-        if ($idx_any && !$idx_unique) { $wpdb->query("DROP INDEX visit_key ON $t"); }
-        if (!$idx_unique) { $wpdb->query("ALTER TABLE $t ADD UNIQUE KEY visit_key (visit_key)"); }
-
-        $idx = $wpdb->get_results("SHOW INDEX FROM $t WHERE Key_name='idx_burst'");
-        if (!$idx) {
-            $wpdb->query("CREATE INDEX idx_burst ON $t (ip, event_type, had_fp, timestamp_utc)");
+        // Check and add 'had_fp' column.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'had_fp' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN had_fp TINYINT(1) NOT NULL DEFAULT 0', $table_name )
+            );
         }
 
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'fingerprint_hash'");
-        if (!$col) {
-            $wpdb->query("ALTER TABLE $t ADD COLUMN fingerprint_hash VARCHAR(64) NULL");
-            $wpdb->query("CREATE INDEX fingerprint_hash ON $t (fingerprint_hash)");
+        // Check and add 'fp_received_at' column.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'fp_received_at' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN fp_received_at DATETIME NULL', $table_name )
+            );
         }
 
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'block_reason'");
-        if (!$col) {
-            $wpdb->query("ALTER TABLE $t ADD COLUMN block_reason VARCHAR(128) NULL AFTER classification_reason");
-            $wpdb->query("CREATE INDEX block_reason ON $t (block_reason)");
+        // Check and add 'visit_count' column.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'visit_count' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN visit_count INT(11) NOT NULL DEFAULT 1', $table_name )
+            );
         }
 
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'top_factor_json'");
-        if (!$col) { $wpdb->query("ALTER TABLE $t ADD COLUMN top_factor_json LONGTEXT NULL"); }
-
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'top_factor'");
-        if (!$col) {
-            $wpdb->query("ALTER TABLE $t ADD COLUMN top_factor VARCHAR(64) NULL AFTER top_factor_json");
-            $wpdb->query("CREATE INDEX top_factor ON $t (top_factor)");
+        // Check and upgrade visit_key index to UNIQUE.
+        $idx_any    = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT 1 FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                AND table_name = %s
+                AND index_name = 'visit_key'
+                LIMIT 1",
+                $table_name
+            )
+        );
+        $idx_unique = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT 1 FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                AND table_name = %s
+                AND index_name = 'visit_key'
+                AND non_unique = 0
+                LIMIT 1",
+                $table_name
+            )
+        );
+        if ( $idx_any && ! $idx_unique ) {
+            $wpdb->query(
+                $wpdb->prepare( 'DROP INDEX visit_key ON %i', $table_name )
+            );
+        }
+        if ( ! $idx_unique ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD UNIQUE KEY visit_key (visit_key)', $table_name )
+            );
         }
 
-        // Add country_code field for GeoIP
-        $col = $wpdb->get_results("SHOW COLUMNS FROM $t LIKE 'country_code'");
-        if (!$col) {
-            $wpdb->query("ALTER TABLE $t ADD COLUMN country_code VARCHAR(2) NULL AFTER ip");
-            $wpdb->query("CREATE INDEX country_code ON $t (country_code)");
+        // Check and add idx_burst composite index.
+        $idx = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW INDEX FROM %i WHERE Key_name = %s', $table_name, 'idx_burst' )
+        );
+        if ( ! $idx ) {
+            $wpdb->query(
+                $wpdb->prepare( 'CREATE INDEX idx_burst ON %i (ip, event_type, had_fp, timestamp_utc)', $table_name )
+            );
         }
-        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+        // Check and add 'fingerprint_hash' column with index.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'fingerprint_hash' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN fingerprint_hash VARCHAR(64) NULL', $table_name )
+            );
+            $wpdb->query(
+                $wpdb->prepare( 'CREATE INDEX fingerprint_hash ON %i (fingerprint_hash)', $table_name )
+            );
+        }
+
+        // Check and add 'block_reason' column with index.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'block_reason' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN block_reason VARCHAR(128) NULL AFTER classification_reason', $table_name )
+            );
+            $wpdb->query(
+                $wpdb->prepare( 'CREATE INDEX block_reason ON %i (block_reason)', $table_name )
+            );
+        }
+
+        // Check and add 'top_factor_json' column.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'top_factor_json' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN top_factor_json LONGTEXT NULL', $table_name )
+            );
+        }
+
+        // Check and add 'top_factor' column with index.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'top_factor' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN top_factor VARCHAR(64) NULL AFTER top_factor_json', $table_name )
+            );
+            $wpdb->query(
+                $wpdb->prepare( 'CREATE INDEX top_factor ON %i (top_factor)', $table_name )
+            );
+        }
+
+        // Check and add 'country_code' column with index for GeoIP.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'country_code' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN country_code VARCHAR(2) NULL AFTER ip', $table_name )
+            );
+            $wpdb->query(
+                $wpdb->prepare( 'CREATE INDEX country_code ON %i (country_code)', $table_name )
+            );
+        }
         // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
     }
 
@@ -394,7 +479,7 @@ class Baskerville_Stats
 
     public function get_summary_stats_window($hours = 24) {
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
@@ -411,9 +496,10 @@ class Baskerville_Stats
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
                     AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type IN ('page','fp')
                     AND timestamp_utc >= %s",
+                $table,
                 $cutoff
             ),
             ARRAY_A
@@ -442,7 +528,7 @@ class Baskerville_Stats
 
     public function get_summary_stats() {
         global $wpdb;
-        $table  = $wpdb->prefix . 'baskerville_stats';
+        $table  = esc_sql( $wpdb->prefix . 'baskerville_stats' );
         $days   = (int)$this->get_retention_days();
         $cutoff = gmdate('Y-m-d H:i:s', time() - $days * 86400);
 
@@ -461,9 +547,10 @@ class Baskerville_Stats
                     AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score,
                     MIN(timestamp_utc) first_record,
                     MAX(timestamp_utc) last_record
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type IN ('page','fp')
                     AND timestamp_utc >= %s",
+                $table,
                 $cutoff
             ),
             ARRAY_A
@@ -495,7 +582,7 @@ class Baskerville_Stats
 
     public function get_block_timeseries_data($hours = 24) {
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
@@ -514,11 +601,12 @@ class Baskerville_Stats
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
                     SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s
                   GROUP BY time_slot
                   ORDER BY time_slot ASC",
+                $table,
                 $cutoff
             ),
             ARRAY_A
@@ -541,7 +629,7 @@ class Baskerville_Stats
 
     public function get_block_summary($hours = 24) {
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
@@ -557,9 +645,10 @@ class Baskerville_Stats
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
                     SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s",
+                $table,
                 $cutoff
             ),
             ARRAY_A
@@ -578,7 +667,7 @@ class Baskerville_Stats
 
     public function get_block_reasons_breakdown($hours = 24, $limit = 10) {
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
@@ -588,9 +677,10 @@ class Baskerville_Stats
         $total = (int)$wpdb->get_var(
             $wpdb->prepare(
                 "SELECT COUNT(*)
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s",
+                $table,
                 $cutoff
             )
         );
@@ -599,11 +689,12 @@ class Baskerville_Stats
             $wpdb->prepare(
                 "SELECT COALESCE(NULLIF(block_reason,''),'unspecified') AS reason,
                         COUNT(*) AS cnt
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s
                   GROUP BY reason
                   ORDER BY cnt DESC",
+                $atable,
                 $cutoff
             ),
             ARRAY_A
@@ -637,7 +728,7 @@ class Baskerville_Stats
 
     public function get_score_histogram($hours = 24, $bucket_size = 10) {
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         $hours = max(1, min(720, (int)$hours));
         $bucket_size = max(1, min(50, (int)$bucket_size));
@@ -665,13 +756,14 @@ class Baskerville_Stats
                     SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END) AS human_count,
                     SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
                     COUNT(*) AS total_count
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type IN ('page','fp')
                     AND timestamp_utc >= %s
                     AND score IS NOT NULL
                     AND had_fp = 1
                   GROUP BY b
                   ORDER BY b",
+                $table,
                 $bucket_size,
                 $last_idx,
                 $cutoff
@@ -714,7 +806,7 @@ class Baskerville_Stats
 
     public function get_ai_bot_user_agents($hours = 24) {
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         $hours  = max(1, min(720, (int)$hours));
         $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
@@ -727,11 +819,12 @@ class Baskerville_Stats
                     user_agent,
                     COUNT(DISTINCT ip) AS unique_ips,
                     COUNT(*) AS events
-                  FROM {$table}
+                  FROM %i
                   WHERE classification='ai_bot'
                     AND timestamp_utc >= %s
                   GROUP BY user_agent
                   ORDER BY unique_ips DESC, events DESC",
+                $table,
                 $cutoff
             ),
             ARRAY_A
@@ -741,9 +834,10 @@ class Baskerville_Stats
         $total_unique_ips = (int)$wpdb->get_var(
             $wpdb->prepare(
                 "SELECT COUNT(DISTINCT ip)
-                  FROM {$table}
+                  FROM %i
                   WHERE classification='ai_bot'
                     AND timestamp_utc >= %s",
+                $table,
                 $cutoff
             )
         );
@@ -767,7 +861,7 @@ class Baskerville_Stats
 
     public function get_top_factor_histogram($hours = 24, $min_score = 30) {
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         $hours     = max(1, min(720, (int)$hours));
         $min_score = max(0, min(100, (int)$min_score));
@@ -781,7 +875,7 @@ class Baskerville_Stats
                     top_factor AS factor,
                     COUNT(*)   AS cnt,
                     AVG(score) AS avg_score
-                  FROM {$table}
+                  FROM %i
                   WHERE event_type IN ('page','fp')
                     AND timestamp_utc >= %s
                     AND had_fp = 1
@@ -790,6 +884,7 @@ class Baskerville_Stats
                     AND top_factor <> ''
                   GROUP BY top_factor
                   ORDER BY cnt DESC",
+                $table,
                 $cutoff,
                 $min_score
             ),
@@ -948,7 +1043,7 @@ class Baskerville_Stats
      */
     private function batch_insert_visits(array $batch): int {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'baskerville_stats';
+        $table_name = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
         if (empty($batch)) {
             return 0;
@@ -960,29 +1055,30 @@ class Baskerville_Stats
 
         foreach ($batch as $data) {
             $placeholders[] = "(%s, %s, %s, %s, %s, %d, %s, %s, %s, %s, %s, %s, %s, %s)";
-            $values[] = $data['visit_key'];
-            $values[] = $data['ip'];
-            $values[] = $data['country_code'];
-            $values[] = $data['baskerville_id'];
-            $values[] = $data['timestamp_utc'];
-            $values[] = (int)$data['score'];
-            $values[] = $data['classification'];
-            $values[] = $data['user_agent'];
-            $values[] = $data['evaluation_json'];
-            $values[] = $data['score_reasons'];
-            $values[] = $data['classification_reason'];
-            $values[] = $data['event_type'];
-            $values[] = $data['top_factor_json'];
-            $values[] = $data['top_factor'];
+            $values[] = esc_attr( $data['visit_key'] );
+            $values[] = esc_attr( $data['ip'] );
+            $values[] = esc_attr( $data['country_code'] );
+            $values[] = esc_attr( $data['baskerville_id'] );
+            $values[] = esc_attr( $data['timestamp_utc'] );
+            $values[] = (int) esc_attr( $data['score'] );
+            $values[] = esc_attr( $data['classification'] );
+            $values[] = esc_attr( $data['user_agent'] );
+            $values[] = esc_attr( $data['evaluation_json'] );
+            $values[] = esc_attr( $data['score_reasons'] );
+            $values[] = esc_attr( $data['classification_reason'] );
+            $values[] = esc_attr( $data['event_type'] );
+            $values[] = esc_attr( $data['top_factor_json'] );
+            $values[] = esc_attr( $data['top_factor'] );
         }
 
         $result = $wpdb->query(
-            $wpdb->prepare(
-                "INSERT INTO {$table_name}
+            $wpdb->prepare( // WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+                "INSERT INTO %i
                 (visit_key, ip, country_code, baskerville_id, timestamp_utc, score, classification,
                  user_agent, evaluation_json, score_reasons, classification_reason, event_type,
                  top_factor_json, top_factor)
-                VALUES " . implode(', ', $placeholders),
+                VALUES " . implode(', ', $placeholders), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+                $table_name,
                 $values
             )
         );

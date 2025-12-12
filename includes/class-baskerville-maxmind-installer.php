@@ -1,7 +1,7 @@
 <?php
 
 if (!defined('ABSPATH')) {
-    exit;
+	exit;
 }
 
 /**
@@ -10,264 +10,265 @@ if (!defined('ABSPATH')) {
  */
 class Baskerville_MaxMind_Installer {
 
-    private $vendor_dir;
-    private $zip_url = 'https://github.com/maxmind/GeoIP2-php/archive/refs/tags/v2.13.0.zip';
-    private $composer_data_url = 'https://github.com/maxmind/MaxMind-DB-Reader-php/archive/refs/tags/v1.11.1.zip';
+	private $vendor_dir;
+	private $zip_url = 'https://github.com/maxmind/GeoIP2-php/archive/refs/tags/v2.13.0.zip';
+	private $composer_data_url = 'https://github.com/maxmind/MaxMind-DB-Reader-php/archive/refs/tags/v1.11.1.zip';
 
-    public function __construct() {
-        $this->vendor_dir = BASKERVILLE_PLUGIN_PATH . 'vendor/';
-    }
+	public function __construct() {
+		$this->vendor_dir = BASKERVILLE_PLUGIN_PATH . 'vendor/';
+	}
 
-    /**
-     * Check if MaxMind library is installed
-     */
-    public function is_installed() {
-        return file_exists($this->vendor_dir . 'autoload.php') &&
-               class_exists('GeoIp2\Database\Reader');
-    }
+	/**
+	 * Check if MaxMind library is installed
+	 */
+	public function is_installed() {
+		return file_exists($this->vendor_dir . 'autoload.php') &&
+			   class_exists('GeoIp2\Database\Reader');
+	}
 
-    /**
-     * Install MaxMind library automatically
-     * @return array Status with success/error message
-     */
-    public function install() {
-        $errors = array();
+	/**
+	 * Install MaxMind library automatically
+	 * @return array Status with success/error message
+	 */
+	public function install() {
+		$errors = array();
 
-        // Check if ZipArchive is available
-        if (!class_exists('ZipArchive')) {
-            return array(
-                'success' => false,
-                'message' => 'ZipArchive class not available. Please contact your hosting provider to enable PHP ZIP extension.',
-                'errors' => array('ZipArchive not available')
-            );
-        }
+		// Check if ZipArchive is available
+		if (!class_exists('ZipArchive')) {
+			return array(
+				'success' => false,
+				'message' => esc_html__('ZipArchive class not available. Please contact your hosting provider to enable PHP ZIP extension.', 'baskerville'),
+				'errors' => array( esc_html__( 'ZipArchive not available', 'baskerville' ) )
+			);
+		}
 
-        // Check if we can write to plugin directory
-        if (!wp_is_writable(BASKERVILLE_PLUGIN_PATH)) {
-            return array(
-                'success' => false,
-                'message' => 'Plugin directory is not writable. Path: ' . BASKERVILLE_PLUGIN_PATH . '. Please check file permissions.',
-                'errors' => array('Directory not writable: ' . BASKERVILLE_PLUGIN_PATH)
-            );
-        }
+		// Check if we can write to plugin directory
+		if (!wp_is_writable(BASKERVILLE_PLUGIN_PATH)) {
+			return array(
+				'success' => false,
+				/* translators: %s: plugin directory path */
+				'message' => sprintf( esc_html__('Plugin directory is not writable. Path: %1$s. Please check file permissions.', 'baskerville'), BASKERVILLE_PLUGIN_PATH ),
+				'errors' => array( sprintf( esc_html__('Directory not writable: ', 'baskerville'), BASKERVILLE_PLUGIN_PATH ) )
+			);
+		}
 
-        // Create vendor directory if it doesn't exist
-        if (!is_dir($this->vendor_dir)) {
-            if (!wp_mkdir_p($this->vendor_dir)) {
-                return array(
-                    'success' => false,
-                    'message' => 'Failed to create vendor directory at: ' . $this->vendor_dir,
-                    'errors' => array('mkdir failed')
-                );
-            }
-        }
+		// Create vendor directory if it doesn't exist
+		if (!is_dir($this->vendor_dir)) {
+			if (!wp_mkdir_p($this->vendor_dir)) {
+				return array(
+					'success' => false,
+					'message' => esc_html__( 'Failed to create vendor directory at:', 'baskerville' ) . ' ' . $this->vendor_dir,
+					'errors' => array( esc_html__( 'mkdir failed', 'baskerville' ) )
+				);
+			}
+		}
 
-        try {
-            // Step 1: Download and install MaxMind-DB-Reader (dependency)
-            $result = $this->download_and_extract_db_reader();
-            if (!$result['success']) {
-                $result['errors'][] = 'Step 1 failed: DB-Reader';
-                return $result;
-            }
+		try {
+			// Step 1: Download and install MaxMind-DB-Reader (dependency)
+			$result = $this->download_and_extract_db_reader();
+			if (!$result['success']) {
+				$result['errors'][] = esc_html__( 'Step 1 failed: DB-Reader', 'baskerville' );
+				return $result;
+			}
 
-            // Step 2: Download and install GeoIP2
-            $result = $this->download_and_extract_geoip2();
-            if (!$result['success']) {
-                $result['errors'][] = 'Step 2 failed: GeoIP2';
-                return $result;
-            }
+			// Step 2: Download and install GeoIP2
+			$result = $this->download_and_extract_geoip2();
+			if (!$result['success']) {
+				$result['errors'][] = esc_html__( 'Step 2 failed: GeoIP2', 'baskerville' );
+				return $result;
+			}
 
-            // Step 3: Create autoload.php
-            $this->create_autoload();
+			// Step 3: Create autoload.php
+			$this->create_autoload();
 
-            return array(
-                'success' => true,
-                'message' => 'MaxMind GeoIP2 library installed successfully!'
-            );
+			return array(
+				'success' => true,
+				'message' => esc_html__( 'MaxMind GeoIP2 library installed successfully!', 'baskerville' )
+			);
 
-        } catch (Exception $e) {
-            return array(
-                'success' => false,
-                'message' => 'Installation exception: ' . $e->getMessage(),
-                'errors' => array($e->getMessage()),
-                'trace' => $e->getTraceAsString()
-            );
-        }
-    }
+		} catch (Exception $e) {
+			return array(
+				'success' => false,
+				'message' => esc_html__( 'Installation exception:', 'baskerville' ) . ' ' . $e->getMessage(),
+				'errors' => array($e->getMessage()),
+				'trace' => $e->getTraceAsString()
+			);
+		}
+	}
 
-    /**
-     * Download and extract MaxMind-DB-Reader library
-     */
-    private function download_and_extract_db_reader() {
-        $zip_file = $this->vendor_dir . 'maxmind-db-reader.zip';
+	/**
+	 * Download and extract MaxMind-DB-Reader library
+	 */
+	private function download_and_extract_db_reader() {
+		$zip_file = $this->vendor_dir . 'maxmind-db-reader.zip';
 
-        // Download
-        $response = wp_remote_get($this->composer_data_url, array('timeout' => 60));
-        if (is_wp_error($response)) {
-            return array(
-                'success' => false,
-                'message' => 'Failed to download MaxMind-DB-Reader: ' . $response->get_error_message()
-            );
-        }
+		// Download
+		$response = wp_remote_get($this->composer_data_url, array('timeout' => 60));
+		if (is_wp_error($response)) {
+			return array(
+				'success' => false,
+				'message' => esc_html__( 'Failed to download MaxMind-DB-Reader:', 'baskerville' ) . ' ' . $response->get_error_message()
+			);
+		}
 
-        $body = wp_remote_retrieve_body($response);
-        if (empty($body)) {
-            return array(
-                'success' => false,
-                'message' => 'Downloaded MaxMind-DB-Reader file is empty.'
-            );
-        }
+		$body = wp_remote_retrieve_body($response);
+		if (empty($body)) {
+			return array(
+				'success' => false,
+				'message' => esc_html__( 'Downloaded MaxMind-DB-Reader file is empty.', 'baskerville' )
+			);
+		}
 
-        // Save zip
-        file_put_contents($zip_file, $body);
+		// Save zip
+		file_put_contents($zip_file, $body);
 
-        // Extract
-        $zip = new ZipArchive();
-        if ($zip->open($zip_file) !== true) {
-            return array(
-                'success' => false,
-                'message' => 'Failed to open MaxMind-DB-Reader zip file.'
-            );
-        }
+		// Extract
+		$zip = new ZipArchive();
+		if ($zip->open($zip_file) !== true) {
+			return array(
+				'success' => false,
+				'message' => esc_html__( 'Failed to open MaxMind-DB-Reader zip file.', 'baskerville' )
+			);
+		}
 
-        $extract_to = $this->vendor_dir . 'maxmind-db-temp/';
-        $zip->extractTo($extract_to);
-        $zip->close();
+		$extract_to = $this->vendor_dir . 'maxmind-db-temp/';
+		$zip->extractTo($extract_to);
+		$zip->close();
 
-        // Move files to correct location
-        $source_dir = $extract_to . 'MaxMind-DB-Reader-php-1.11.1/src/MaxMind/';
-        $target_dir = $this->vendor_dir . 'maxmind/';
+		// Move files to correct location
+		$source_dir = $extract_to . 'MaxMind-DB-Reader-php-1.11.1/src/MaxMind/';
+		$target_dir = $this->vendor_dir . 'maxmind/';
 
-        if (is_dir($source_dir)) {
-            $this->recursive_copy($source_dir, $target_dir);
-        }
+		if (is_dir($source_dir)) {
+			$this->recursive_copy($source_dir, $target_dir);
+		}
 
-        // Cleanup
-        wp_delete_file($zip_file);
-        $this->recursive_delete($extract_to);
+		// Cleanup
+		wp_delete_file($zip_file);
+		$this->recursive_delete($extract_to);
 
-        return array('success' => true);
-    }
+		return array('success' => true);
+	}
 
-    /**
-     * Download and extract GeoIP2 library
-     */
-    private function download_and_extract_geoip2() {
-        $zip_file = $this->vendor_dir . 'geoip2.zip';
+	/**
+	 * Download and extract GeoIP2 library
+	 */
+	private function download_and_extract_geoip2() {
+		$zip_file = $this->vendor_dir . 'geoip2.zip';
 
-        // Download
-        $response = wp_remote_get($this->zip_url, array('timeout' => 60));
-        if (is_wp_error($response)) {
-            return array(
-                'success' => false,
-                'message' => 'Failed to download GeoIP2: ' . $response->get_error_message()
-            );
-        }
+		// Download
+		$response = wp_remote_get($this->zip_url, array('timeout' => 60));
+		if (is_wp_error($response)) {
+			return array(
+				'success' => false,
+				'message' => esc_html__('Failed to download GeoIP2:', 'baskerville' ) . ' ' . $response->get_error_message()
+			);
+		}
 
-        $body = wp_remote_retrieve_body($response);
-        if (empty($body)) {
-            return array(
-                'success' => false,
-                'message' => 'Downloaded GeoIP2 file is empty.'
-            );
-        }
+		$body = wp_remote_retrieve_body($response);
+		if (empty($body)) {
+			return array(
+				'success' => false,
+				'message' => esc_html__( 'Downloaded GeoIP2 file is empty.', 'baskerville' )
+			);
+		}
 
-        // Save zip
-        file_put_contents($zip_file, $body);
+		// Save zip
+		file_put_contents($zip_file, $body);
 
-        // Extract
-        $zip = new ZipArchive();
-        if ($zip->open($zip_file) !== true) {
-            return array(
-                'success' => false,
-                'message' => 'Failed to open GeoIP2 zip file.'
-            );
-        }
+		// Extract
+		$zip = new ZipArchive();
+		if ($zip->open($zip_file) !== true) {
+			return array(
+				'success' => false,
+				'message' => esc_html__( 'Failed to open GeoIP2 zip file.', 'baskerville' )
+			);
+		}
 
-        $extract_to = $this->vendor_dir . 'geoip2-temp/';
-        $zip->extractTo($extract_to);
-        $zip->close();
+		$extract_to = $this->vendor_dir . 'geoip2-temp/';
+		$zip->extractTo($extract_to);
+		$zip->close();
 
-        // Move files to correct location
-        $source_dir = $extract_to . 'GeoIP2-php-2.13.0/src/';
-        $target_dir = $this->vendor_dir . 'geoip2/';
+		// Move files to correct location
+		$source_dir = $extract_to . 'GeoIP2-php-2.13.0/src/';
+		$target_dir = $this->vendor_dir . 'geoip2/';
 
-        if (is_dir($source_dir)) {
-            $this->recursive_copy($source_dir, $target_dir);
-        }
+		if (is_dir($source_dir)) {
+			$this->recursive_copy($source_dir, $target_dir);
+		}
 
-        // Cleanup
-        wp_delete_file($zip_file);
-        $this->recursive_delete($extract_to);
+		// Cleanup
+		wp_delete_file($zip_file);
+		$this->recursive_delete($extract_to);
 
-        return array('success' => true);
-    }
+		return array('success' => true);
+	}
 
-    /**
-     * Create autoload.php file
-     */
-    private function create_autoload() {
-        $autoload_content = "<?php\n";
-        $autoload_content .= "// Baskerville MaxMind GeoIP2 Autoloader\n\n";
-        $autoload_content .= "spl_autoload_register(function (\$class) {\n";
-        $autoload_content .= "    // MaxMind namespace prefix\n";
-        $autoload_content .= "    \$prefixes = array(\n";
-        $autoload_content .= "        'GeoIp2\\\\' => __DIR__ . '/geoip2/GeoIp2/',\n";
-        $autoload_content .= "        'MaxMind\\\\' => __DIR__ . '/maxmind/',\n";
-        $autoload_content .= "    );\n\n";
-        $autoload_content .= "    foreach (\$prefixes as \$prefix => \$base_dir) {\n";
-        $autoload_content .= "        \$len = strlen(\$prefix);\n";
-        $autoload_content .= "        if (strncmp(\$prefix, \$class, \$len) !== 0) {\n";
-        $autoload_content .= "            continue;\n";
-        $autoload_content .= "        }\n\n";
-        $autoload_content .= "        \$relative_class = substr(\$class, \$len);\n";
-        $autoload_content .= "        \$file = \$base_dir . str_replace('\\\\\\\\', '/', \$relative_class) . '.php';\n\n";
-        $autoload_content .= "        if (file_exists(\$file)) {\n";
-        $autoload_content .= "            require \$file;\n";
-        $autoload_content .= "            return;\n";
-        $autoload_content .= "        }\n";
-        $autoload_content .= "    }\n";
-        $autoload_content .= "});\n";
+	/**
+	 * Create autoload.php file
+	 */
+	private function create_autoload() {
+		$autoload_content = "<?php\n";
+		$autoload_content .= "// Baskerville MaxMind GeoIP2 Autoloader\n\n";
+		$autoload_content .= "spl_autoload_register(function (\$class) {\n";
+		$autoload_content .= "    // MaxMind namespace prefix\n";
+		$autoload_content .= "    \$prefixes = array(\n";
+		$autoload_content .= "        'GeoIp2\\\\' => __DIR__ . '/geoip2/GeoIp2/',\n";
+		$autoload_content .= "        'MaxMind\\\\' => __DIR__ . '/maxmind/',\n";
+		$autoload_content .= "    );\n\n";
+		$autoload_content .= "    foreach (\$prefixes as \$prefix => \$base_dir) {\n";
+		$autoload_content .= "        \$len = strlen(\$prefix);\n";
+		$autoload_content .= "        if (strncmp(\$prefix, \$class, \$len) !== 0) {\n";
+		$autoload_content .= "            continue;\n";
+		$autoload_content .= "        }\n\n";
+		$autoload_content .= "        \$relative_class = substr(\$class, \$len);\n";
+		$autoload_content .= "        \$file = \$base_dir . str_replace('\\\\\\\\', '/', \$relative_class) . '.php';\n\n";
+		$autoload_content .= "        if (file_exists(\$file)) {\n";
+		$autoload_content .= "            require \$file;\n";
+		$autoload_content .= "            return;\n";
+		$autoload_content .= "        }\n";
+		$autoload_content .= "    }\n";
+		$autoload_content .= "});\n";
 
-        file_put_contents($this->vendor_dir . 'autoload.php', $autoload_content);
-    }
+		file_put_contents($this->vendor_dir . 'autoload.php', $autoload_content);
+	}
 
-    /**
-     * Recursive copy directory
-     */
-    private function recursive_copy($src, $dst) {
-        if (!is_dir($dst)) {
-            wp_mkdir_p($dst);
-        }
+	/**
+	 * Recursive copy directory
+	 */
+	private function recursive_copy($src, $dst) {
+		if (!is_dir($dst)) {
+			wp_mkdir_p($dst);
+		}
 
-        $dir = opendir($src);
-        while (($file = readdir($dir)) !== false) {
-            if ($file != '.' && $file != '..') {
-                if (is_dir($src . '/' . $file)) {
-                    $this->recursive_copy($src . '/' . $file, $dst . '/' . $file);
-                } else {
-                    copy($src . '/' . $file, $dst . '/' . $file);
-                }
-            }
-        }
-        closedir($dir);
-    }
+		$dir = opendir($src);
+		while (($file = readdir($dir)) !== false) {
+			if ($file != '.' && $file != '..') {
+				if (is_dir($src . '/' . $file)) {
+					$this->recursive_copy($src . '/' . $file, $dst . '/' . $file);
+				} else {
+					copy($src . '/' . $file, $dst . '/' . $file);
+				}
+			}
+		}
+		closedir($dir);
+	}
 
-    /**
-     * Recursive delete directory
-     */
-    private function recursive_delete($dir) {
-        if (!is_dir($dir)) {
-            return;
-        }
+	/**
+	 * Recursive delete directory
+	 */
+	private function recursive_delete($dir) {
+		if (!is_dir($dir)) {
+			return;
+		}
 
-        global $wp_filesystem;
-        if (!function_exists('WP_Filesystem')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-        }
-        WP_Filesystem();
+		global $wp_filesystem;
+		if (!function_exists('WP_Filesystem')) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
 
+		WP_Filesystem();
 
-        $wp_filesystem->rmdir($dir, true);
-    }
+		$wp_filesystem->rmdir($dir, true);
+	}
 }
