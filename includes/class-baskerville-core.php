@@ -111,7 +111,8 @@ class Baskerville_Core {
 
     /** Returns token if signature is valid and not expired. Supports legacy format (3 parts). */
     public function get_cookie_id(): ?string {
-        $raw = $_COOKIE['baskerville_id'] ?? '';
+        $raw = isset( $_COOKIE['baskerville_id'] ) ? sanitize_text_field( wp_unslash( $_COOKIE['baskerville_id'] ) ) : '';
+
         if (!$raw) return null;
         $parts = explode('.', $raw);
 
@@ -165,7 +166,8 @@ class Baskerville_Core {
             return false;
         }
 
-        $raw = $_COOKIE['baskerville_id'];
+        $raw = sanitize_text_field( wp_unslash( $_COOKIE['baskerville_id'] ) );
+
         $parts = explode('.', $raw);
 
         // new format: token.ts.ipk.sig
@@ -193,7 +195,8 @@ class Baskerville_Core {
     }
 
     public function read_fp_cookie(): ?array {
-        $raw = $_COOKIE['baskerville_fp'] ?? '';
+        $raw = isset( $_COOKIE['baskerville_fp'] ) ? sanitize_text_field( wp_unslash( $_COOKIE['baskerville_fp'] ) ) : '';
+
         if (!$raw) return null;
         $p = explode('.', $raw, 2);
         if (count($p) !== 2) return null;
@@ -636,10 +639,10 @@ class Baskerville_Core {
     }
 
     public function handle_widget_toggle() {
-
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
         if (!isset($_GET['baskerville_debug'])) return;
 
-
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
         $v = strtolower(sanitize_text_field(wp_unslash($_GET['baskerville_debug'])));
         $enable  = in_array($v, ['1','on','true','yes'], true);
         $disable = in_array($v, ['0','off','false','no','clear'], true);
@@ -666,6 +669,7 @@ class Baskerville_Core {
 
         // Hint to cache not to cache this output
         if (!headers_sent()) {
+            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Known cache-bypass constant used by caching plugins.
             if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
             nocache_headers();
         }
@@ -731,7 +735,7 @@ class Baskerville_Core {
               ctx.fillStyle = '#f60';
               ctx.fillRect(0, 0, 100, 100);
               ctx.fillStyle = '#069';
-              ctx.fillText('Baskerville canvas test', 10, 50);
+              ctx.fillText('<?php echo esc_js( esc_html__( 'Baskerville canvas test', 'baskerville' ) ); ?>', 10, 50);
               return c.toDataURL();
             } catch { return 'unsupported'; }
           };
@@ -890,7 +894,7 @@ class Baskerville_Core {
                               <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Action:</span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
                               <div style="margin-bottom:8px;padding:4px 8px;background:rgba(0,0,0,.2);border-left:3px solid ${color};border-radius:4px;">
                                 <span style="color:${color};font-weight:bold;">${icon} ${label}</span>
-                                <div style="font-size:11px;color:#ccc;margin-top:2px;">${result.classification?.reason||'No reason provided'}</div>
+                                <div style="font-size:11px;color:#ccc;margin-top:2px;">${result.classification?.reason||'<?php echo esc_js( esc_html__( 'No reason provided', 'baskerville' ) ); ?>'}</div>
                               </div>
                             `;
                           }

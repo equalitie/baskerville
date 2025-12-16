@@ -65,7 +65,8 @@ class Baskerville_REST {
         if ($count > $max_requests) {
             return new WP_REST_Response([
                 'error' => 'rate_limit_exceeded',
-                'message' => sprintf('Rate limit exceeded. Maximum %d requests per %d seconds.', $max_requests, $window_sec),
+                /* translators: %1$d is the maximum number of requests, %2$d is the time window in seconds */
+                'message' => sprintf(esc_html__('Rate limit exceeded. Maximum %1$d requests per %2$d seconds.', 'baskerville'), $max_requests, $window_sec),
                 'retry_after' => $window_sec
             ], 429);
         }
@@ -73,6 +74,17 @@ class Baskerville_REST {
         return null;
     }
 
+    /**
+     * Handle fingerprint submission via REST API.
+     *
+     * Direct database queries are required for real-time fingerprint processing.
+     * Caching is not applicable as fingerprints must be stored immediately.
+     *
+     * @param WP_REST_Request $request REST request object.
+     * @return WP_REST_Response REST response.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function handle_fp( WP_REST_Request $request ) {
         // Check rate limit
         $rate_limit_response = $this->check_api_rate_limit();
@@ -106,7 +118,7 @@ class Baskerville_REST {
         } catch (Exception $e) {
             // error_log('Baskerville evaluation error: ' . $e->getMessage());
             $evaluation = ['score' => 0, 'action' => 'error', 'reasons' => ['evaluation_error'], 'top_factors' => []];
-            $classification = ['classification' => 'unknown', 'reason' => 'Classification error', 'risk_score' => 0];
+            $classification = ['classification' => 'unknown', 'reason' => esc_html__('Classification error', 'baskerville'), 'risk_score' => 0];
         }
 
         // fp cookie (HttpOnly, signed)
@@ -165,7 +177,7 @@ class Baskerville_REST {
 
         // fallback: attach to last page hit without FP
         global $wpdb;
-        $table = $wpdb->prefix . 'baskerville_stats';
+        $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
         $wpdb->query("SET time_zone = '+00:00'");
 
         $attach_window_sec = (int) get_option('baskerville_fp_attach_window_sec', 180);
@@ -173,15 +185,15 @@ class Baskerville_REST {
         if ($ip && $cookie_id) {
             $row_id = $wpdb->get_var(
                 $wpdb->prepare(
-                    sprintf(
-                        "SELECT id FROM %s
-                         WHERE ip=%%s AND baskerville_id=%%s AND event_type='page' AND had_fp=0
-                           AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %%d SECOND)
-                         ORDER BY timestamp_utc DESC LIMIT 1",
-                        esc_sql($table)
-                    ),
-                    $ip, $cookie_id, $attach_window_sec
-                )
+                      "SELECT id FROM %i
+                        WHERE ip=%s AND baskerville_id=%s AND event_type='page' AND had_fp=0
+                          AND timestamp_utc >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d SECOND)
+                        ORDER BY timestamp_utc DESC LIMIT 1",
+                      $table,
+                      $ip,
+                      $cookie_id,
+                      $attach_window_sec
+                  )
             );
         }
 
@@ -244,6 +256,7 @@ class Baskerville_REST {
             'classification' => $classification,
         ], 200);
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
     public function handle_stats( WP_REST_Request $request ) {
         // Check rate limit
