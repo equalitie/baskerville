@@ -89,7 +89,7 @@ class Baskerville_AI_UA {
      */
     public function get_ai_bot_company($user_agent) {
         if (empty($user_agent)) {
-            return 'Unknown';
+            return esc_html__('Unknown', 'baskerville');
         }
 
         $ua = strtolower($user_agent);
@@ -124,7 +124,7 @@ class Baskerville_AI_UA {
             }
         }
 
-        return 'Unknown';
+        return esc_html__('Unknown', 'baskerville');
     }
 
     public function verify_crawler_ip(string $ip, string $ua): array {
@@ -526,7 +526,8 @@ class Baskerville_AI_UA {
         if ($cnt >= $threshold) {
             $classification = [
                 'classification' => 'bad_bot',
-                'reason' => sprintf('Excessive no-JS page hits: %d in %ds', $cnt, $window_sec),
+                /* translators: %1$d is the number of page hits, %2$d is the time window in seconds */
+                'reason' => sprintf(esc_html__('Excessive no-JS page hits: %1$d in %2$ds', 'baskerville'), $cnt, $window_sec),
                 'risk_score' => max(50, (int)($classification['risk_score'] ?? 0)),
                 'details' => [
                     'has_cookie' => (bool)$this->core->get_cookie_id(),

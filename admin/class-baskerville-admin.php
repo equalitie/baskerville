@@ -26,7 +26,7 @@ class Baskerville_Admin {
 
 		// Enqueue Select2 (local files)
 		wp_enqueue_style('select2', BASKERVILLE_PLUGIN_URL . 'assets/css/select2.min.css', array(), '4.1.0');
-		wp_enqueue_script('select2', BASKERVILLE_PLUGIN_URL . 'assets/js/select2.min.js', array('jquery'), '4.1.0', true);
+		wp_enqueue_script('select2', BASKERVILLE_PLUGIN_URL . 'assets/js/select2.min.js', array('jquery'), '4.1.0', false );
 
 		// Enqueue Chart.js (local file)
 		wp_enqueue_script('chartjs', BASKERVILLE_PLUGIN_URL . 'assets/js/chart.min.js', array(), '4.4.0', true);
@@ -827,6 +827,17 @@ class Baskerville_Admin {
 		<?php
 	}
 
+	/**
+	 * Get traffic statistics for specified period.
+	 *
+	 * Direct database queries are required for real-time admin statistics.
+	 * Caching is not applicable as data changes frequently.
+	 *
+	 * @param string $period Time period (12h, 1day, 3days, 7days).
+	 * @return array Traffic statistics array.
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+	 */
 	private function get_traffic_stats($period = '1day') {
 		global $wpdb;
 		$table = $wpdb->prefix . 'baskerville_stats';
@@ -883,7 +894,19 @@ class Baskerville_Admin {
 			'hours'        => $hours
 		);
 	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
+	/**
+	 * Get timeseries data for charts.
+	 *
+	 * Direct database queries are required for real-time admin charts.
+	 * Caching is not applicable as data changes frequently.
+	 *
+	 * @param int $hours Number of hours to retrieve data for.
+	 * @return array Country statistics array.
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+	 */
 	private function get_timeseries_data($hours = 24) {
 		global $wpdb;
 		$table_name = $wpdb->prefix . 'baskerville_stats';
@@ -976,7 +999,7 @@ class Baskerville_Admin {
 			$country_code = strtoupper($row['country_code']);
 
 			if ($country_code === 'XX') {
-				$country_name = 'Unknown';
+				$country_name = esc_html__('Unknown', 'baskerville');
 			} else {
 				$country_name = isset($all_countries[$country_code]) ? $all_countries[$country_code] : $country_code;
 			}
@@ -991,10 +1014,12 @@ class Baskerville_Admin {
 
 		return $country_stats;
 	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
 	private function render_countries_tab() {
-		// Get selected period from URL, default to 1day
+		check_admin_referer('baskerville_period_filter', '_wpnonce');
 
+		// Get selected period from URL, default to 1day
 		$period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
 		$valid_periods = array('12h', '1day', '3days', '7days');
 		if (!in_array($period, $valid_periods)) {
@@ -1301,7 +1326,7 @@ class Baskerville_Admin {
 
 	private function render_traffic_tab() {
 		// Get selected period from URL, default to 1day
-
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for read-only period filter parameter
 		$period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
 		$valid_periods = array('12h', '1day', '3days', '7days');
 		if (!in_array($period, $valid_periods)) {
@@ -1931,8 +1956,8 @@ class Baskerville_Admin {
 			// Check if we have data
 			if (!timeseries || timeseries.length === 0) {
 				console.log('No timeseries data available');
-				document.getElementById('baskervilleHumAutoBar').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">No data available for the selected period</p>';
-				document.getElementById('baskervilleHumAutoPie').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">No data available</p>';
+				document.getElementById('baskervilleHumAutoBar').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;"><?php echo esc_html__('No data available for the selected period', 'baskerville'); ?></p>';
+				document.getElementById('baskervilleHumAutoPie').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;"><?php echo esc_html__('No data available', 'baskerville'); ?></p>';
 				return;
 			}
 
@@ -2038,7 +2063,8 @@ class Baskerville_Admin {
 		<?php endif; ?>
 		<?php
 			} catch (Exception $e) {
-				echo '<div class="notice notice-error"><p>Charts Error: ' . esc_html($e->getMessage()) . '</p></div>';
+				/* translators: %s is the error message */
+			echo '<div class="notice notice-error"><p>' . sprintf(esc_html__('Charts Error: %s', 'baskerville'), esc_html($e->getMessage())) . '</p></div>';
 			}
 			?>
 		</div>
@@ -2050,7 +2076,7 @@ class Baskerville_Admin {
 		check_ajax_referer('baskerville_install_maxmind', 'nonce');
 
 		if (!current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => 'Insufficient permissions.'));
+			wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville')));
 		}
 
 		$installer = new Baskerville_MaxMind_Installer();
@@ -2067,7 +2093,7 @@ class Baskerville_Admin {
 		check_ajax_referer('baskerville_clear_geoip_cache', 'nonce');
 
 		if (!current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => 'Insufficient permissions.'));
+			wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville')));
 		}
 
 		$core = new Baskerville_Core();
@@ -2651,8 +2677,13 @@ class Baskerville_Admin {
 	}
 
 	public function admin_page() {
-		// Get current tab
+		// Check user capabilities
+		if (!current_user_can('manage_options')) {
+			wp_die(esc_html__('You do not have sufficient permissions to access this page.', 'baskerville'));
+		}
 
+		// Get current tab
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for read-only tab navigation parameter
 		$current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'overview';
 		?>
 		<div class="wrap">
@@ -3353,20 +3384,20 @@ done
 			check_ajax_referer('baskerville_benchmark', 'nonce');
 
 			if (!current_user_can('manage_options')) {
-				wp_send_json_error(array('message' => 'Insufficient permissions.'));
+				wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville')));
 				return;
 			}
 
 			$test = isset($_POST['test']) ? sanitize_text_field(wp_unslash($_POST['test'])) : '';
 
 			if (empty($test)) {
-				wp_send_json_error(array('message' => 'No test specified.'));
+				wp_send_json_error(array('message' => esc_html__('No test specified.', 'baskerville')));
 				return;
 			}
 
 			// Ensure classes are loaded
 			if (!class_exists('Baskerville_Core')) {
-				wp_send_json_error(array('message' => 'Baskerville_Core class not found.'));
+				wp_send_json_error(array('message' => esc_html__('Baskerville_Core class not found.', 'baskerville')));
 				return;
 			}
 
@@ -3376,7 +3407,7 @@ done
 			// Only load AI_UA if needed
 			if (in_array($test, array('ai-ua', 'firewall', 'all'), true)) {
 				if (!class_exists('Baskerville_AI_UA')) {
-					wp_send_json_error(array('message' => 'Baskerville_AI_UA class not found.'));
+					wp_send_json_error(array('message' => esc_html__('Baskerville_AI_UA class not found.', 'baskerville')));
 					return;
 				}
 				$aiua = new Baskerville_AI_UA($core);
@@ -3423,7 +3454,8 @@ done
 					return;
 
 				default:
-					wp_send_json_error(array('message' => 'Invalid test type: ' . esc_html($test)));
+					/* translators: %s is the invalid test type name */
+				wp_send_json_error(array('message' => sprintf(esc_html__('Invalid test type: %s', 'baskerville'), esc_html($test))));
 					return;
 			}
 
@@ -3438,14 +3470,16 @@ done
 		} catch (Exception $e) {
 			// error_log('Baskerville benchmark error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 			wp_send_json_error(array(
-				'message' => 'Benchmark failed: ' . $e->getMessage(),
+				/* translators: %s is the error message */
+			'message' => sprintf(esc_html__('Benchmark failed: %s', 'baskerville'), $e->getMessage()),
 				'file' => basename($e->getFile()),
 				'line' => $e->getLine()
 			));
 		} catch (Error $e) {
 			// error_log('Baskerville benchmark fatal error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 			wp_send_json_error(array(
-				'message' => 'Fatal error: ' . $e->getMessage(),
+				/* translators: %s is the error message */
+			'message' => sprintf(esc_html__('Fatal error: %s', 'baskerville'), $e->getMessage()),
 				'file' => basename($e->getFile()),
 				'line' => $e->getLine()
 			));
@@ -3831,7 +3865,12 @@ done
 	}
 
 	/**
-	 * AJAX: Get live feed of recent bot blocks
+	 * AJAX: Get live feed of recent bot blocks.
+	 *
+	 * Direct database queries are required for real-time AJAX feed.
+	 * Caching is not applicable for live data updates.
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_feed() {
 		global $wpdb;
@@ -3871,9 +3910,15 @@ done
 
 		wp_send_json_success($events);
 	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
 	/**
-	 * AJAX: Get live statistics
+	 * AJAX: Get live statistics.
+	 *
+	 * Direct database queries are required for real-time AJAX statistics.
+	 * Caching is not applicable for live data updates.
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_stats() {
 		global $wpdb;
@@ -3928,6 +3973,7 @@ done
 			'top_countries' => $top_countries
 		]);
 	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
 	public function ajax_import_logs() {
 		check_ajax_referer('baskerville_import_logs', 'nonce');

@@ -37,6 +37,21 @@ class Baskerville_Firewall
 		$this->insert_block_row($ip, $evaluation, $classification, $ua, $reason);
 	}
 
+	/**
+	 * Insert block event row into database.
+	 *
+	 * Direct database queries are required for real-time firewall blocking.
+	 * Caching is not applicable as blocks must be logged immediately.
+	 *
+	 * @param string $ip IP address being blocked.
+	 * @param array  $evaluation Evaluation data.
+	 * @param array  $classification Classification data.
+	 * @param string $ua User agent string.
+	 * @param string $reason Block reason.
+	 * @return void
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+	 */
 	private function insert_block_row(string $ip, array $evaluation, array $classification, string $ua, string $reason): void {
 		global $wpdb;
 		$table     = $wpdb->prefix . 'baskerville_stats';
@@ -71,6 +86,7 @@ class Baskerville_Firewall
 			// error_log('Baskerville: insert_block_row failed - ' . $wpdb->last_error);
 		}
 	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
 	/* ===== send 403 and stop ===== */
 	private function send_403_and_exit(array $meta): void {
@@ -97,7 +113,7 @@ class Baskerville_Firewall
 				header('Retry-After: ' . $retry);
 			}
 		}
-		echo "Forbidden\n";
+		esc_html_e('Forbidden', 'baskerville') . "\n";
 		exit;
 	}
 

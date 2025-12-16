@@ -72,6 +72,13 @@ class Baskerville_Stats
         add_option('baskerville_db_version', '1.0');
     }
 
+    /**
+     * Upgrade database schema if needed.
+     *
+     * Direct database queries required for schema modifications during plugin upgrades.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function maybe_upgrade_schema() {
         global $wpdb;
         $table_name = $wpdb->prefix . 'baskerville_stats';
@@ -210,13 +217,23 @@ class Baskerville_Stats
                 $wpdb->prepare( 'CREATE INDEX country_code ON %i (country_code)', $table_name )
             );
         }
-        // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
     public function get_retention_days() {
         return (int) get_option('baskerville_retention_days', BASKERVILLE_DEFAULT_RETENTION_DAYS);
     }
 
+    /**
+     * Cleanup old statistics records.
+     *
+     * Direct database queries required for deleting old records.
+     *
+     * @param bool $force Force cleanup even if retention is < 1 day.
+     * @return int|false Number of deleted records or false on failure.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function cleanup_old_stats($force = false) {
         global $wpdb;
 
@@ -247,6 +264,7 @@ class Baskerville_Stats
 
         return $result;
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
     public function maybe_cleanup_stats() {
         if (wp_rand(1, 100) <= 5) { // 5%
@@ -288,6 +306,13 @@ class Baskerville_Stats
         return [wp_json_encode($norm, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $main];
     }
 
+    /**
+     * Save visit statistics to database.
+     *
+     * Direct database queries required for logging visit statistics in real-time.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function save_visit_stats($ip, $baskerville_id, $evaluation, $classification, $user_agent, $event_type = 'fp', $visit_key = null, $block_reason = null) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'baskerville_stats';
@@ -356,6 +381,7 @@ class Baskerville_Stats
         }
         return $ok > 0;
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
     public function log_page_visit() {
         // Only public HTML pages — without duplicating logic
@@ -418,6 +444,16 @@ class Baskerville_Stats
         }
     }
 
+    /**
+     * Get timeseries data for specified hours.
+     *
+     * Direct database queries required for retrieving timeseries statistics.
+     *
+     * @param int $hours Number of hours to retrieve data for.
+     * @return array Timeseries data.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function get_timeseries_data($hours = 24) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'baskerville_stats';
@@ -476,7 +512,18 @@ class Baskerville_Stats
         }
         return $out;
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
+    /**
+     * Get summary statistics for specified time window.
+     *
+     * Direct database queries required for retrieving summary statistics.
+     *
+     * @param int $hours Number of hours for the time window.
+     * @return array Summary statistics.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function get_summary_stats_window($hours = 24) {
         global $wpdb;
         $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
@@ -525,7 +572,17 @@ class Baskerville_Stats
             'hours'            => $hours,
         ];
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
+    /**
+     * Get summary statistics for retention period.
+     *
+     * Direct database queries required for retrieving summary statistics.
+     *
+     * @return array Summary statistics.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function get_summary_stats() {
         global $wpdb;
         $table  = esc_sql( $wpdb->prefix . 'baskerville_stats' );
@@ -579,7 +636,18 @@ class Baskerville_Stats
             'last_record'      => $row['last_record'],
         ];
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
+    /**
+     * Get block timeseries data for specified hours.
+     *
+     * Direct database queries required for retrieving block statistics.
+     *
+     * @param int $hours Number of hours to retrieve data for.
+     * @return array Block timeseries data.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function get_block_timeseries_data($hours = 24) {
         global $wpdb;
         $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
@@ -626,7 +694,18 @@ class Baskerville_Stats
         }
         return $out;
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
+    /**
+     * Get block summary for specified hours.
+     *
+     * Direct database queries required for retrieving block summary.
+     *
+     * @param int $hours Number of hours to retrieve data for.
+     * @return array Block summary data.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function get_block_summary($hours = 24) {
         global $wpdb;
         $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
@@ -664,7 +743,19 @@ class Baskerville_Stats
             'hours'               => $hours,
         ];
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
+    /**
+     * Get block reasons breakdown.
+     *
+     * Direct database queries required for retrieving block reasons statistics.
+     *
+     * @param int $hours Number of hours to retrieve data for.
+     * @param int $limit Maximum number of reasons to return.
+     * @return array Block reasons breakdown.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function get_block_reasons_breakdown($hours = 24, $limit = 10) {
         global $wpdb;
         $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
@@ -725,7 +816,19 @@ class Baskerville_Stats
 
         return ['total' => $total, 'items' => $items];
     }
+    // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
+    /**
+     * Get score histogram for specified hours.
+     *
+     * Direct database queries required for retrieving score distribution.
+     *
+     * @param int $hours Number of hours to retrieve data for.
+     * @param int $bucket_size Size of score buckets.
+     * @return array Score histogram data.
+     *
+     * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+     */
     public function get_score_histogram($hours = 24, $bucket_size = 10) {
         global $wpdb;
         $table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
@@ -1049,7 +1152,8 @@ class Baskerville_Stats
             return 0;
         }
 
-        // Build multi-row INSERT query
+        // Build multi-row INSERT query with dynamic placeholders.
+        // phpcs:disable PluginCheck.Security.DirectDB.UnescapedDBParameter -- Safe: $placeholders contains only static strings, values escaped by $wpdb->prepare().
         $values = [];
         $placeholders = [];
 
@@ -1072,16 +1176,17 @@ class Baskerville_Stats
         }
 
         $result = $wpdb->query(
-            $wpdb->prepare( // WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+            $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- Dynamic batch insert: $values array contains multiple rows of data.
                 "INSERT INTO %i
                 (visit_key, ip, country_code, baskerville_id, timestamp_utc, score, classification,
                  user_agent, evaluation_json, score_reasons, classification_reason, event_type,
                  top_factor_json, top_factor)
-                VALUES " . implode(', ', $placeholders), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+                VALUES " . implode(', ', $placeholders ), // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Safe: static placeholder strings for batch insert.
                 $table_name,
                 $values
             )
         );
+        // phpcs:enable PluginCheck.Security.DirectDB.UnescapedDBParameter
 
         if ($result === false) {
             // error_log('Baskerville: Batch insert failed - ' . $wpdb->last_error);

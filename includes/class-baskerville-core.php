@@ -639,10 +639,10 @@ class Baskerville_Core {
     }
 
     public function handle_widget_toggle() {
-
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
         if (!isset($_GET['baskerville_debug'])) return;
 
-
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
         $v = strtolower(sanitize_text_field(wp_unslash($_GET['baskerville_debug'])));
         $enable  = in_array($v, ['1','on','true','yes'], true);
         $disable = in_array($v, ['0','off','false','no','clear'], true);
@@ -735,7 +735,7 @@ class Baskerville_Core {
               ctx.fillStyle = '#f60';
               ctx.fillRect(0, 0, 100, 100);
               ctx.fillStyle = '#069';
-              ctx.fillText('Baskerville canvas test', 10, 50);
+              ctx.fillText('<?php echo esc_js( esc_html__( 'Baskerville canvas test', 'baskerville' ) ); ?>', 10, 50);
               return c.toDataURL();
             } catch { return 'unsupported'; }
           };
@@ -894,7 +894,7 @@ class Baskerville_Core {
                               <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Action:</span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
                               <div style="margin-bottom:8px;padding:4px 8px;background:rgba(0,0,0,.2);border-left:3px solid ${color};border-radius:4px;">
                                 <span style="color:${color};font-weight:bold;">${icon} ${label}</span>
-                                <div style="font-size:11px;color:#ccc;margin-top:2px;">${result.classification?.reason||'No reason provided'}</div>
+                                <div style="font-size:11px;color:#ccc;margin-top:2px;">${result.classification?.reason||'<?php echo esc_js( esc_html__( 'No reason provided', 'baskerville' ) ); ?>'}</div>
                               </div>
                             `;
                           }

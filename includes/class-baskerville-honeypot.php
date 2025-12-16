@@ -92,7 +92,7 @@ class Baskerville_Honeypot {
 		$evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
 		$classification = [
 			'classification' => 'ai_bot',
-			'reason'         => 'Honeypot triggered: accessed hidden link',
+			'reason'         => esc_html__('Honeypot triggered: accessed hidden link', 'baskerville'),
 			'risk_score'     => 100,
 			'details'        => [
 				'honeypot'   => true,
