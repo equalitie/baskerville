@@ -80,8 +80,6 @@ JSON
 ```
 
 ```commandline
-https://wp.greything.com/wp-json/baskerville/v1/stats/data?hours=24
-
 curl -sS -X POST 'https://wp.greything.com/wp-json/baskerville/v1/fp' \
   -H 'Content-Type: application/json' \
   --data '{"baskerville_id":"dev-2","fingerprint":{"userAgent":"test","screen":"1920x1080","viewport":"800x600","language":"en","touchSupport":{"touchEvent":false,"maxTouchPoints":0},"device":{"platform":"Mac","webdriver":false}}}'

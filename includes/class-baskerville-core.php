@@ -404,8 +404,17 @@ class Baskerville_Core {
         if (is_admin()) return false;
         if (defined('REST_REQUEST') && REST_REQUEST) return false;
         if (wp_doing_ajax()) return false;
-        if (is_feed() || is_trackback()) return false;
+
+        // Check for feed and trackback using REQUEST_URI (works before query parsing)
         $uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
+
+        // Feed detection: /feed/, ?feed=, /rss/, /atom/, etc.
+        if (preg_match('~/(feed|rss|rdf|atom)(/|$)~i', $uri)) return false;
+        if (preg_match('~[?&]feed=~i', $uri)) return false;
+
+        // Trackback detection: trackback.php or wp-trackback.php
+        if (strpos($uri, 'trackback') !== false) return false;
+
         if (strpos($uri, '/wp-json/') === 0) return false;
         $accept = sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? ''));
         if ($accept && !preg_match('~text/html|application/xhtml\+xml|\*/\*~i', $accept)) return false;
