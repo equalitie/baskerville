@@ -1,6 +1,25 @@
-```commandline
-zip -r baskerville-plugin.zip baskerville_plugin/ -x "*.DS_Store" "baskerville_wp/.idea/*" "baskerville_wp/.git/*" "baskerville_wp/node_modules/*" "baskerville_wp/*.log"   
+## Building Plugin Archive
+
+Use the build script to create a clean production-ready ZIP:
+
+```bash
+./build-plugin.sh
 ```
+
+This will create `baskerville.zip` in the parent directory, excluding:
+- Development files (.git, .idea, node_modules)
+- Test files (*.html, bot-detector*.js, test-*.php)
+- Documentation (README.md, with_plugin.txt, without_plugin.txt)
+- Dependencies (vendor/, composer.json)
+- Temporary files (.DS_Store, ab, done, sleep)
+
+The archive includes:
+- Core plugin files (baskerville.php, includes/, admin/)
+- Assets (CSS, JS, images)
+- readme.txt (WordPress plugin readme)
+- deployment.md (this file)
+
+---
 
 ```commandline
 curl -sS -X POST 'https://wp.greything.com/wp-json/baskerville/v1/fp' \

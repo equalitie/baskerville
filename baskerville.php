@@ -84,7 +84,7 @@ add_action('plugins_loaded', function () {
 
 	// admin
 	if (is_admin()) {
-		new Baskerville_Admin();
+		new Baskerville_Admin($stats, $aiua);
 	}
 });
 

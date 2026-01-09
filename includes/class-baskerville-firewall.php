@@ -90,9 +90,9 @@ class Baskerville_Firewall
 
 	/* ===== send 403 and stop ===== */
 	private function send_403_and_exit(array $meta): void {
-		// Check if 403 bans are enabled in settings (default: true)
+		// Check if bot protection is enabled in settings (default: true)
 		$options = get_option('baskerville_settings', array());
-		$ban_enabled = !isset($options['ban_bots_403']) || $options['ban_bots_403'];
+		$ban_enabled = !isset($options['bot_protection_enabled']) || $options['bot_protection_enabled'];
 
 		if (!$ban_enabled) {
 			// If bans are disabled, just return and allow the request to continue
@@ -142,6 +142,15 @@ class Baskerville_Firewall
 
 		if ($ip === '') return;
 
+		// Get options once
+		$options = get_option('baskerville_settings', array());
+
+		// Check Master Switch - if disabled, all blocking is off (only logging)
+		$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+		if (!$master_enabled) {
+			return; // Master switch OFF - no blocking, only logging
+		}
+
 		// IP whitelist — allow through
 		if ($this->core->is_whitelisted_ip($ip)) {
 			return;
@@ -161,7 +170,6 @@ class Baskerville_Firewall
 		$is_api = $this->core->is_api_request();
 		if ($is_api) {
 			// API requests: apply rate limiting only, no 403 bans
-			$options = get_option('baskerville_settings', array());
 			$rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
 
 			if ($rate_limit_enabled) {
@@ -192,11 +200,11 @@ class Baskerville_Firewall
 		}
 
 		// GeoIP country ban check (applies to frontend requests only, NOT wp-admin)
-		$options = get_option('baskerville_settings', array());
+		$geoip_enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
 		$mode = isset($options['geoip_mode']) ? $options['geoip_mode'] : 'allow_all';
 
-		// Only process GeoIP checks if not in "allow_all" mode
-		if ($mode !== 'allow_all') {
+		// Only process GeoIP checks if enabled AND not in "allow_all" mode
+		if ($geoip_enabled && $mode !== 'allow_all') {
 			$country = $this->core->get_country_by_ip($ip);
 
 			if ($country) {
@@ -254,6 +262,71 @@ class Baskerville_Firewall
 			}
 		}
 
+		// AI Bot Company Blocking Check
+		$ai_bot_control_enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
+		$ai_bot_mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
+		if ($ai_bot_control_enabled && $ai_bot_mode !== 'allow_all') {
+			$ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
+			$headers = [
+				'accept'          => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? '')),
+				'accept_language' => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '')),
+				'user_agent'      => $ua,
+				'sec_ch_ua'       => sanitize_text_field(wp_unslash($_SERVER['HTTP_SEC_CH_UA'] ?? '')),
+				'server_protocol' => sanitize_text_field(wp_unslash($_SERVER['SERVER_PROTOCOL'] ?? '')),
+			];
+
+			$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
+
+			// Check if this is an AI bot
+			if (isset($classification['classification']) && $classification['classification'] === 'ai_bot') {
+				$company = $this->aiua->get_ai_bot_company($ua);
+				$should_block = false;
+				$reason_prefix = '';
+
+				if ($ai_bot_mode === 'block_all') {
+					// Block all AI bots mode: block ALL AI bots regardless of company
+					$should_block = true;
+					$reason_prefix = 'ai-bot-block-all';
+				} elseif ($ai_bot_mode === 'whitelist') {
+					// Whitelist mode: block if company is NOT in the list
+					$company_list_str = isset($options['whitelist_ai_companies']) ? $options['whitelist_ai_companies'] : '';
+					if (!empty($company_list_str)) {
+						$whitelist_companies = array_map('trim', explode(',', $company_list_str));
+						$should_block = !in_array($company, $whitelist_companies, true);
+						$reason_prefix = 'ai-bot-whitelist-blocked';
+					}
+				} elseif ($ai_bot_mode === 'blacklist') {
+					// Blacklist mode: block if company IS in the list
+					$company_list_str = isset($options['blacklist_ai_companies']) ? $options['blacklist_ai_companies'] : '';
+					if (!empty($company_list_str)) {
+						$blacklist_companies = array_map('trim', explode(',', $company_list_str));
+						$should_block = in_array($company, $blacklist_companies, true);
+						$reason_prefix = 'ai-bot-blacklist-blocked';
+					}
+				}
+
+				if ($should_block) {
+					$evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
+					$reason = "{$reason_prefix}:{$company}";
+					$ttl = (int) get_option('baskerville_ban_ttl_sec', 600);
+
+					$this->set_ban($ip, $reason, $ttl, [
+						'score' => (int)($evaluation['score'] ?? 0),
+						'cls'   => 'ai-bot-banned',
+					]);
+					$this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
+
+					// Block AI bot
+					$this->send_403_and_exit([
+						'reason' => $reason,
+						'score'  => $evaluation['score'] ?? null,
+						'cls'    => 'ai-bot-banned',
+						'until'  => time() + $ttl,
+					]);
+				}
+			}
+		}
+
 		// Check if this is a public HTML page (GET/HEAD with HTML Accept header)
 		// Burst protection and bot detection only apply to public HTML pages
 		if (!$this->core->is_public_html_request()) {
@@ -302,14 +375,19 @@ class Baskerville_Firewall
 		// Helpers
 		$looks_like_browser = $this->aiua->looks_like_browser_ua($ua);
 		$vc                 = $this->aiua->verify_crawler_ip($ip, $ua);
-		$verified_crawler   = ($vc['claimed'] && $vc['verified']);
+
+		// Check if verified crawlers should be allowed (default: true)
+		$allow_verified = !isset($options['allow_verified_crawlers']) || $options['allow_verified_crawlers'];
+		$verified_crawler = $allow_verified && ($vc['claimed'] && $vc['verified']);
 
 		// Check if has valid session cookie on arrival
 		$has_valid_cookie = $this->core->arrival_has_valid_cookie();
 
 		// Check if burst protection is enabled (default: true)
-		$options = get_option('baskerville_settings', array());
-		$burst_enabled = !isset($options['enable_burst_protection']) || $options['enable_burst_protection'];
+		// Use new burst_protection_enabled field, fallback to legacy enable_burst_protection
+		$burst_enabled = isset($options['burst_protection_enabled'])
+			? $options['burst_protection_enabled']
+			: (!isset($options['enable_burst_protection']) || $options['enable_burst_protection']);
 
 		// 1) no-cookie burst: ANY IP without valid cookie making too many requests
 		if ($burst_enabled && !$has_valid_cookie && !$verified_crawler) {
