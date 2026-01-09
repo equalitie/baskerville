@@ -406,7 +406,11 @@ class Baskerville_AI_UA {
 
         $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
         $vc = $this->verify_crawler_ip($ip, $user_agent);
-        $verified_crawler = ($vc['claimed'] && $vc['verified']);
+
+        // Check if verified crawlers should be allowed (default: true)
+        $options = get_option('baskerville_settings', array());
+        $allow_verified = !isset($options['allow_verified_crawlers']) || $options['allow_verified_crawlers'];
+        $verified_crawler = $allow_verified && ($vc['claimed'] && $vc['verified']);
 
         if ($vc['claimed'] && !$vc['verified']) {
             $risk_score = max($risk_score, 50);
@@ -422,15 +426,17 @@ class Baskerville_AI_UA {
 
         // 1) Явные AI-боты по UA — приоритетно
         if ($this->is_ai_bot_user_agent($user_agent)) {
+            $company = $this->get_ai_bot_company($user_agent);
             return [
                 'classification' => 'ai_bot',
-                'reason'         => 'AI bot detected by user agent',
+                'reason'         => 'AI bot detected by user agent (' . $company . ')',
                 'risk_score'     => $risk_score,
                 'details'        => [
                     'has_cookie' => $had_cookie,
                     'is_ai_bot'  => true,
                     'is_bot_ua'  => $this->is_bot_user_agent($user_agent),
-                    'user_agent' => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : '')
+                    'user_agent' => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                    'company'    => $company
                 ]
             ];
         }

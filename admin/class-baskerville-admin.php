@@ -6,7 +6,13 @@ if (!defined('ABSPATH')) {
 
 class Baskerville_Admin {
 
-	public function __construct() {
+	private $stats;
+	private $aiua;
+
+	public function __construct($stats, $aiua) {
+		$this->stats = $stats;
+		$this->aiua = $aiua;
+
 		add_action('admin_menu', array($this, 'add_admin_menu'));
 		add_action('admin_init', array($this, 'register_settings'));
 		add_action('wp_ajax_baskerville_install_maxmind', array($this, 'ajax_install_maxmind'));
@@ -15,6 +21,7 @@ class Baskerville_Admin {
 		add_action('wp_ajax_baskerville_get_live_feed', array($this, 'ajax_get_live_feed'));
 		add_action('wp_ajax_baskerville_get_live_stats', array($this, 'ajax_get_live_stats'));
 		add_action('wp_ajax_baskerville_import_logs', array($this, 'ajax_import_logs'));
+		add_action('wp_ajax_baskerville_ip_lookup', array($this, 'ajax_ip_lookup'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
 	}
 
@@ -112,99 +119,217 @@ class Baskerville_Admin {
 			)
 		);
 
-		// General tab settings section
+		// ===== Bot Control Tab =====
 		add_settings_section(
-			'baskerville_general_section',
-			esc_html__('General Settings', 'baskerville'),
+			'baskerville_bot_protection_section',
+			'',
 			null,
-			'baskerville-general'
+			'baskerville-bot-protection'
 		);
 
-		// Ban bots with 403 field
 		add_settings_field(
-			'ban_bots_403',
-			esc_html__('Ban bots with 403 page', 'baskerville'),
-			array($this, 'render_ban_bots_403_field'),
-			'baskerville-general',
-			'baskerville_general_section'
+			'bot_protection_enabled',
+			'',
+			array($this, 'render_bot_protection_enabled_field'),
+			'baskerville-bot-protection',
+			'baskerville_bot_protection_section'
 		);
 
-		// Log page visits field (performance optimization)
+		// ===== Burst Protection Tab =====
+		add_settings_section(
+			'baskerville_burst_protection_section',
+			'',
+			null,
+			'baskerville-burst-protection'
+		);
+
 		add_settings_field(
-			'log_page_visits',
-			esc_html__('Log page visits', 'baskerville'),
-			array($this, 'render_log_page_visits_field'),
-			'baskerville-general',
-			'baskerville_general_section'
+			'burst_protection_enabled',
+			'',
+			array($this, 'render_burst_protection_enabled_field'),
+			'baskerville-burst-protection',
+			'baskerville_burst_protection_section'
 		);
 
-		// Honeypot enabled field
-		add_settings_field(
-			'honeypot_enabled',
-			esc_html__('AI Bot Honeypot', 'baskerville'),
-			array($this, 'render_honeypot_enabled_field'),
-			'baskerville-general',
-			'baskerville_general_section'
-		);
-
-		// Honeypot ban enabled field
-		add_settings_field(
-			'honeypot_ban',
-			esc_html__('Ban on Honeypot Trigger', 'baskerville'),
-			array($this, 'render_honeypot_ban_field'),
-			'baskerville-general',
-			'baskerville_general_section'
-		);
-
-		// Burst protection enabled field
 		add_settings_field(
 			'enable_burst_protection',
-			esc_html__('Burst Protection', 'baskerville'),
+			esc_html__('Legacy Burst Protection', 'baskerville'),
 			array($this, 'render_burst_protection_field'),
-			'baskerville-general',
-			'baskerville_general_section'
+			'baskerville-burst-protection',
+			'baskerville_burst_protection_section'
 		);
 
-		// Countries tab settings section
+		// ===== Rate Limits Tab =====
 		add_settings_section(
-			'baskerville_countries_section',
-			esc_html__('GeoIP Country Restrictions', 'baskerville'),
+			'baskerville_rate_limits_section',
+			'',
 			null,
-			'baskerville-countries'
+			'baskerville-rate-limits'
 		);
 
-		// GeoIP mode field
+		// Note: api_rate_limit_enabled is now rendered manually at the top of the Rate Limits tab
+		// add_settings_field(
+		// 	'api_rate_limit_enabled',
+		// 	esc_html__('Enable API Rate Limiting', 'baskerville'),
+		// 	array($this, 'render_api_rate_limit_enabled_field'),
+		// 	'baskerville-rate-limits',
+		// 	'baskerville_rate_limits_section'
+		// );
+
+		// ===== Settings Tab =====
+		add_settings_section(
+			'baskerville_settings_section',
+			esc_html__('General Settings', 'baskerville'),
+			null,
+			'baskerville-settings'
+		);
+
+		// Ban duration field
+		add_settings_field(
+			'ban_ttl_sec',
+			esc_html__('Ban Duration', 'baskerville'),
+			array($this, 'render_ban_duration_field'),
+			'baskerville-settings',
+			'baskerville_settings_section'
+		);
+
+		// Log page visits field
+		add_settings_field(
+			'log_page_visits',
+			esc_html__('Logging Mode', 'baskerville'),
+			array($this, 'render_log_page_visits_field'),
+			'baskerville-settings',
+			'baskerville_settings_section'
+		);
+
+		// Data retention field
+		add_settings_field(
+			'retention_days',
+			esc_html__('Data Retention', 'baskerville'),
+			array($this, 'render_retention_days_field'),
+			'baskerville-settings',
+			'baskerville_settings_section'
+		);
+
+		// IP Whitelist field
+		add_settings_field(
+			'ip_whitelist',
+			esc_html__('Whitelisted IPs', 'baskerville'),
+			array($this, 'render_ip_whitelist_field'),
+			'baskerville-settings',
+			'baskerville_settings_section'
+		);
+
+		// ===== Country Control Tab =====
+		add_settings_section(
+			'baskerville_country_control_section',
+			esc_html__('Country Control Settings', 'baskerville'),
+			null,
+			'baskerville-country-control'
+		);
+
+		// Note: geoip_enabled is now rendered manually at the top of the Country Control tab
+		// add_settings_field(
+		// 	'geoip_enabled',
+		// 	esc_html__('Enable Country Control', 'baskerville'),
+		// 	array($this, 'render_geoip_enabled_field'),
+		// 	'baskerville-country-control',
+		// 	'baskerville_country_control_section'
+		// );
+
 		add_settings_field(
 			'geoip_mode',
 			esc_html__('GeoIP Access Mode', 'baskerville'),
 			array($this, 'render_geoip_mode_field'),
-			'baskerville-countries',
-			'baskerville_countries_section'
+			'baskerville-country-control',
+			'baskerville_country_control_section'
 		);
 
-		// Blacklist countries field
 		add_settings_field(
 			'blacklist_countries',
 			esc_html__('Black List Countries', 'baskerville'),
 			array($this, 'render_blacklist_countries_field'),
-			'baskerville-countries',
-			'baskerville_countries_section'
+			'baskerville-country-control',
+			'baskerville_country_control_section'
 		);
 
-		// Whitelist countries field
 		add_settings_field(
 			'whitelist_countries',
 			esc_html__('White List Countries', 'baskerville'),
 			array($this, 'render_whitelist_countries_field'),
-			'baskerville-countries',
-			'baskerville_countries_section'
+			'baskerville-country-control',
+			'baskerville_country_control_section'
+		);
+
+		// ===== AI Bot Control Tab =====
+		add_settings_section(
+			'baskerville_ai_bot_control_section',
+			esc_html__('AI Bot Access Control', 'baskerville'),
+			array($this, 'render_ai_bot_control_section'),
+			'baskerville-ai-bot-control'
+		);
+
+		// ai_bot_control_enabled - now rendered manually at top of form
+
+		add_settings_field(
+			'ai_bot_blocking_mode',
+			esc_html__('AI Bot Access Mode', 'baskerville'),
+			array($this, 'render_ai_bot_mode_field'),
+			'baskerville-ai-bot-control',
+			'baskerville_ai_bot_control_section'
+		);
+
+		add_settings_field(
+			'blacklist_ai_companies',
+			esc_html__('Black List Companies', 'baskerville'),
+			array($this, 'render_blacklist_ai_companies_field'),
+			'baskerville-ai-bot-control',
+			'baskerville_ai_bot_control_section'
+		);
+
+		add_settings_field(
+			'whitelist_ai_companies',
+			esc_html__('White List Companies', 'baskerville'),
+			array($this, 'render_whitelist_ai_companies_field'),
+			'baskerville-ai-bot-control',
+			'baskerville_ai_bot_control_section'
+		);
+
+		// Honeypot fields (moved from general settings)
+		add_settings_field(
+			'honeypot_enabled',
+			esc_html__('Honeypot Trap', 'baskerville'),
+			array($this, 'render_honeypot_enabled_field'),
+			'baskerville-ai-bot-control',
+			'baskerville_ai_bot_control_section'
+		);
+
+		add_settings_field(
+			'honeypot_ban',
+			esc_html__('Ban on Honeypot Trigger', 'baskerville'),
+			array($this, 'render_honeypot_ban_field'),
+			'baskerville-ai-bot-control',
+			'baskerville_ai_bot_control_section'
 		);
 	}
 
 	public function sanitize_settings($input) {
 		$sanitized = array();
 
-		// Checkboxes: if not set in POST, they are unchecked (false)
+		// Master protection switch
+		$sanitized['master_protection_enabled'] = isset($input['master_protection_enabled']) ? (bool) $input['master_protection_enabled'] : false;
+
+		// Tab enable/disable switches
+		$sanitized['bot_protection_enabled'] = isset($input['bot_protection_enabled']) ? (bool) $input['bot_protection_enabled'] : true;
+		$sanitized['burst_protection_enabled'] = isset($input['burst_protection_enabled']) ? (bool) $input['burst_protection_enabled'] : true;
+		$sanitized['api_rate_limit_enabled'] = isset($input['api_rate_limit_enabled']) ? (bool) $input['api_rate_limit_enabled'] : true;
+		$sanitized['geoip_enabled'] = isset($input['geoip_enabled']) ? (bool) $input['geoip_enabled'] : false;
+		$sanitized['ai_bot_control_enabled'] = isset($input['ai_bot_control_enabled']) ? (bool) $input['ai_bot_control_enabled'] : true;
+
+		// Bot Control settings
+		$sanitized['allow_verified_crawlers'] = isset($input['allow_verified_crawlers']) ? (bool) $input['allow_verified_crawlers'] : true;
+
+		// Legacy checkboxes
 		$sanitized['ban_bots_403'] = isset($input['ban_bots_403']) ? (bool) $input['ban_bots_403'] : false;
 
 		if (isset($input['log_mode'])) {
@@ -249,6 +374,34 @@ class Baskerville_Admin {
 			$countries = sanitize_text_field($input['banned_countries']);
 			$countries = strtoupper(trim($countries));
 			$sanitized['banned_countries'] = $countries;
+		}
+
+		// AI Bot blocking mode
+		if (isset($input['ai_bot_blocking_mode'])) {
+			$mode = sanitize_text_field($input['ai_bot_blocking_mode']);
+			$sanitized['ai_bot_blocking_mode'] = in_array($mode, array('blacklist', 'whitelist', 'allow_all', 'block_all')) ? $mode : 'allow_all';
+		}
+
+		// Blacklist AI companies
+		if (isset($input['blacklist_ai_companies'])) {
+			if (is_array($input['blacklist_ai_companies'])) {
+				$companies = array_map('sanitize_text_field', $input['blacklist_ai_companies']);
+				$sanitized['blacklist_ai_companies'] = implode(',', $companies);
+			} else {
+				$companies = sanitize_text_field($input['blacklist_ai_companies']);
+				$sanitized['blacklist_ai_companies'] = trim($companies);
+			}
+		}
+
+		// Whitelist AI companies
+		if (isset($input['whitelist_ai_companies'])) {
+			if (is_array($input['whitelist_ai_companies'])) {
+				$companies = array_map('sanitize_text_field', $input['whitelist_ai_companies']);
+				$sanitized['whitelist_ai_companies'] = implode(',', $companies);
+			} else {
+				$companies = sanitize_text_field($input['whitelist_ai_companies']);
+				$sanitized['whitelist_ai_companies'] = trim($companies);
+			}
 		}
 
 		// Honeypot settings (checkboxes: false if not in POST)
@@ -492,6 +645,302 @@ class Baskerville_Admin {
 			</p>
 		</div>
 		<?php
+	}
+
+	/* ===== New Enable/Disable Field Renderers ===== */
+
+	public function render_bot_protection_enabled_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['bot_protection_enabled']) ? $options['bot_protection_enabled'] : true;
+		?>
+		<div class="baskerville-toggle-label">
+			<span class="baskerville-toggle-text" style="margin-right: 10px;">
+				<?php esc_html_e('Bot Control', 'baskerville'); ?>
+			</span>
+			<input type="hidden" name="baskerville_settings[bot_protection_enabled]" value="0">
+			<label class="baskerville-toggle-switch">
+				<input type="checkbox" name="baskerville_settings[bot_protection_enabled]" value="1" <?php checked($enabled, true); ?> />
+				<span class="baskerville-toggle-slider-regular"></span>
+			</label>
+			<span class="baskerville-toggle-text">
+				<?php echo $enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+			</span>
+		</div>
+		<?php
+	}
+
+	public function render_burst_protection_enabled_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['burst_protection_enabled']) ? $options['burst_protection_enabled'] : true;
+		?>
+		<div class="baskerville-toggle-label">
+			<span class="baskerville-toggle-text" style="margin-right: 10px;">
+				<?php esc_html_e('Burst Protection', 'baskerville'); ?>
+			</span>
+			<input type="hidden" name="baskerville_settings[burst_protection_enabled]" value="0">
+			<label class="baskerville-toggle-switch">
+				<input type="checkbox" name="baskerville_settings[burst_protection_enabled]" value="1" <?php checked($enabled, true); ?> />
+				<span class="baskerville-toggle-slider-regular"></span>
+			</label>
+			<span class="baskerville-toggle-text">
+				<?php echo $enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+			</span>
+		</div>
+		<?php
+	}
+
+	public function render_api_rate_limit_enabled_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[api_rate_limit_enabled]" value="0">
+			<input type="checkbox" name="baskerville_settings[api_rate_limit_enabled]" value="1" <?php checked($enabled, true); ?> />
+			<?php esc_html_e('Enable API rate limiting', 'baskerville'); ?>
+		</label>
+		<?php
+	}
+
+	public function render_geoip_enabled_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[geoip_enabled]" value="0">
+			<input type="checkbox" name="baskerville_settings[geoip_enabled]" value="1" <?php checked($enabled, true); ?> />
+			<?php esc_html_e('Enable country-based access control', 'baskerville'); ?>
+		</label>
+		<?php
+	}
+
+	public function render_ai_bot_control_enabled_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[ai_bot_control_enabled]" value="0">
+			<input type="checkbox" name="baskerville_settings[ai_bot_control_enabled]" value="1" <?php checked($enabled, true); ?> />
+			<?php esc_html_e('Enable AI bot crawler control', 'baskerville'); ?>
+		</label>
+		<?php
+	}
+
+	public function render_ban_duration_field() {
+		$ban_ttl = (int) get_option('baskerville_ban_ttl_sec', 600);
+		?>
+		<input type="number" name="baskerville_ban_ttl_sec" value="<?php echo esc_attr($ban_ttl); ?>" min="1" max="86400" style="width: 100px;">
+		<span><?php esc_html_e('seconds', 'baskerville'); ?></span>
+		<p class="description">
+			<?php esc_html_e('How long IP addresses are banned after triggering protection (1-86400 seconds)', 'baskerville'); ?>
+		</p>
+		<?php
+	}
+
+	public function render_retention_days_field() {
+		$retention = $this->stats->get_retention_days();
+		?>
+		<input type="number" name="baskerville_retention_days" value="<?php echo esc_attr($retention); ?>" min="1" max="365" style="width: 100px;">
+		<span><?php esc_html_e('days', 'baskerville'); ?></span>
+		<p class="description">
+			<?php esc_html_e('Statistics older than this will be automatically deleted (1-365 days)', 'baskerville'); ?>
+		</p>
+		<?php
+	}
+
+	public function render_ip_whitelist_field() {
+		$whitelist = get_option('baskerville_ip_whitelist', '');
+		?>
+		<textarea name="baskerville_ip_whitelist" rows="5" cols="50" class="large-text code"><?php echo esc_textarea($whitelist); ?></textarea>
+		<p class="description">
+			<?php esc_html_e('IP addresses that bypass all checks (one per line or comma-separated)', 'baskerville'); ?>
+		</p>
+		<?php
+	}
+
+	public function render_ai_bot_control_section() {
+		?>
+		<p><?php esc_html_e('Control access from AI bot crawlers based on their company ownership.', 'baskerville'); ?></p>
+		<?php
+	}
+
+	public function render_ai_bot_mode_field() {
+		$options = get_option('baskerville_settings', array());
+		$mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
+		?>
+		<fieldset>
+			<label style="display: block; margin-bottom: 10px;">
+				<input type="radio"
+					   name="baskerville_settings[ai_bot_blocking_mode]"
+					   value="allow_all"
+					   class="baskerville-aibot-mode-radio"
+					   <?php checked($mode, 'allow_all'); ?> />
+				<strong><?php esc_html_e('Allow All AI Bots', 'baskerville'); ?></strong> -
+				<?php esc_html_e('No AI bot restrictions (allow all companies)', 'baskerville'); ?>
+			</label>
+			<label style="display: block; margin-bottom: 10px;">
+				<input type="radio"
+					   name="baskerville_settings[ai_bot_blocking_mode]"
+					   value="block_all"
+					   class="baskerville-aibot-mode-radio"
+					   <?php checked($mode, 'block_all'); ?> />
+				<strong style="color: #d32f2f;"><?php esc_html_e('Block All AI Bots', 'baskerville'); ?></strong> -
+				<?php esc_html_e('Block all AI bot crawlers (no exceptions)', 'baskerville'); ?>
+			</label>
+			<label style="display: block; margin-bottom: 10px;">
+				<input type="radio"
+					   name="baskerville_settings[ai_bot_blocking_mode]"
+					   value="blacklist"
+					   class="baskerville-aibot-mode-radio"
+					   <?php checked($mode, 'blacklist'); ?> />
+				<strong><?php esc_html_e('Black List', 'baskerville'); ?></strong> -
+				<?php esc_html_e('Block access from specified companies', 'baskerville'); ?>
+			</label>
+			<label style="display: block;">
+				<input type="radio"
+					   name="baskerville_settings[ai_bot_blocking_mode]"
+					   value="whitelist"
+					   class="baskerville-aibot-mode-radio"
+					   <?php checked($mode, 'whitelist'); ?> />
+				<strong><?php esc_html_e('White List', 'baskerville'); ?></strong> -
+				<?php esc_html_e('Allow access ONLY from specified companies', 'baskerville'); ?>
+			</label>
+		</fieldset>
+		<p class="description">
+			<?php esc_html_e('Choose whether to allow all AI bots, block all AI bots, block specific companies, or allow only specific companies.', 'baskerville'); ?>
+		</p>
+
+		<script>
+		jQuery(document).ready(function($) {
+			function updateAIBotFields() {
+				var selectedMode = $('input[name="baskerville_settings[ai_bot_blocking_mode]"]:checked').val();
+
+				var $blacklistField = $('#baskerville_blacklist_ai_companies');
+				var $whitelistField = $('#baskerville_whitelist_ai_companies');
+				var $blacklistContainer = $blacklistField.closest('div');
+				var $whitelistContainer = $whitelistField.closest('div');
+
+				// Reset all fields
+				$blacklistField.prop('disabled', true);
+				$whitelistField.prop('disabled', true);
+				$blacklistContainer.css('opacity', '0.5');
+				$whitelistContainer.css('opacity', '0.5');
+
+				// Enable appropriate field based on mode
+				// In 'block_all' mode, both fields remain disabled
+				if (selectedMode === 'blacklist') {
+					$blacklistField.prop('disabled', false);
+					$blacklistContainer.css('opacity', '1');
+				} else if (selectedMode === 'whitelist') {
+					$whitelistField.prop('disabled', false);
+					$whitelistContainer.css('opacity', '1');
+				}
+				// allow_all and block_all modes keep both fields disabled
+			}
+
+			$('.baskerville-aibot-mode-radio').on('change', updateAIBotFields);
+			updateAIBotFields();
+		});
+		</script>
+		<?php
+	}
+
+	public function render_blacklist_ai_companies_field() {
+		$options = get_option('baskerville_settings', array());
+		$blacklist_companies = isset($options['blacklist_ai_companies']) ? $options['blacklist_ai_companies'] : '';
+
+		// Parse selected companies from comma-separated string
+		$selected_companies = array();
+		if (!empty($blacklist_companies)) {
+			$selected_companies = array_map('trim', explode(',', $blacklist_companies));
+		}
+
+		// Get list of known AI bot companies
+		$companies = $this->get_ai_companies_list();
+		?>
+		<div>
+			<select name="baskerville_settings[blacklist_ai_companies][]"
+					id="baskerville_blacklist_ai_companies"
+					class="baskerville-aibot-select"
+					multiple="multiple"
+					style="width: 100%;">
+				<?php foreach ($companies as $company): ?>
+					<option value="<?php echo esc_attr($company); ?>"
+							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
+						<?php echo esc_html($company); ?>
+					</option>
+				<?php endforeach; ?>
+			</select>
+			<p class="description">
+				<strong style="color: #d32f2f;"><?php esc_html_e('Block access from these AI bot companies', 'baskerville'); ?></strong><br>
+				<?php esc_html_e('Search and select companies to block. You can select multiple companies.', 'baskerville'); ?><br>
+				<em style="color: #999;"><?php esc_html_e('This field is only active when "Black List" mode is selected above.', 'baskerville'); ?></em>
+			</p>
+		</div>
+
+		<script>
+		jQuery(document).ready(function($) {
+			$('.baskerville-aibot-select').select2({
+				placeholder: '<?php esc_html_e('Search and select companies...', 'baskerville'); ?>',
+				allowClear: true,
+				width: '100%'
+			});
+		});
+		</script>
+		<?php
+	}
+
+	public function render_whitelist_ai_companies_field() {
+		$options = get_option('baskerville_settings', array());
+		$whitelist_companies = isset($options['whitelist_ai_companies']) ? $options['whitelist_ai_companies'] : '';
+
+		// Parse selected companies from comma-separated string
+		$selected_companies = array();
+		if (!empty($whitelist_companies)) {
+			$selected_companies = array_map('trim', explode(',', $whitelist_companies));
+		}
+
+		// Get list of known AI bot companies
+		$companies = $this->get_ai_companies_list();
+		?>
+		<div>
+			<select name="baskerville_settings[whitelist_ai_companies][]"
+					id="baskerville_whitelist_ai_companies"
+					class="baskerville-aibot-select"
+					multiple="multiple"
+					style="width: 100%;">
+				<?php foreach ($companies as $company): ?>
+					<option value="<?php echo esc_attr($company); ?>"
+							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
+						<?php echo esc_html($company); ?>
+					</option>
+				<?php endforeach; ?>
+			</select>
+			<p class="description">
+				<strong style="color: #2271b1;"><?php esc_html_e('Allow access ONLY from these AI bot companies', 'baskerville'); ?></strong><br>
+				<?php esc_html_e('Search and select companies to allow. You can select multiple companies.', 'baskerville'); ?><br>
+				<em style="color: #999;"><?php esc_html_e('This field is only active when "White List" mode is selected above.', 'baskerville'); ?></em>
+			</p>
+		</div>
+		<?php
+	}
+
+	private function get_ai_companies_list() {
+		return array(
+			'OpenAI',
+			'Anthropic',
+			'Google',
+			'Meta',
+			'ByteDance',
+			'Amazon',
+			'Baidu',
+			'Perplexity',
+			'Cohere',
+			'Common Crawl',
+			'Huawei',
+			'NetEase',
+			'Generic',
+			'Unknown',
+		);
 	}
 
 	private function get_geoip_source_name() {
@@ -1017,9 +1466,7 @@ class Baskerville_Admin {
 	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
 	private function render_countries_tab() {
-		check_admin_referer('baskerville_period_filter', '_wpnonce');
-
-		// Get selected period from URL, default to 1day
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for read-only period filter parameter
 		$period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
 		$valid_periods = array('12h', '1day', '3days', '7days');
 		if (!in_array($period, $valid_periods)) {
@@ -1035,7 +1482,7 @@ class Baskerville_Admin {
 		$hours = $hours_map[$period];
 
 		// Build URLs for period buttons
-		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=countries');
+		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=country-control');
 
 		// Get country stats
 		$country_stats = $this->get_country_stats($hours);
@@ -1348,29 +1795,23 @@ class Baskerville_Admin {
 			</h2>
 
 			<!-- Live Stats Cards -->
-			<div class="live-stats-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 20px 0;">
+			<div class="live-stats-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0;">
 				<div class="live-stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
 					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🛡️</div>
 					<div class="stat-value" id="blocks-today" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Blocked Today', 'baskerville'); ?></div>
+					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Blocked Today', 'baskerville'); ?></div>
 				</div>
 
 				<div class="live-stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
 					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">⚡</div>
 					<div class="stat-value" id="blocks-hour" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Last Hour', 'baskerville'); ?></div>
+					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Last Hour', 'baskerville'); ?></div>
 				</div>
 
 				<div class="live-stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
 					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🌍</div>
 					<div class="stat-value" id="top-country" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Top Country', 'baskerville'); ?></div>
-				</div>
-
-				<div class="live-stat-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">💾</div>
-					<div class="stat-value" id="requests-saved" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;"><?php esc_html_e('Saved Requests', 'baskerville'); ?></div>
+					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Top Country', 'baskerville'); ?></div>
 				</div>
 			</div>
 
@@ -1474,10 +1915,9 @@ class Baskerville_Admin {
 						if (response.success && response.data) {
 							$('#blocks-today').text(response.data.blocks_today.toLocaleString());
 							$('#blocks-hour').text(response.data.blocks_hour.toLocaleString());
-							$('#requests-saved').text(response.data.blocks_today.toLocaleString());
 
 							if (response.data.top_countries && response.data.top_countries.length > 0) {
-								$('#top-country').text(response.data.top_countries[0].country_code || 'N/A');
+								$('#top-country').text(response.data.top_countries[0].country_name || response.data.top_countries[0].country_code || 'N/A');
 							}
 
 							renderTopAttackers(response.data.top_ips);
@@ -1502,6 +1942,30 @@ class Baskerville_Admin {
 					const banBadge = event.is_banned
 						? '<span style="background: #dc3232; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">BANNED</span>'
 						: '<span style="background: #46b450; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">DETECTED</span>';
+
+					// Extract company name from reason or block_reason for AI bots
+					let companyBadge = '';
+					if (event.classification === 'ai_bot') {
+						// Try to extract company name from reason (format: "AI bot detected by user agent (CompanyName)" or "Honeypot triggered: accessed hidden link (CompanyName)")
+						let companyName = null;
+						const reasonMatch = event.reason && event.reason.match(/\(([^)]+)\)$/);
+						if (reasonMatch) {
+							companyName = reasonMatch[1];
+						}
+						// Also check block_reason for blocked bots (format: "ai-bot-block-all:CompanyName")
+						if (!companyName && event.block_reason) {
+							const blockMatch = event.block_reason.match(/:([^:]+)$/);
+							if (blockMatch) {
+								companyName = blockMatch[1];
+							}
+						}
+						if (companyName) {
+							companyBadge = '<span style="background: #9333ea; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 5px; font-weight: bold;">' + companyName + '</span>';
+						} else if (event.event_type === 'honeypot') {
+							// For honeypot without identified company, show "Unknown Bot"
+							companyBadge = '<span style="background: #666; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 5px; font-style: italic;">Unknown Bot</span>';
+						}
+					}
 
 					// Detection method badge and User-Agent info
 					let detectionBadge = '';
@@ -1542,7 +2006,7 @@ class Baskerville_Admin {
 					item.html(
 						'<span class="feed-icon">' + icon + '</span> ' +
 						'<strong style="color: ' + color + ';">' + event.classification.toUpperCase().replace('_', ' ') + '</strong>' +
-						detectionBadge + ' ' +
+						detectionBadge + companyBadge + ' ' +
 						event.ip + ' ' +
 						(countryName ? '<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">' + countryName + '</span> ' : '') +
 						banBadge +
@@ -1918,155 +2382,242 @@ class Baskerville_Admin {
 				</p>
 			</div>
 			<?php endif; ?>
+		</div>
 
-			<!-- Charts Section -->
-			<?php
-			// Try to get timeseries data with error handling
-			try {
-				$timeseries = $this->get_timeseries_data($stats['hours']);
-				?>
-				<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
-					<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-						<canvas id="baskervilleHumAutoBar"></canvas>
-					</div>
-					<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-						<canvas id="baskervilleHumAutoPie"></canvas>
-					</div>
-				</div>
-
-				<?php if (is_array($timeseries)): ?>
-				<script>
-		console.log('Chart script loading...');
-		// Wait for Chart.js to load
-		(function waitForChart() {
-			if (typeof Chart === 'undefined') {
-				console.log('Chart.js not loaded yet, waiting...');
-				setTimeout(waitForChart, 100);
-				return;
-			}
-
-			console.log('Chart.js loaded successfully!');
-			const timeseries = <?php echo wp_json_encode($timeseries); ?>;
-			const hours = <?php echo absint($stats['hours']); ?>;
-
-			console.log('Timeseries data:', timeseries);
-			console.log('Timeseries length:', timeseries ? timeseries.length : 0);
-			console.log('Hours:', hours);
-
-			// Check if we have data
-			if (!timeseries || timeseries.length === 0) {
-				console.log('No timeseries data available');
-				document.getElementById('baskervilleHumAutoBar').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;"><?php echo esc_html__('No data available for the selected period', 'baskerville'); ?></p>';
-				document.getElementById('baskervilleHumAutoPie').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;"><?php echo esc_html__('No data available', 'baskerville'); ?></p>';
-				return;
-			}
-
-			// Format time for labels
-			function fmtHHMM(timeStr) {
-				const d = new Date(timeStr + 'Z');
-				const hh = String(d.getHours()).padStart(2, '0');
-				const mm = String(d.getMinutes()).padStart(2, '0');
-				return hh + ':' + mm;
-			}
-
-			// Prepare data
-			const labels = timeseries.map(i => fmtHHMM(i.time));
-			const humans = timeseries.map(i => i.human_count || 0);
-			const automated = timeseries.map(i =>
-				(i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.bot_count||0) + (i.verified_bot_count||0)
-			);
-
-			// Totals for pie chart
-			const totalHumans = humans.reduce((a,b) => a+b, 0);
-			const totalAutomated = automated.reduce((a,b) => a+b, 0);
-
-			console.log('Total humans:', totalHumans, 'Total automated:', totalAutomated);
-
-			// 1) Stacked Bar: Humans vs Automated
-			const barCtx = document.getElementById('baskervilleHumAutoBar').getContext('2d');
-			new Chart(barCtx, {
-				type: 'bar',
-				data: {
-					labels,
-					datasets: [
-						{
-							label: 'Humans',
-							data: humans,
-							stack: 'visits',
-							backgroundColor: '#4CAF50'
-						},
-						{
-							label: 'Automated',
-							data: automated,
-							stack: 'visits',
-							backgroundColor: '#FF9800'
-						}
-					]
-				},
-				options: {
-					responsive: true,
-					maintainAspectRatio: true,
-					interaction: { mode: 'index', intersect: false },
-					scales: {
-						x: { stacked: true, title: { display: true, text: 'Time' } },
-						y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Visits' } }
-					},
-					plugins: {
-						title: { display: true, text: 'Humans vs Automated — last ' + hours + 'h' },
-						tooltip: {
-							callbacks: {
-								afterBody(items) {
-									const idx = items[0].dataIndex;
-									const total = (humans[idx]||0) + (automated[idx]||0);
-									const hp = total ? Math.round((humans[idx]*100)/total) : 0;
-									const ap = total ? Math.round((automated[idx]*100)/total) : 0;
-									return [`Total: ${total}`, `Humans: ${humans[idx]} (${hp}%)`, `Automated: ${automated[idx]} (${ap}%)`];
-								}
-							}
-						}
-					}
-				}
-			});
-
-			// 2) Pie: Totals Humans vs Automated
-			const pieCtx = document.getElementById('baskervilleHumAutoPie').getContext('2d');
-			new Chart(pieCtx, {
-				type: 'pie',
-				data: {
-					labels: ['Humans', 'Automated'],
-					datasets: [{
-						data: [totalHumans, totalAutomated],
-						backgroundColor: ['#4CAF50', '#FF9800']
-					}]
-				},
-				options: {
-					responsive: true,
-					maintainAspectRatio: true,
-					plugins: {
-						title: { display: true, text: 'Traffic Distribution — last ' + hours + 'h' },
-						legend: { position: 'bottom' },
-						tooltip: {
-							callbacks: {
-								label(ctx) {
-									const v = ctx.parsed || 0;
-									const sum = totalHumans + totalAutomated || 1;
-									const pct = Math.round((v*100)/sum);
-									return ` ${ctx.label}: ${v} (${pct}%)`;
-								}
-							}
-						}
-					}
-				}
-			});
-		})();
-		</script>
-		<?php endif; ?>
 		<?php
-			} catch (Exception $e) {
-				/* translators: %s is the error message */
-			echo '<div class="notice notice-error"><p>' . sprintf(esc_html__('Charts Error: %s', 'baskerville'), esc_html($e->getMessage())) . '</p></div>';
+	}
+
+	private function render_ai_bots_tab() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
+		// Header removed - slider at top
+		?><?php
+
+		// Get selected period from URL, default to 1day
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for read-only period filter parameter
+		$period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
+		$valid_periods = array('12h', '1day', '3days', '7days');
+		if (!in_array($period, $valid_periods)) {
+			$period = '1day';
+		}
+
+		// Convert period to hours
+		$hours_map = array(
+			'12h' => 12,
+			'1day' => 24,
+			'3days' => 72,
+			'7days' => 168,
+		);
+		$hours = $hours_map[$period];
+
+		// Get AI bots timeseries data
+		try {
+			// Fallback: initialize stats if not set (for backwards compatibility)
+			if (!$this->stats) {
+				$core = new Baskerville_Core();
+				$aiua = new Baskerville_AI_UA($core);
+				$this->stats = new Baskerville_Stats($core, $aiua);
+				$this->aiua = $aiua;
 			}
+
+			$data = $this->stats->get_ai_bots_timeseries($hours);
+
+			if (!is_array($data)) {
+				throw new Exception('Invalid data format returned from get_ai_bots_timeseries');
+			}
+
+		} catch (Exception $e) {
+			error_log('Baskerville AI Bots Tab Error: ' . $e->getMessage());
+			error_log('Baskerville AI Bots Tab Trace: ' . $e->getTraceAsString());
 			?>
+			<div class="notice notice-error">
+				<p><strong>Error loading AI bots data:</strong></p>
+				<p><?php echo esc_html($e->getMessage()); ?></p>
+				<pre style="background: #f0f0f0; padding: 10px; overflow: auto;"><?php echo esc_html($e->getTraceAsString()); ?></pre>
+			</div>
+			<?php
+			return;
+		} catch (Error $e) {
+			error_log('Baskerville AI Bots Tab Fatal Error: ' . $e->getMessage());
+			error_log('Baskerville AI Bots Tab Trace: ' . $e->getTraceAsString());
+			?>
+			<div class="notice notice-error">
+				<p><strong>Fatal error loading AI bots data:</strong></p>
+				<p><?php echo esc_html($e->getMessage()); ?></p>
+				<pre style="background: #f0f0f0; padding: 10px; overflow: auto;"><?php echo esc_html($e->getTraceAsString()); ?></pre>
+			</div>
+			<?php
+			return;
+		}
+
+		// Build URLs for period buttons
+		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=ai-bot-control');
+
+		// Check if we have any data
+		$has_data = !empty($data['companies']) && count($data['companies']) > 0;
+		?>
+
+		<div class="baskerville-ai-bots-dashboard" style="margin-top: 20px;">
+			<h2 style="display: flex; align-items: center; gap: 10px;">
+				<span class="dashicons dashicons-chart-bar" style="font-size: 28px;"></span>
+				<?php esc_html_e('AI Bots Activity', 'baskerville'); ?>
+			</h2>
+
+			<!-- Period Selection Buttons -->
+			<div class="period-buttons" style="margin: 20px 0; display: flex; gap: 10px;">
+				<a href="<?php echo esc_url($base_url . '&period=12h'); ?>"
+				   class="button <?php echo $period === '12h' ? 'button-primary' : ''; ?>">
+					<?php esc_html_e('12h', 'baskerville'); ?>
+				</a>
+				<a href="<?php echo esc_url($base_url . '&period=1day'); ?>"
+				   class="button <?php echo $period === '1day' ? 'button-primary' : ''; ?>">
+					<?php esc_html_e('1 day', 'baskerville'); ?>
+				</a>
+				<a href="<?php echo esc_url($base_url . '&period=3days'); ?>"
+				   class="button <?php echo $period === '3days' ? 'button-primary' : ''; ?>">
+					<?php esc_html_e('3 days', 'baskerville'); ?>
+				</a>
+				<a href="<?php echo esc_url($base_url . '&period=7days'); ?>"
+				   class="button <?php echo $period === '7days' ? 'button-primary' : ''; ?>">
+					<?php esc_html_e('7 days', 'baskerville'); ?>
+				</a>
+			</div>
+
+			<?php if (!$has_data): ?>
+				<div class="notice notice-info">
+					<p><?php esc_html_e('No AI bot activity detected in the selected period.', 'baskerville'); ?></p>
+				</div>
+			<?php else: ?>
+
+			<!-- Chart Container -->
+			<div class="chart-container" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 30px;">
+				<canvas id="aiBotsChart" style="max-height: 400px;"></canvas>
+			</div>
+
+			<script>
+			(function() {
+				// Wait for Chart.js to load
+				function initChart() {
+					if (typeof Chart === 'undefined') {
+						setTimeout(initChart, 100);
+						return;
+					}
+
+					const data = <?php echo wp_json_encode($data); ?>;
+
+					// Prepare labels (time slots)
+					const labels = data.time_slots.map(slot => {
+						const date = new Date(slot.replace(' ', 'T') + 'Z');
+						const hours = String(date.getUTCHours()).padStart(2, '0');
+						const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+						return hours + ':' + minutes;
+					});
+
+					// Company colors
+					const companyColors = {
+						'OpenAI': '#10a37f',
+						'Anthropic': '#d4a574',
+						'Google': '#4285f4',
+						'Meta': '#0668e1',
+						'ByteDance': '#fe2c55',
+						'Amazon': '#ff9900',
+						'Baidu': '#2932e1',
+						'Perplexity': '#6366f1',
+						'Cohere': '#7c3aed',
+						'Common Crawl': '#9ca3af',
+						'Huawei': '#e91e63',
+						'Unknown': '#6b7280',
+						'Generic': '#9ca3af',
+					};
+
+					// Prepare datasets
+					const datasets = [];
+					for (const [company, counts] of Object.entries(data.companies)) {
+						datasets.push({
+							label: company,
+							data: counts,
+							backgroundColor: companyColors[company] || '#9ca3af',
+							borderColor: companyColors[company] || '#9ca3af',
+							borderWidth: 1
+						});
+					}
+
+					// Create chart
+					const ctx = document.getElementById('aiBotsChart').getContext('2d');
+					new Chart(ctx, {
+						type: 'bar',
+						data: {
+							labels: labels,
+							datasets: datasets
+						},
+						options: {
+							responsive: true,
+							maintainAspectRatio: true,
+							interaction: {
+								mode: 'index',
+								intersect: false
+							},
+							scales: {
+								x: {
+									stacked: true,
+									title: {
+										display: true,
+										text: 'Time (UTC)'
+									},
+									ticks: {
+										maxRotation: 45,
+										minRotation: 45
+									}
+								},
+								y: {
+									stacked: true,
+									beginAtZero: true,
+									title: {
+										display: true,
+										text: 'Hits'
+									}
+								}
+							},
+							plugins: {
+								title: {
+									display: true,
+									text: 'AI Bot Hits by Company - Last ' + data.hours + 'h',
+									font: {
+										size: 16,
+										weight: 'bold'
+									}
+								},
+								legend: {
+									display: true,
+									position: 'bottom'
+								},
+								tooltip: {
+									callbacks: {
+										footer: function(items) {
+											let total = 0;
+											items.forEach(item => {
+												total += item.parsed.y;
+											});
+											return 'Total: ' + total;
+										}
+									}
+								}
+							}
+						}
+					});
+				}
+
+				// Start initialization
+				if (document.readyState === 'loading') {
+					document.addEventListener('DOMContentLoaded', initChart);
+				} else {
+					initChart();
+				}
+			})();
+			</script>
+
+			<?php endif; ?>
+
 		</div>
 
 		<?php
@@ -2684,40 +3235,181 @@ class Baskerville_Admin {
 
 		// Get current tab
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for read-only tab navigation parameter
-		$current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'overview';
+		$current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'live-feed';
+
+		// Get master switch status
+		$options = get_option('baskerville_settings', array());
+		$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html(get_admin_page_title()); ?></h1>
 
+			<!-- Master Switch Toggle CSS -->
+			<style>
+				.baskerville-toggle-switch {
+					position: relative;
+					display: inline-block;
+					width: 60px;
+					height: 34px;
+				}
+				.baskerville-toggle-switch input {
+					opacity: 0;
+					width: 0;
+					height: 0;
+				}
+				.baskerville-toggle-slider {
+					position: absolute;
+					cursor: pointer;
+					top: 0;
+					left: 0;
+					right: 0;
+					bottom: 0;
+					background-color: #ffc107;
+					transition: .4s;
+					border-radius: 34px;
+				}
+				.baskerville-toggle-slider:before {
+					position: absolute;
+					content: "";
+					height: 26px;
+					width: 26px;
+					left: 4px;
+					bottom: 4px;
+					background-color: white;
+					transition: .4s;
+					border-radius: 50%;
+				}
+				input:checked + .baskerville-toggle-slider {
+					background-color: #46b450;
+				}
+				input:checked + .baskerville-toggle-slider:before {
+					transform: translateX(26px);
+				}
+				.baskerville-toggle-label {
+					display: inline-flex;
+					align-items: center;
+					gap: 15px;
+				}
+				.baskerville-toggle-text {
+					font-weight: bold;
+					font-size: 16px;
+					color: #666;
+				}
+				/* Regular toggle slider (green/gray) */
+				.baskerville-toggle-slider-regular {
+					position: absolute;
+					cursor: pointer;
+					top: 0;
+					left: 0;
+					right: 0;
+					bottom: 0;
+					background-color: #ddd;
+					transition: .4s;
+					border-radius: 34px;
+				}
+				.baskerville-toggle-slider-regular:before {
+					position: absolute;
+					content: "";
+					height: 26px;
+					width: 26px;
+					left: 4px;
+					bottom: 4px;
+					background-color: white;
+					transition: .4s;
+					border-radius: 50%;
+				}
+				input:checked + .baskerville-toggle-slider-regular {
+					background-color: #46b450;
+				}
+				input:checked + .baskerville-toggle-slider-regular:before {
+					transform: translateX(26px);
+				}
+			</style>
+
+			<!-- Master Switch -->
+			<div style="margin: 20px 0; padding: 20px; border: 2px solid <?php echo $master_enabled ? '#46b450' : '#ffc107'; ?>; border-radius: 8px; background: <?php echo $master_enabled ? '#d4edda' : '#fff3cd'; ?>;">
+				<form method="post" action="options.php" id="master-switch-form">
+					<?php settings_fields('baskerville_settings_group'); ?>
+					<div style="display: flex; align-items: center; gap: 30px;">
+						<div>
+							<h2 style="margin: 0 0 5px 0; color: <?php echo $master_enabled ? '#2c662d' : '#856404'; ?>;">
+								<?php echo $master_enabled ? '🟢' : '🟡'; ?>
+								<?php esc_html_e('MASTER SWITCH', 'baskerville'); ?>
+							</h2>
+							<p style="margin: 0; color: <?php echo $master_enabled ? '#555' : '#856404'; ?>;">
+								<?php echo $master_enabled
+									? esc_html__('Blocking is ON', 'baskerville')
+									: esc_html__('Blocking is OFF', 'baskerville'); ?>
+							</p>
+						</div>
+						<div>
+							<div class="baskerville-toggle-label">
+								<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="0">
+								<label class="baskerville-toggle-switch">
+									<input type="checkbox"
+										   name="baskerville_settings[master_protection_enabled]"
+										   value="1"
+										   <?php checked($master_enabled, true); ?>
+										   onchange="this.form.submit()">
+									<span class="baskerville-toggle-slider"></span>
+								</label>
+								<span class="baskerville-toggle-text">
+									<?php echo $master_enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+								</span>
+							</div>
+						</div>
+					</div>
+				</form>
+			</div>
+
+			<!-- Tab Color Coding CSS -->
+			<style>
+				.nav-tab.tab-enabled {
+					background-color: #d4edda !important;
+				}
+			</style>
+
 			<!-- Tab Navigation -->
+			<?php
+			// Get all feature states for tab colors
+			$bot_protection_enabled = isset($options['bot_protection_enabled']) ? $options['bot_protection_enabled'] : true;
+			$ai_bot_control_enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
+			$geoip_enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
+			$burst_protection_enabled = isset($options['burst_protection_enabled']) ? $options['burst_protection_enabled'] : true;
+			$api_rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+			?>
 			<h2 class="nav-tab-wrapper">
-				<a href="?page=baskerville-settings&tab=overview"
-				   class="nav-tab <?php echo $current_tab === 'overview' ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e('Overview', 'baskerville'); ?>
+				<a href="?page=baskerville-settings&tab=live-feed"
+				   class="nav-tab <?php echo $current_tab === 'live-feed' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Live Feed', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=countries"
-				   class="nav-tab <?php echo $current_tab === 'countries' ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e('Countries', 'baskerville'); ?>
+				<a href="?page=baskerville-settings&tab=bot-protection"
+				   class="nav-tab <?php echo $bot_protection_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'bot-protection' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Bot Control', 'baskerville'); ?>
+				</a>
+				<a href="?page=baskerville-settings&tab=ai-bot-control"
+				   class="nav-tab <?php echo $ai_bot_control_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'ai-bot-control' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('AI Bot Control', 'baskerville'); ?>
+				</a>
+				<a href="?page=baskerville-settings&tab=country-control"
+				   class="nav-tab <?php echo $geoip_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'country-control' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Country Control', 'baskerville'); ?>
+				</a>
+				<a href="?page=baskerville-settings&tab=burst-protection"
+				   class="nav-tab <?php echo $burst_protection_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'burst-protection' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Burst Protection', 'baskerville'); ?>
+				</a>
+				<a href="?page=baskerville-settings&tab=rate-limits"
+				   class="nav-tab <?php echo $api_rate_limit_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'rate-limits' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Rate Limits', 'baskerville'); ?>
+				</a>
+				<a href="?page=baskerville-settings&tab=analytics"
+				   class="nav-tab <?php echo $current_tab === 'analytics' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Analytics', 'baskerville'); ?>
 				</a>
 				<a href="?page=baskerville-settings&tab=settings"
 				   class="nav-tab <?php echo $current_tab === 'settings' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Settings', 'baskerville'); ?>
-				</a>
-				<a href="?page=baskerville-settings&tab=ip-whitelist"
-				   class="nav-tab <?php echo $current_tab === 'ip-whitelist' ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e('IP Whitelist', 'baskerville'); ?>
-				</a>
-				<a href="?page=baskerville-settings&tab=geoip-test"
-				   class="nav-tab <?php echo $current_tab === 'geoip-test' ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e('GeoIP Test', 'baskerville'); ?>
-				</a>
-				<a href="?page=baskerville-settings&tab=performance"
-				   class="nav-tab <?php echo $current_tab === 'performance' ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e('Performance', 'baskerville'); ?>
-				</a>
-				<a href="?page=baskerville-settings&tab=api"
-				   class="nav-tab <?php echo $current_tab === 'api' ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e('API', 'baskerville'); ?>
 				</a>
 			</h2>
 
@@ -2727,84 +3419,297 @@ class Baskerville_Admin {
 				settings_fields('baskerville_settings_group');
 
 				switch ($current_tab) {
-					case 'overview':
+					case 'live-feed':
 						?>
 						</form>
 						<?php
-						$this->render_traffic_tab();
+						$this->render_live_feed_tab();
 						?>
 						<form method="post" action="options.php">
 						<?php
 						break;
 
-					case 'countries':
-						// Display GeoIP settings form
+					case 'bot-protection':
+						?>
+						</form>
+						<?php
+						$bot_enabled = isset($options['bot_protection_enabled']) ? $options['bot_protection_enabled'] : true;
+						$allow_verified = !isset($options['allow_verified_crawlers']) || $options['allow_verified_crawlers'];
+						?>
+						<form method="post" action="options.php">
+						<?php
 						settings_fields('baskerville_settings_group');
-						do_settings_sections('baskerville-countries');
+						// Preserve master switch state
+						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						?>
+						<table class="form-table" role="presentation">
+							<tr>
+								<th scope="row"></th>
+								<td>
+									<div class="baskerville-toggle-label">
+										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+											<?php esc_html_e('Bot Control', 'baskerville'); ?>
+										</span>
+										<input type="hidden" name="baskerville_settings[bot_protection_enabled]" value="0">
+										<label class="baskerville-toggle-switch">
+											<input type="checkbox" name="baskerville_settings[bot_protection_enabled]" value="1" <?php checked($bot_enabled, true); ?> />
+											<span class="baskerville-toggle-slider-regular"></span>
+										</label>
+										<span class="baskerville-toggle-text">
+											<?php echo $bot_enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+										</span>
+									</div>
+								</td>
+							</tr>
+						</table>
+						<?php
 						submit_button();
+						?>
+						<table class="form-table" role="presentation">
+							<tr>
+								<th scope="row"><?php esc_html_e('Verified Crawlers', 'baskerville'); ?></th>
+								<td>
+									<label>
+										<input type="hidden" name="baskerville_settings[allow_verified_crawlers]" value="0">
+										<input type="checkbox" name="baskerville_settings[allow_verified_crawlers]" value="1" <?php checked($allow_verified, true); ?> />
+										<?php esc_html_e('Allow verified crawlers (Google, Bing, Yandex, etc.)', 'baskerville'); ?>
+									</label>
+									<p class="description">
+										<?php esc_html_e('Verified crawlers are identified by reverse DNS lookup. When enabled, they bypass bot protection.', 'baskerville'); ?>
+									</p>
+								</td>
+							</tr>
+						</table>
+						</form>
+						<form method="post" action="options.php">
+						<?php
+						break;
+
+					case 'ai-bot-control':
+						?>
+						</form>
+						<?php
+						// Enable/Disable checkbox at top
+						$ai_enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
+						?>
+						<form method="post" action="options.php">
+						<?php
+						settings_fields('baskerville_settings_group');
+						// Preserve master switch state
+						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						?>
+						<table class="form-table" role="presentation">
+							<tr>
+								<th scope="row"></th>
+								<td>
+									<div class="baskerville-toggle-label">
+										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+											<?php esc_html_e('AI Bot Control', 'baskerville'); ?>
+										</span>
+										<input type="hidden" name="baskerville_settings[ai_bot_control_enabled]" value="0">
+										<label class="baskerville-toggle-switch">
+											<input type="checkbox" name="baskerville_settings[ai_bot_control_enabled]" value="1" <?php checked($ai_enabled, true); ?> />
+											<span class="baskerville-toggle-slider-regular"></span>
+										</label>
+										<span class="baskerville-toggle-text">
+											<?php echo $ai_enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+										</span>
+									</div>
+								</td>
+							</tr>
+						</table>
+						<?php
+						submit_button();
+
+						// Display AI bot statistics
+						$this->render_ai_bots_tab();
+
+						do_settings_sections('baskerville-ai-bot-control');
 						?>
 						</form>
 
-						<hr style="margin: 30px 0;">
+						<form method="post" action="options.php">
+						<?php
+						break;
+
+					case 'country-control':
+						?>
+						</form>
+						<?php
+						$geoip_enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
+						?>
+						<form method="post" action="options.php">
+						<?php
+						settings_fields('baskerville_settings_group');
+						// Preserve master switch state
+						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						?>
+						<table class="form-table" role="presentation">
+							<tr>
+								<th scope="row"></th>
+								<td>
+									<div class="baskerville-toggle-label">
+										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+											<?php esc_html_e('Country Control', 'baskerville'); ?>
+										</span>
+										<input type="hidden" name="baskerville_settings[geoip_enabled]" value="0">
+										<label class="baskerville-toggle-switch">
+											<input type="checkbox" name="baskerville_settings[geoip_enabled]" value="1" <?php checked($geoip_enabled, true); ?> />
+											<span class="baskerville-toggle-slider-regular"></span>
+										</label>
+										<span class="baskerville-toggle-text">
+											<?php echo $geoip_enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+										</span>
+									</div>
+								</td>
+							</tr>
+						</table>
+						<?php
+						submit_button();
+						do_settings_sections('baskerville-country-control');
+						?>
+						</form>
 
 						<?php
-						// Display country statistics below the form
+						// Display country statistics and charts below the form
 						$this->render_countries_tab();
 						?>
 						<form method="post" action="options.php">
 						<?php
 						break;
 
-					case 'settings':
-						do_settings_sections('baskerville-general');
+					case 'burst-protection':
+						?>
+						</form>
+						<?php
+						?>
+						<form method="post" action="options.php">
+						<?php
+						settings_fields('baskerville_settings_group');
+						// Preserve master switch state
+						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						do_settings_sections('baskerville-burst-protection');
 						submit_button();
+						?>
+						</form>
+						<form method="post" action="options.php">
+						<?php
 						break;
 
-					case 'ip-whitelist':
+					case 'rate-limits':
 						?>
 						</form>
 						<?php
-						$this->render_ip_whitelist_tab();
+						$rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+						$rate_limit_requests = isset($options['api_rate_limit_requests']) ? (int)$options['api_rate_limit_requests'] : 100;
+						$rate_limit_window = isset($options['api_rate_limit_window']) ? (int)$options['api_rate_limit_window'] : 60;
+						?>
+						<form method="post" action="options.php">
+						<?php
+						settings_fields('baskerville_settings_group');
+						// Preserve master switch state
+						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						?>
+						<table class="form-table" role="presentation">
+							<tr>
+								<th scope="row"></th>
+								<td>
+									<div class="baskerville-toggle-label">
+										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+											<?php esc_html_e('Rate Limits', 'baskerville'); ?>
+										</span>
+										<input type="hidden" name="baskerville_settings[api_rate_limit_enabled]" value="0">
+										<label class="baskerville-toggle-switch">
+											<input type="checkbox" name="baskerville_settings[api_rate_limit_enabled]" value="1" <?php checked($rate_limit_enabled, true); ?> />
+											<span class="baskerville-toggle-slider-regular"></span>
+										</label>
+										<span class="baskerville-toggle-text">
+											<?php echo $rate_limit_enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+										</span>
+									</div>
+								</td>
+							</tr>
+						</table>
+						<?php
+						submit_button();
+						?>
+						<table class="form-table" role="presentation">
+							<tr>
+								<th scope="row">
+									<label for="api_rate_limit_requests">
+										<?php esc_html_e('Request Limit', 'baskerville'); ?>
+									</label>
+								</th>
+								<td>
+									<input type="number"
+										   id="api_rate_limit_requests"
+										   name="baskerville_settings[api_rate_limit_requests]"
+										   value="<?php echo esc_attr($rate_limit_requests); ?>"
+										   min="1"
+										   max="10000"
+										   class="small-text" />
+									<?php esc_html_e('requests', 'baskerville'); ?>
+									<p class="description">
+										<?php esc_html_e('Maximum number of requests allowed per IP address.', 'baskerville'); ?>
+									</p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row">
+									<label for="api_rate_limit_window">
+										<?php esc_html_e('Time Window', 'baskerville'); ?>
+									</label>
+								</th>
+								<td>
+									<input type="number"
+										   id="api_rate_limit_window"
+										   name="baskerville_settings[api_rate_limit_window]"
+										   value="<?php echo esc_attr($rate_limit_window); ?>"
+										   min="10"
+										   max="3600"
+										   class="small-text" />
+									<?php esc_html_e('seconds', 'baskerville'); ?>
+									<p class="description">
+										<?php esc_html_e('Time window for the rate limit (60 seconds = 1 minute).', 'baskerville'); ?>
+									</p>
+								</td>
+							</tr>
+						</table>
+						<?php
+						?>
+						</form>
+						<form method="post" action="options.php">
+						<?php
+						break;
+
+					case 'analytics':
+						?>
+						</form>
+						<?php
+						$this->render_analytics_tab();
 						?>
 						<form method="post" action="options.php">
 						<?php
 						break;
 
-					case 'geoip-test':
-						?>
-						</form>
-						<?php
-						$this->render_geoip_test_tab();
-						?>
-						<form method="post" action="options.php">
-						<?php
-						break;
-
-					case 'performance':
-						?>
-						</form>
-						<?php
-						$this->render_performance_tab();
-						?>
-						<form method="post" action="options.php">
-						<?php
-						break;
-
-					case 'api':
-						?>
-						</form>
-						<?php
-						$this->render_api_tab();
-						?>
-						<form method="post" action="options.php">
-						<?php
+					case 'settings':
+						// Preserve master switch state
+						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						submit_button();
+						do_settings_sections('baskerville-settings');
 						break;
 
 					default:
 						?>
 						</form>
 						<?php
-						$this->render_traffic_tab();
+						$this->render_live_feed_tab();
 						?>
 						<form method="post" action="options.php">
 						<?php
@@ -2813,6 +3718,496 @@ class Baskerville_Admin {
 				?>
 			</form>
 		</div>
+		<?php
+	}
+
+	/* ===== New Tab Render Methods ===== */
+
+	private function render_live_feed_tab() {
+		// Render the existing traffic tab (Live Feed)
+		$this->render_traffic_tab();
+	}
+
+	private function render_bot_protection_tab() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['bot_protection_enabled']) ? $options['bot_protection_enabled'] : true;
+		?>
+		<div class="baskerville-tab-header" style="margin: 20px 0; padding: 15px; background: <?php echo $enabled ? '#d4edda' : '#f0f0f1'; ?>; border-left: 4px solid <?php echo $enabled ? '#46b450' : '#999'; ?>;">
+			<h2 style="margin: 0 0 5px 0;">
+				🛡️ <?php esc_html_e('Bot Control', 'baskerville'); ?>
+				<span style="float: right; font-size: 14px; <?php echo $enabled ? 'color: #2c662d;' : 'color: #666;'; ?>">
+					<?php echo $enabled ? '✓ ENABLED' : 'DISABLED'; ?>
+				</span>
+			</h2>
+			<p style="margin: 0; color: #666; font-size: 14px;">
+				<?php esc_html_e('Automatic protection from malicious bots, scrapers, and suspicious user agents', 'baskerville'); ?>
+			</p>
+		</div>
+		<?php
+	}
+
+	private function render_burst_protection_tab() {
+		// Header removed - slider at top
+	}
+
+	private function render_rate_limits_tab() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+		?>
+		<div class="baskerville-tab-header" style="margin: 20px 0; padding: 15px; background: <?php echo $enabled ? '#d4edda' : '#f0f0f1'; ?>; border-left: 4px solid <?php echo $enabled ? '#46b450' : '#999'; ?>;">
+			<h2 style="margin: 0 0 5px 0;">
+				🚦 <?php esc_html_e('Rate Limits', 'baskerville'); ?>
+				<span style="float: right; font-size: 14px; <?php echo $enabled ? 'color: #2c662d;' : 'color: #666;'; ?>">
+					<?php echo $enabled ? '✓ ENABLED' : 'DISABLED'; ?>
+				</span>
+			</h2>
+			<p style="margin: 0; color: #666; font-size: 14px;">
+				<?php esc_html_e('API and endpoint rate limiting', 'baskerville'); ?>
+			</p>
+		</div>
+
+		<!-- Enable/Disable toggle at top -->
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"></th>
+				<td>
+					<div class="baskerville-toggle-label">
+						<input type="hidden" name="baskerville_settings[api_rate_limit_enabled]" value="0">
+						<label class="baskerville-toggle-switch">
+							<input type="checkbox" name="baskerville_settings[api_rate_limit_enabled]" value="1" <?php checked($enabled, true); ?> />
+							<span class="baskerville-toggle-slider-regular"></span>
+						</label>
+						<span class="baskerville-toggle-text">
+							<?php echo $enabled ? esc_html__('Rate Limits ON', 'baskerville') : esc_html__('Rate Limits OFF', 'baskerville'); ?>
+						</span>
+					</div>
+				</td>
+			</tr>
+		</table>
+		<?php
+	}
+
+	private function render_analytics_tab() {
+		// Get selected period from URL, default to 1day
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for read-only period filter parameter
+		$period = isset($_GET['period']) ? sanitize_text_field(wp_unslash($_GET['period'])) : '1day';
+		$valid_periods = array('12h', '1day', '3days', '7days');
+		if (!in_array($period, $valid_periods)) {
+			$period = '1day';
+		}
+
+		$hours_map = array(
+			'12h' => 12,
+			'1day' => 24,
+			'3days' => 72,
+			'7days' => 168,
+		);
+		$hours = $hours_map[$period];
+
+		// Build URLs for period buttons
+		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=analytics');
+		?>
+
+		<h2 style="display: flex; align-items: center; gap: 10px; margin-top: 20px;">
+			<span class="dashicons dashicons-chart-area" style="font-size: 28px;"></span>
+			<?php esc_html_e('Traffic Analytics', 'baskerville'); ?>
+		</h2>
+
+		<!-- Period Selection Buttons -->
+		<div class="period-buttons" style="margin: 20px 0; display: flex; gap: 10px;">
+			<a href="<?php echo esc_url($base_url . '&period=12h'); ?>"
+			   class="button <?php echo $period === '12h' ? 'button-primary' : ''; ?>">
+				<?php esc_html_e('12h', 'baskerville'); ?>
+			</a>
+			<a href="<?php echo esc_url($base_url . '&period=1day'); ?>"
+			   class="button <?php echo $period === '1day' ? 'button-primary' : ''; ?>">
+				<?php esc_html_e('1 day', 'baskerville'); ?>
+			</a>
+			<a href="<?php echo esc_url($base_url . '&period=3days'); ?>"
+			   class="button <?php echo $period === '3days' ? 'button-primary' : ''; ?>">
+				<?php esc_html_e('3 days', 'baskerville'); ?>
+			</a>
+			<a href="<?php echo esc_url($base_url . '&period=7days'); ?>"
+			   class="button <?php echo $period === '7days' ? 'button-primary' : ''; ?>">
+				<?php esc_html_e('7 days', 'baskerville'); ?>
+			</a>
+		</div>
+
+		<?php
+		// Try to get timeseries data with error handling
+		try {
+			$timeseries = $this->get_timeseries_data($hours);
+			?>
+			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<canvas id="baskervilleHumAutoBar"></canvas>
+				</div>
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<canvas id="baskervilleHumAutoPie"></canvas>
+				</div>
+			</div>
+
+			<!-- Bot Types Charts -->
+			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<canvas id="baskervilleBotTypesBar"></canvas>
+				</div>
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<canvas id="baskervilleBotTypesPie"></canvas>
+				</div>
+			</div>
+
+			<?php if (is_array($timeseries)): ?>
+			<script>
+	// Wait for Chart.js to load
+	(function waitForChart() {
+		if (typeof Chart === 'undefined') {
+			setTimeout(waitForChart, 100);
+			return;
+		}
+
+		const timeseries = <?php echo wp_json_encode($timeseries); ?>;
+		const hours = <?php echo absint($hours); ?>;
+
+		// Check if we have data
+		if (!timeseries || timeseries.length === 0) {
+			document.getElementById('baskervilleHumAutoBar').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;"><?php echo esc_html__('No data available for the selected period', 'baskerville'); ?></p>';
+			document.getElementById('baskervilleHumAutoPie').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;"><?php echo esc_html__('No data available', 'baskerville'); ?></p>';
+			return;
+		}
+
+		// Format time for labels
+		function fmtHHMM(timeStr) {
+			const d = new Date(timeStr + 'Z');
+			const hh = String(d.getHours()).padStart(2, '0');
+			const mm = String(d.getMinutes()).padStart(2, '0');
+			return hh + ':' + mm;
+		}
+
+		// Prepare data
+		const labels = timeseries.map(i => fmtHHMM(i.time));
+		const humans = timeseries.map(i => i.human_count || 0);
+		const automated = timeseries.map(i =>
+			(i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.bot_count||0) + (i.verified_bot_count||0)
+		);
+
+		// Totals for pie chart
+		const totalHumans = humans.reduce((a,b) => a+b, 0);
+		const totalAutomated = automated.reduce((a,b) => a+b, 0);
+
+		// 1) Stacked Bar: Humans vs Automated
+		const barCtx = document.getElementById('baskervilleHumAutoBar').getContext('2d');
+		new Chart(barCtx, {
+			type: 'bar',
+			data: {
+				labels,
+				datasets: [
+					{
+						label: 'Humans',
+						data: humans,
+						stack: 'visits',
+						backgroundColor: '#4CAF50'
+					},
+					{
+						label: 'Automated',
+						data: automated,
+						stack: 'visits',
+						backgroundColor: '#FF9800'
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: true,
+				interaction: { mode: 'index', intersect: false },
+				scales: {
+					x: { stacked: true, title: { display: true, text: 'Time' } },
+					y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Visits' } }
+				},
+				plugins: {
+					title: { display: true, text: 'Humans vs Automated — last ' + hours + 'h' },
+					tooltip: {
+						callbacks: {
+							afterBody(items) {
+								const idx = items[0].dataIndex;
+								const total = (humans[idx]||0) + (automated[idx]||0);
+								const hp = total ? Math.round((humans[idx]*100)/total) : 0;
+								const ap = total ? Math.round((automated[idx]*100)/total) : 0;
+								return [`Total: ${total}`, `Humans: ${humans[idx]} (${hp}%)`, `Automated: ${automated[idx]} (${ap}%)`];
+							}
+						}
+					}
+				}
+			}
+		});
+
+		// 2) Pie: Totals Humans vs Automated
+		const pieCtx = document.getElementById('baskervilleHumAutoPie').getContext('2d');
+		new Chart(pieCtx, {
+			type: 'pie',
+			data: {
+				labels: ['Humans', 'Automated'],
+				datasets: [{
+					data: [totalHumans, totalAutomated],
+					backgroundColor: ['#4CAF50', '#FF9800']
+				}]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: true,
+				plugins: {
+					title: { display: true, text: 'Traffic Distribution — last ' + hours + 'h' },
+					legend: { position: 'bottom' },
+					tooltip: {
+						callbacks: {
+							label(ctx) {
+								const v = ctx.parsed || 0;
+								const sum = totalHumans + totalAutomated || 1;
+								const pct = Math.round((v*100)/sum);
+								return ` ${ctx.label}: ${v} (${pct}%)`;
+							}
+						}
+					}
+				}
+			}
+		});
+
+		// Prepare bot types data
+		const badBots = timeseries.map(i => i.bad_bot_count || 0);
+		const aiBots = timeseries.map(i => i.ai_bot_count || 0);
+		const bots = timeseries.map(i => i.bot_count || 0);
+		const verifiedBots = timeseries.map(i => i.verified_bot_count || 0);
+
+		// Totals for bot types pie chart
+		const totalBadBots = badBots.reduce((a,b) => a+b, 0);
+		const totalAiBots = aiBots.reduce((a,b) => a+b, 0);
+		const totalBots = bots.reduce((a,b) => a+b, 0);
+		const totalVerifiedBots = verifiedBots.reduce((a,b) => a+b, 0);
+
+		// 3) Stacked Bar: Bot Types over time
+		const botTypesBarCtx = document.getElementById('baskervilleBotTypesBar').getContext('2d');
+		new Chart(botTypesBarCtx, {
+			type: 'bar',
+			data: {
+				labels,
+				datasets: [
+					{
+						label: 'Bad Bots',
+						data: badBots,
+						stack: 'bots',
+						backgroundColor: '#F44336'
+					},
+					{
+						label: 'AI Bots',
+						data: aiBots,
+						stack: 'bots',
+						backgroundColor: '#9C27B0'
+					},
+					{
+						label: 'Other Bots',
+						data: bots,
+						stack: 'bots',
+						backgroundColor: '#FF9800'
+					},
+					{
+						label: 'Verified Crawlers',
+						data: verifiedBots,
+						stack: 'bots',
+						backgroundColor: '#2196F3'
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: true,
+				interaction: { mode: 'index', intersect: false },
+				scales: {
+					x: { stacked: true, title: { display: true, text: 'Time' } },
+					y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Count' } }
+				},
+				plugins: {
+					title: { display: true, text: 'Bot Types — last ' + hours + 'h' },
+					tooltip: {
+						callbacks: {
+							afterBody(items) {
+								const idx = items[0].dataIndex;
+								const total = (badBots[idx]||0) + (aiBots[idx]||0) + (bots[idx]||0) + (verifiedBots[idx]||0);
+								return [`Total bots: ${total}`];
+							}
+						}
+					}
+				}
+			}
+		});
+
+		// 4) Pie: Bot Types Distribution
+		const botTypesPieCtx = document.getElementById('baskervilleBotTypesPie').getContext('2d');
+		new Chart(botTypesPieCtx, {
+			type: 'pie',
+			data: {
+				labels: ['Bad Bots', 'AI Bots', 'Other Bots', 'Verified Crawlers'],
+				datasets: [{
+					data: [totalBadBots, totalAiBots, totalBots, totalVerifiedBots],
+					backgroundColor: ['#F44336', '#9C27B0', '#FF9800', '#2196F3']
+				}]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: true,
+				plugins: {
+					title: { display: true, text: 'Bot Types Distribution — last ' + hours + 'h' },
+					legend: { position: 'bottom' },
+					tooltip: {
+						callbacks: {
+							label(ctx) {
+								const v = ctx.parsed || 0;
+								const sum = totalBadBots + totalAiBots + totalBots + totalVerifiedBots || 1;
+								const pct = Math.round((v*100)/sum);
+								return ` ${ctx.label}: ${v} (${pct}%)`;
+							}
+						}
+					}
+				}
+			}
+		});
+	})();
+	</script>
+	<?php endif; ?>
+	<?php
+		} catch (Exception $e) {
+			/* translators: %s is the error message */
+		echo '<div class="notice notice-error"><p>' . sprintf(esc_html__('Charts Error: %s', 'baskerville'), esc_html($e->getMessage())) . '</p></div>';
+		}
+		?>
+
+		<!-- IP Troubleshooting Section -->
+		<div style="margin-top: 40px; padding: 25px; background: #fff; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+			<h2 style="display: flex; align-items: center; gap: 10px; margin-top: 0;">
+				<span class="dashicons dashicons-search" style="font-size: 24px;"></span>
+				<?php esc_html_e('IP Troubleshooting', 'baskerville'); ?>
+			</h2>
+			<p style="color: #666; margin-bottom: 20px;">
+				<?php esc_html_e('Enter an IP address to see its history: bans, block reasons, classifications, and more.', 'baskerville'); ?>
+			</p>
+
+			<div style="display: flex; gap: 10px; margin-bottom: 20px;">
+				<input type="text" id="baskerville-ip-lookup" placeholder="<?php esc_attr_e('Enter IP address (e.g., 192.168.1.1)', 'baskerville'); ?>"
+					   style="flex: 1; max-width: 300px; padding: 10px; font-size: 14px; border: 1px solid #ddd;">
+				<button type="button" id="baskerville-ip-lookup-btn" class="button button-primary" style="padding: 0 20px;">
+					<?php esc_html_e('Search', 'baskerville'); ?>
+				</button>
+			</div>
+
+			<div id="baskerville-ip-results" style="display: none;">
+				<!-- Results will be inserted here -->
+			</div>
+		</div>
+
+		<script>
+		jQuery(document).ready(function($) {
+			$('#baskerville-ip-lookup-btn').on('click', function() {
+				const ip = $('#baskerville-ip-lookup').val().trim();
+				if (!ip) {
+					alert('<?php echo esc_js(__('Please enter an IP address', 'baskerville')); ?>');
+					return;
+				}
+
+				const $btn = $(this);
+				const $results = $('#baskerville-ip-results');
+
+				$btn.prop('disabled', true).text('<?php echo esc_js(__('Searching...', 'baskerville')); ?>');
+				$results.html('<p style="text-align:center;padding:20px;"><span class="dashicons dashicons-update" style="animation: rotation 1s infinite linear;"></span> <?php echo esc_js(__('Loading...', 'baskerville')); ?></p>').show();
+
+				$.ajax({
+					url: ajaxurl,
+					type: 'POST',
+					data: {
+						action: 'baskerville_ip_lookup',
+						ip: ip,
+						_wpnonce: '<?php echo esc_js(wp_create_nonce('baskerville_ip_lookup')); ?>'
+					},
+					success: function(response) {
+						$btn.prop('disabled', false).text('<?php echo esc_js(__('Search', 'baskerville')); ?>');
+
+						if (response.success) {
+							const data = response.data;
+							let html = '';
+
+							// Summary
+							html += '<div style="background: ' + (data.is_banned ? '#ffebee' : '#e8f5e9') + '; padding: 15px; border-left: 4px solid ' + (data.is_banned ? '#f44336' : '#4caf50') + '; margin-bottom: 20px;">';
+							html += '<h3 style="margin: 0 0 10px 0;">' + (data.is_banned ? '🚫' : '✅') + ' <?php echo esc_js(__('IP:', 'baskerville')); ?> ' + $('<div>').text(ip).html() + '</h3>';
+							html += '<p style="margin: 0;"><strong><?php echo esc_js(__('Status:', 'baskerville')); ?></strong> ' + (data.is_banned ? '<?php echo esc_js(__('Currently BANNED', 'baskerville')); ?>' : '<?php echo esc_js(__('Not currently banned', 'baskerville')); ?>') + '</p>';
+							if (data.country) {
+								html += '<p style="margin: 5px 0 0 0;"><strong><?php echo esc_js(__('Country:', 'baskerville')); ?></strong> ' + $('<div>').text(data.country).html() + '</p>';
+							}
+							if (data.total_events > 0) {
+								html += '<p style="margin: 5px 0 0 0;"><strong><?php echo esc_js(__('Total events:', 'baskerville')); ?></strong> ' + data.total_events + '</p>';
+								html += '<p style="margin: 5px 0 0 0;"><strong><?php echo esc_js(__('Block events:', 'baskerville')); ?></strong> ' + data.block_events + '</p>';
+							}
+							html += '</div>';
+
+							// Events table
+							if (data.events && data.events.length > 0) {
+								html += '<h3><?php echo esc_js(__('Recent Events (last 100)', 'baskerville')); ?></h3>';
+								html += '<div style="max-height: 400px; overflow-y: auto;">';
+								html += '<table style="width: 100%; border-collapse: collapse; font-size: 13px;">';
+								html += '<thead><tr style="background: #f5f5f5;">';
+								html += '<th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;"><?php echo esc_js(__('Time', 'baskerville')); ?></th>';
+								html += '<th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;"><?php echo esc_js(__('Classification', 'baskerville')); ?></th>';
+								html += '<th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;"><?php echo esc_js(__('Score', 'baskerville')); ?></th>';
+								html += '<th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;"><?php echo esc_js(__('Block Reason', 'baskerville')); ?></th>';
+								html += '<th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;"><?php echo esc_js(__('User Agent', 'baskerville')); ?></th>';
+								html += '</tr></thead><tbody>';
+
+								data.events.forEach(function(event) {
+									const hasBlock = event.block_reason && event.block_reason !== '';
+									const rowStyle = hasBlock ? 'background: #fff3e0;' : '';
+									html += '<tr style="' + rowStyle + '">';
+									html += '<td style="padding: 8px; border-bottom: 1px solid #eee; white-space: nowrap;">' + $('<div>').text(event.timestamp).html() + '</td>';
+									html += '<td style="padding: 8px; border-bottom: 1px solid #eee;"><span style="padding: 2px 8px; border-radius: 3px; font-size: 11px; background: ' + getClassColor(event.classification) + '; color: #fff;">' + $('<div>').text(event.classification || 'unknown').html() + '</span></td>';
+									html += '<td style="padding: 8px; border-bottom: 1px solid #eee; font-weight: bold; color: ' + (event.score >= 50 ? '#f44336' : '#4caf50') + ';">' + (event.score || 0) + '</td>';
+									html += '<td style="padding: 8px; border-bottom: 1px solid #eee; color: ' + (hasBlock ? '#d32f2f' : '#999') + '; font-weight: ' + (hasBlock ? 'bold' : 'normal') + ';">' + $('<div>').text(event.block_reason || '-').html() + '</td>';
+									html += '<td style="padding: 8px; border-bottom: 1px solid #eee; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + $('<div>').text(event.user_agent || '').html() + '">' + $('<div>').text((event.user_agent || '').substring(0, 50) + (event.user_agent && event.user_agent.length > 50 ? '...' : '')).html() + '</td>';
+									html += '</tr>';
+								});
+
+								html += '</tbody></table></div>';
+							} else {
+								html += '<p style="color: #666; font-style: italic;"><?php echo esc_js(__('No events found for this IP address.', 'baskerville')); ?></p>';
+							}
+
+							$results.html(html);
+						} else {
+							$results.html('<div class="notice notice-error"><p>' + (response.data || '<?php echo esc_js(__('Error searching for IP', 'baskerville')); ?>') + '</p></div>');
+						}
+					},
+					error: function() {
+						$btn.prop('disabled', false).text('<?php echo esc_js(__('Search', 'baskerville')); ?>');
+						$results.html('<div class="notice notice-error"><p><?php echo esc_js(__('Request failed. Please try again.', 'baskerville')); ?></p></div>');
+					}
+				});
+			});
+
+			// Allow Enter key to trigger search
+			$('#baskerville-ip-lookup').on('keypress', function(e) {
+				if (e.which === 13) {
+					$('#baskerville-ip-lookup-btn').click();
+				}
+			});
+
+			function getClassColor(classification) {
+				const colors = {
+					'bad_bot': '#f44336',
+					'ai_bot': '#9c27b0',
+					'bot': '#ff9800',
+					'verified_bot': '#2196f3',
+					'human': '#4caf50',
+					'unknown': '#9e9e9e'
+				};
+				return colors[classification] || '#9e9e9e';
+			}
+		});
+		</script>
 		<?php
 	}
 
@@ -3631,12 +5026,17 @@ done
 		// Default to true if not set
 		$enabled = !isset($options['honeypot_enabled']) || $options['honeypot_enabled'];
 		?>
+		<hr style="margin: 30px 0; border: none; border-top: 2px solid #ddd;">
+		<h3 style="margin: 20px 0 10px 0;">🍯 <?php esc_html_e('Honeypot Trap', 'baskerville'); ?></h3>
+		<p style="color: #666; margin-bottom: 15px;">
+			<?php esc_html_e('Catch AI bots accessing hidden links', 'baskerville'); ?>
+		</p>
 		<label>
 			<input type="checkbox"
 				   name="baskerville_settings[honeypot_enabled]"
 				   value="1"
 				   <?php checked($enabled, true); ?> />
-			<?php esc_html_e('Enable AI bot honeypot trap', 'baskerville'); ?>
+			<?php esc_html_e('Enable honeypot trap', 'baskerville'); ?>
 		</label>
 		<p class="description">
 			<?php esc_html_e('Adds a hidden link to your site footer that is invisible to humans but visible to AI crawlers in HTML.', 'baskerville'); ?><br>
@@ -3654,20 +5054,17 @@ done
 		$options = get_option('baskerville_settings', array());
 		// Default to true if not set
 		$ban_enabled = !isset($options['honeypot_ban']) || $options['honeypot_ban'];
-		$honeypot_enabled = !isset($options['honeypot_enabled']) || $options['honeypot_enabled'];
 		?>
 		<label>
 			<input type="checkbox"
 				   name="baskerville_settings[honeypot_ban]"
 				   value="1"
-				   <?php checked($ban_enabled, true); ?>
-				   <?php disabled(!$honeypot_enabled); ?> />
-			<?php esc_html_e('Ban IPs that trigger honeypot with 403', 'baskerville'); ?>
+				   <?php checked($ban_enabled, true); ?> />
+			<?php esc_html_e('Ban IPs that trigger honeypot', 'baskerville'); ?>
 		</label>
 		<p class="description">
-			<?php esc_html_e('When enabled, IPs accessing the honeypot will be banned for 24 hours and receive a 403 Forbidden response.', 'baskerville'); ?><br>
-			<?php esc_html_e('When disabled, the visit is still logged as AI bot, but the honeypot page is displayed normally.', 'baskerville'); ?><br>
-			<strong style="color: #d63638;">⚠️ IMPORTANT:</strong> Make sure "Enable 403 ban for detected bots" is checked in the General tab above for this to work!
+			<?php esc_html_e('When enabled, IPs accessing the honeypot will be banned for 24 hours.', 'baskerville'); ?><br>
+			<?php esc_html_e('When disabled, the visit is still logged as AI bot.', 'baskerville'); ?>
 		</p>
 		<?php
 	}
@@ -3888,10 +5285,10 @@ done
 			 INNER JOIN (
 				 SELECT ip, MAX(created_at) as max_created
 				 FROM " . esc_sql($table) . "
-				 WHERE classification IN ('bad_bot', 'ai_bot', 'bot') OR score >= 50
+				 WHERE classification IN ('bad_bot', 'ai_bot', 'bot') OR score >= 50 OR (block_reason IS NOT NULL AND block_reason != '')
 				 GROUP BY ip
 			 ) t2 ON t1.ip = t2.ip AND t1.created_at = t2.max_created
-			 WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'bot') OR t1.score >= 50)
+			 WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'bot') OR t1.score >= 50 OR (t1.block_reason IS NOT NULL AND t1.block_reason != ''))
 			 ORDER BY t1.created_at DESC
 			 LIMIT %d",
 			30
@@ -3966,6 +5363,13 @@ done
 			ARRAY_A
 		);
 
+		// Add country names
+		$all_countries = $this->get_countries_list();
+		foreach ($top_countries as &$country) {
+			$code = $country['country_code'] ?? '';
+			$country['country_name'] = isset($all_countries[$code]) ? $all_countries[$code] : $code;
+		}
+
 		wp_send_json_success([
 			'blocks_today'  => $blocks_today,
 			'blocks_hour'   => $blocks_hour,
@@ -4002,4 +5406,86 @@ done
 			'imported' => $imported
 		));
 	}
+
+	/**
+	 * AJAX: IP Lookup for troubleshooting.
+	 *
+	 * Direct database queries are required for IP lookup functionality.
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+	 */
+	public function ajax_ip_lookup() {
+		// Verify nonce
+		if (!wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'] ?? '')), 'baskerville_ip_lookup')) {
+			wp_send_json_error(esc_html__('Security check failed.', 'baskerville'));
+		}
+
+		// Check permissions
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(esc_html__('Insufficient permissions.', 'baskerville'));
+		}
+
+		// Get and validate IP
+		$ip = sanitize_text_field(wp_unslash($_POST['ip'] ?? ''));
+		if (!$ip || !filter_var($ip, FILTER_VALIDATE_IP)) {
+			wp_send_json_error(esc_html__('Invalid IP address.', 'baskerville'));
+		}
+
+		global $wpdb;
+		$table = $wpdb->prefix . 'baskerville_stats';
+
+		// Check if IP is currently banned (in cache)
+		$core = new Baskerville_Core();
+		$ban_data = $core->fc_get("ban:{$ip}");
+		$is_banned = !empty($ban_data);
+
+		// Get country from most recent record
+		$country = $wpdb->get_var($wpdb->prepare(
+			"SELECT country_code FROM " . esc_sql($table) . " WHERE ip = %s ORDER BY created_at DESC LIMIT 1",
+			$ip
+		));
+
+		// Get total events count
+		$total_events = (int) $wpdb->get_var($wpdb->prepare(
+			"SELECT COUNT(*) FROM " . esc_sql($table) . " WHERE ip = %s",
+			$ip
+		));
+
+		// Get block events count
+		$block_events = (int) $wpdb->get_var($wpdb->prepare(
+			"SELECT COUNT(*) FROM " . esc_sql($table) . " WHERE ip = %s AND block_reason IS NOT NULL AND block_reason != ''",
+			$ip
+		));
+
+		// Get recent events (last 100)
+		$events = $wpdb->get_results($wpdb->prepare(
+			"SELECT created_at, classification, score, block_reason, user_agent
+			 FROM " . esc_sql($table) . "
+			 WHERE ip = %s
+			 ORDER BY created_at DESC
+			 LIMIT 100",
+			$ip
+		), ARRAY_A);
+
+		// Format events for frontend
+		$formatted_events = array();
+		foreach ($events as $event) {
+			$formatted_events[] = array(
+				'timestamp'      => $event['created_at'],
+				'classification' => $event['classification'] ?? 'unknown',
+				'score'          => (int) ($event['score'] ?? 0),
+				'block_reason'   => $event['block_reason'] ?? '',
+				'user_agent'     => $event['user_agent'] ?? '',
+			);
+		}
+
+		wp_send_json_success(array(
+			'is_banned'    => $is_banned,
+			'country'      => $country ?: '',
+			'total_events' => $total_events,
+			'block_events' => $block_events,
+			'events'       => $formatted_events,
+		));
+	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 }

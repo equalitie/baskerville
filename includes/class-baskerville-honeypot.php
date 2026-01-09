@@ -88,16 +88,27 @@ class Baskerville_Honeypot {
 			'server_protocol' => sanitize_text_field(wp_unslash($_SERVER['SERVER_PROTOCOL'] ?? '')),
 		];
 
+		// Determine if this is a known AI bot by User-Agent
+		$is_ai_bot = $this->aiua->is_ai_bot_user_agent($ua);
+		$company = $is_ai_bot ? $this->aiua->get_ai_bot_company($ua) : null;
+
 		// Evaluate and classify
 		$evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
+
+		// Build reason with company name if known AI bot
+		$reason = $company
+			? sprintf(esc_html__('Honeypot triggered: accessed hidden link (%s)', 'baskerville'), $company)
+			: esc_html__('Honeypot triggered: accessed hidden link', 'baskerville');
+
 		$classification = [
 			'classification' => 'ai_bot',
-			'reason'         => esc_html__('Honeypot triggered: accessed hidden link', 'baskerville'),
+			'reason'         => $reason,
 			'risk_score'     => 100,
 			'details'        => [
 				'honeypot'   => true,
 				'page'       => 'ai-training-data',
-				'user_agent' => substr($ua, 0, 200)
+				'user_agent' => substr($ua, 0, 200),
+				'company'    => $company
 			]
 		];
 
@@ -107,9 +118,9 @@ class Baskerville_Honeypot {
 
 		// Get ban settings to determine block_reason
 		$options = get_option('baskerville_settings', array());
-		$ban_enabled = isset($options['ban_bots_403']) ? (bool)$options['ban_bots_403'] : true;
+		$bot_protection_enabled = !isset($options['bot_protection_enabled']) || $options['bot_protection_enabled'];
 		$honeypot_ban_enabled = isset($options['honeypot_ban']) ? (bool)$options['honeypot_ban'] : true;
-		$block_reason = ($ban_enabled && $honeypot_ban_enabled) ? 'honeypot-triggered' : null;
+		$block_reason = ($bot_protection_enabled && $honeypot_ban_enabled) ? 'honeypot-triggered' : null;
 
 		// Log as AI bot
 		$cookie_id = $this->core->get_cookie_id();
@@ -137,7 +148,7 @@ class Baskerville_Honeypot {
 		// ));
 
 		// Ban if enabled (default: 24 hours)
-		if ($ban_enabled && $honeypot_ban_enabled) {
+		if ($bot_protection_enabled && $honeypot_ban_enabled) {
 			$ban_ttl = (int)get_option('baskerville_honeypot_ban_ttl', 86400); // 24 hours default
 			$this->core->fc_set("ban:{$ip}", [
 				'reason' => 'honeypot',

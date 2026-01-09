@@ -392,6 +392,13 @@ class Baskerville_Stats
         // Skip logging for whitelisted IPs (performance optimization)
         if ($this->core->is_whitelisted_ip($ip)) return;
 
+        // Skip logging if IP was already blocked by firewall (to avoid duplicate records)
+        // Check if there's a ban in cache for this IP
+        $ban_cache_key = "ban:{$ip}";
+        if ($this->core->fc_get($ban_cache_key)) {
+            return; // IP is banned, already logged in firewall
+        }
+
         // Check logging mode (disabled/file/database)
         $options = get_option('baskerville_settings', array());
         $log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'database'; // Default to 'database'
@@ -960,6 +967,109 @@ class Baskerville_Stats
             'total_unique_ips' => $total_unique_ips,
             'items'            => $items,
         ];
+    }
+
+    public function get_ai_bots_timeseries($hours = 24) {
+        try {
+            global $wpdb;
+            $table = $wpdb->prefix . 'baskerville_stats';
+
+            $hours = max(1, min(168, (int)$hours)); // Max 7 days
+            $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+            // Determine slot duration based on time range
+            if ($hours <= 12) {
+                $slot_minutes = 30;
+            } elseif ($hours <= 24) {
+                $slot_minutes = 60;
+            } elseif ($hours <= 72) {
+                $slot_minutes = 180; // 3 hours
+            } else {
+                $slot_minutes = 360; // 6 hours
+            }
+
+            $wpdb->query("SET time_zone = '+00:00'");
+
+            // Simplified query - just get timestamp and user_agent, group in PHP
+            $query = $wpdb->prepare(
+                "SELECT timestamp_utc, user_agent
+                 FROM {$table}
+                 WHERE classification = %s
+                   AND timestamp_utc >= %s
+                 ORDER BY timestamp_utc ASC",
+                'ai_bot',
+                $cutoff
+            );
+
+            $rows = $wpdb->get_results($query, ARRAY_A);
+
+            if ($wpdb->last_error) {
+                throw new Exception('Database error: ' . $wpdb->last_error);
+            }
+
+            if (!$rows) {
+                $rows = [];
+            }
+
+            // Group by company and time slot in PHP
+            $companies_data = [];
+            $slot_seconds = $slot_minutes * 60;
+
+            foreach ($rows as $row) {
+                if (!isset($row['user_agent']) || !isset($row['timestamp_utc'])) {
+                    continue;
+                }
+
+                $company = $this->aiua->get_ai_bot_company($row['user_agent']);
+                $timestamp = strtotime($row['timestamp_utc']);
+
+                if ($timestamp === false) {
+                    continue;
+                }
+
+                // Round to slot
+                $slot_timestamp = floor($timestamp / $slot_seconds) * $slot_seconds;
+                $time_slot = gmdate('Y-m-d H:i:s', $slot_timestamp);
+
+                if (!isset($companies_data[$company])) {
+                    $companies_data[$company] = [];
+                }
+                if (!isset($companies_data[$company][$time_slot])) {
+                    $companies_data[$company][$time_slot] = 0;
+                }
+                $companies_data[$company][$time_slot]++;
+            }
+
+            // Generate all time slots
+            $start_time = strtotime($cutoff);
+            $start_slot = floor($start_time / $slot_seconds) * $slot_seconds;
+            $end_time = time();
+            $time_slots = [];
+            for ($t = $start_slot; $t <= $end_time; $t += $slot_seconds) {
+                $time_slots[] = gmdate('Y-m-d H:i:s', $t);
+            }
+
+            // Build series data for each company
+            $series = [];
+            foreach ($companies_data as $company => $data) {
+                $counts = [];
+                foreach ($time_slots as $slot) {
+                    $counts[] = isset($data[$slot]) ? $data[$slot] : 0;
+                }
+                $series[$company] = $counts;
+            }
+
+            return [
+                'hours' => $hours,
+                'time_slots' => $time_slots,
+                'companies' => $series,
+                'slot_minutes' => $slot_minutes,
+            ];
+
+        } catch (Exception $e) {
+            error_log('Baskerville get_ai_bots_timeseries error: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     public function get_top_factor_histogram($hours = 24, $min_score = 30) {
