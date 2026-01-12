@@ -104,9 +104,12 @@ class Baskerville_Core {
         $token = bin2hex(random_bytes(16));
         $ts    = time();
         $ipk   = $this->ip_key(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '')));
+        // Replace dots with dashes in IP key to avoid breaking cookie parsing
+        $ipk_safe = str_replace('.', '-', $ipk);
+        $ipk_safe = str_replace(':', '-', $ipk_safe); // also handle IPv6 colons
         $sig   = $this->sign_cookie($token, $ts, $ipk);
-        // new format: token.ts.ipk.sig
-        return $token . '.' . $ts . '.' . $ipk . '.' . $sig;
+        // new format: token.ts.ipk.sig (ipk has dashes instead of dots/colons)
+        return $token . '.' . $ts . '.' . $ipk_safe . '.' . $sig;
     }
 
     /** Returns token if signature is valid and not expired. Supports legacy format (3 parts). */
@@ -141,7 +144,9 @@ class Baskerville_Core {
 
     /** Set HttpOnly/Secure cookie if it doesn't exist or is invalid */
     public function ensure_baskerville_cookie(): void {
-        if (headers_sent()) return;
+        if (headers_sent()) {
+            return;
+        }
 
         $this->had_cookie_on_arrival = ($this->get_cookie_id() !== null);
 
@@ -170,14 +175,20 @@ class Baskerville_Core {
 
         $parts = explode('.', $raw);
 
-        // new format: token.ts.ipk.sig
+        // new format: token.ts.ipk.sig (ipk has dashes instead of dots)
         if (count($parts) === 4) {
             [$token, $ts, $ipk, $sig] = $parts;
-            if (!ctype_xdigit($token) || !ctype_digit($ts)) return false;
+            if (!ctype_xdigit($token) || !ctype_digit($ts)) {
+                return false;
+            }
             $cur_ipk = $this->ip_key(sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '')));
             $calc = $this->sign_cookie($token, (int)$ts, $cur_ipk);
-            if (!hash_equals($calc, $sig)) return false;
-            if ((int)$ts < time() - 60*60*24*90) return false;
+            if (!hash_equals($calc, $sig)) {
+                return false;
+            }
+            if ((int)$ts < time() - 60*60*24*90) {
+                return false;
+            }
             return true;
         }
 
