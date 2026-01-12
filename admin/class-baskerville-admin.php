@@ -314,23 +314,39 @@ class Baskerville_Admin {
 	}
 
 	public function sanitize_settings($input) {
+		// Get existing settings to preserve values not in current form submission
+		$existing = get_option('baskerville_settings', array());
 		$sanitized = array();
 
 		// Master protection switch
 		$sanitized['master_protection_enabled'] = isset($input['master_protection_enabled']) ? (bool) $input['master_protection_enabled'] : false;
 
-		// Tab enable/disable switches
-		$sanitized['bot_protection_enabled'] = isset($input['bot_protection_enabled']) ? (bool) $input['bot_protection_enabled'] : true;
-		$sanitized['burst_protection_enabled'] = isset($input['burst_protection_enabled']) ? (bool) $input['burst_protection_enabled'] : true;
-		$sanitized['api_rate_limit_enabled'] = isset($input['api_rate_limit_enabled']) ? (bool) $input['api_rate_limit_enabled'] : true;
-		$sanitized['geoip_enabled'] = isset($input['geoip_enabled']) ? (bool) $input['geoip_enabled'] : false;
-		$sanitized['ai_bot_control_enabled'] = isset($input['ai_bot_control_enabled']) ? (bool) $input['ai_bot_control_enabled'] : true;
+		// Tab enable/disable switches - preserve existing values if not in input
+		$sanitized['bot_protection_enabled'] = isset($input['bot_protection_enabled'])
+			? (bool) $input['bot_protection_enabled']
+			: (isset($existing['bot_protection_enabled']) ? $existing['bot_protection_enabled'] : true);
+		$sanitized['burst_protection_enabled'] = isset($input['burst_protection_enabled'])
+			? (bool) $input['burst_protection_enabled']
+			: (isset($existing['burst_protection_enabled']) ? $existing['burst_protection_enabled'] : true);
+		$sanitized['api_rate_limit_enabled'] = isset($input['api_rate_limit_enabled'])
+			? (bool) $input['api_rate_limit_enabled']
+			: (isset($existing['api_rate_limit_enabled']) ? $existing['api_rate_limit_enabled'] : true);
+		$sanitized['geoip_enabled'] = isset($input['geoip_enabled'])
+			? (bool) $input['geoip_enabled']
+			: (isset($existing['geoip_enabled']) ? $existing['geoip_enabled'] : false);
+		$sanitized['ai_bot_control_enabled'] = isset($input['ai_bot_control_enabled'])
+			? (bool) $input['ai_bot_control_enabled']
+			: (isset($existing['ai_bot_control_enabled']) ? $existing['ai_bot_control_enabled'] : true);
 
-		// Bot Control settings
-		$sanitized['allow_verified_crawlers'] = isset($input['allow_verified_crawlers']) ? (bool) $input['allow_verified_crawlers'] : true;
+		// Bot Control settings - preserve existing if not in input
+		$sanitized['allow_verified_crawlers'] = isset($input['allow_verified_crawlers'])
+			? (bool) $input['allow_verified_crawlers']
+			: (isset($existing['allow_verified_crawlers']) ? $existing['allow_verified_crawlers'] : true);
 
-		// Legacy checkboxes
-		$sanitized['ban_bots_403'] = isset($input['ban_bots_403']) ? (bool) $input['ban_bots_403'] : false;
+		// Legacy checkboxes - preserve existing if not in input
+		$sanitized['ban_bots_403'] = isset($input['ban_bots_403'])
+			? (bool) $input['ban_bots_403']
+			: (isset($existing['ban_bots_403']) ? $existing['ban_bots_403'] : false);
 
 		if (isset($input['log_mode'])) {
 			$mode = sanitize_text_field($input['log_mode']);
@@ -404,15 +420,20 @@ class Baskerville_Admin {
 			}
 		}
 
-		// Honeypot settings (checkboxes: false if not in POST)
-		$sanitized['honeypot_enabled'] = isset($input['honeypot_enabled']) ? (bool) $input['honeypot_enabled'] : false;
-		$sanitized['honeypot_ban'] = isset($input['honeypot_ban']) ? (bool) $input['honeypot_ban'] : false;
+		// Honeypot settings - preserve existing if not in input
+		$sanitized['honeypot_enabled'] = isset($input['honeypot_enabled'])
+			? (bool) $input['honeypot_enabled']
+			: (isset($existing['honeypot_enabled']) ? $existing['honeypot_enabled'] : false);
+		$sanitized['honeypot_ban'] = isset($input['honeypot_ban'])
+			? (bool) $input['honeypot_ban']
+			: (isset($existing['honeypot_ban']) ? $existing['honeypot_ban'] : false);
 
-		// Burst protection enabled (checkbox)
-		$sanitized['enable_burst_protection'] = isset($input['enable_burst_protection']) ? (bool) $input['enable_burst_protection'] : false;
+		// Burst protection enabled - preserve existing if not in input
+		$sanitized['enable_burst_protection'] = isset($input['enable_burst_protection'])
+			? (bool) $input['enable_burst_protection']
+			: (isset($existing['enable_burst_protection']) ? $existing['enable_burst_protection'] : false);
 
-		// API rate limiting settings
-		$sanitized['api_rate_limit_enabled'] = isset($input['api_rate_limit_enabled']) ? (bool) $input['api_rate_limit_enabled'] : false;
+		// Note: api_rate_limit_enabled is already handled above in tab switches
 		if (isset($input['api_rate_limit_requests'])) {
 			$sanitized['api_rate_limit_requests'] = max(1, min(10000, (int) $input['api_rate_limit_requests']));
 		}
@@ -423,7 +444,8 @@ class Baskerville_Admin {
 		// Flush rewrite rules when settings are saved (for honeypot route)
 		flush_rewrite_rules();
 
-		return $sanitized;
+		// Merge with existing settings to preserve values not in current form
+		return array_merge($existing, $sanitized);
 	}
 
 	public function render_ban_bots_403_field() {
