@@ -113,7 +113,23 @@ class Baskerville_Firewall
 				header('Retry-After: ' . $retry);
 			}
 		}
-		esc_html_e('Forbidden', 'baskerville') . "\n";
+
+		// Show specific message based on ban reason (no translations - runs before init)
+		$reason = $meta['reason'] ?? '';
+		if (strpos($reason, 'no-cookie-burst') === 0) {
+			echo 'Forbidden - Too many requests without session cookie';
+		} elseif (strpos($reason, 'nojs-burst') === 0) {
+			echo 'Forbidden - Too many requests without JavaScript';
+		} elseif (strpos($reason, 'nojs-burst') === 0) {
+			echo 'Forbidden - Non-browser client rate limit exceeded';
+		} elseif (strpos($reason, 'ai-bot') === 0) {
+			echo 'Forbidden - AI bot detected';
+		} elseif (strpos($reason, 'cached-ban') === 0) {
+			echo 'Forbidden - IP temporarily banned';
+		} else {
+			echo 'Forbidden - Bot detected';
+		}
+		echo "\n";
 		exit;
 	}
 
@@ -133,7 +149,7 @@ class Baskerville_Firewall
 				header('Retry-After: ' . $retry);
 			}
 		}
-		esc_html_e( 'Forbidden - Access from this country is restricted', 'baskerville' ) . "\n";
+		echo "Forbidden - Access from this country is restricted\n";
 		exit;
 	}
 
@@ -187,8 +203,7 @@ class Baskerville_Firewall
 
 					echo wp_json_encode([
 						'error'       => 'rate_limit_exceeded',
-						/* translators: 1: maximum number of requests, 2: time window in seconds */
-						'message'     => sprintf( esc_html__( 'Rate limit exceeded. Maximum %1$d requests per %2$d seconds.', 'baskerville' ), $max_requests, $window_sec),
+						'message'     => sprintf( 'Rate limit exceeded. Maximum %d requests per %d seconds.', $max_requests, $window_sec),
 						'retry_after' => $window_sec
 					]);
 					exit;
@@ -354,6 +369,41 @@ class Baskerville_Firewall
 			// if it's a verified crawler — remove the ban
 			if (($ban['cls'] ?? '') === 'verified_bot') {
 				$this->core->fc_delete("ban:{$ip}");
+			// if it's a geo-ban, check if GeoIP blocking is still enabled
+			// Check both cls field and reason prefix to catch all geo-bans
+			} elseif (($ban['cls'] ?? '') === 'geo-banned' || strpos($ban['reason'] ?? '', 'geo-') === 0) {
+				// Get fresh options to check current GeoIP settings (avoid stale cache)
+				$fresh_options = get_option('baskerville_settings', array());
+				$geoip_still_enabled = isset($fresh_options['geoip_enabled']) ? $fresh_options['geoip_enabled'] : false;
+				$geoip_mode = isset($fresh_options['geoip_mode']) ? $fresh_options['geoip_mode'] : 'allow_all';
+				// If GeoIP is now disabled or set to allow_all, clear the geo-ban and allow request
+				if (!$geoip_still_enabled || $geoip_mode === 'allow_all') {
+					$this->core->fc_delete("ban:{$ip}");
+					// Clear all burst counters and give grace period to get cookie
+					$this->core->fc_delete("nocookie_burst:{$ip}");
+					$this->core->fc_delete("nojs_cnt:{$ip}");
+					// Set grace period flag - allows IP to bypass burst protection temporarily (60 seconds)
+					// This gives the user time to load the page and receive the Baskerville cookie
+					$this->core->fc_set("geo_grace:{$ip}", 1, 60);
+					// Skip all remaining firewall checks - geo-ban was just cleared
+					return;
+				} else {
+					// GeoIP still active - enforce the ban
+					$evaluation = ['score' => (int)($ban['score'] ?? 0), 'reasons' => ['cached-ban']];
+					$classification = [
+						'classification' => (string)($ban['cls'] ?? 'bot'),
+						'reason'         => (string)($ban['reason'] ?? 'cached-ban'),
+					];
+					$this->blocklog_once(
+						$ip,
+						(string)($ban['reason'] ?? 'cached-ban'),
+						$evaluation,
+						$classification,
+						$ua,
+						600
+					);
+					$this->send_403_geo_and_exit($ban);
+				}
 			} else {
 				$evaluation = ['score' => (int)($ban['score'] ?? 0), 'reasons' => ['cached-ban']];
 				$classification = [
@@ -389,8 +439,11 @@ class Baskerville_Firewall
 			? $options['burst_protection_enabled']
 			: (!isset($options['enable_burst_protection']) || $options['enable_burst_protection']);
 
+		// Check for grace period (after geo-ban was cleared, user needs time to get cookie)
+		$has_grace_period = (bool) $this->core->fc_get("geo_grace:{$ip}");
+
 		// 1) no-cookie burst: ANY IP without valid cookie making too many requests
-		if ($burst_enabled && !$has_valid_cookie && !$verified_crawler) {
+		if ($burst_enabled && !$has_valid_cookie && !$verified_crawler && !$has_grace_period) {
 			$window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
 			$threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
 			$cnt        = $this->core->fc_inc_in_window("nocookie_burst:{$ip}", $window_sec);
@@ -418,7 +471,7 @@ class Baskerville_Firewall
 
 		// 3) no-JS burst: count only pages for which we haven't seen FP "recently"
 		$fp_seen_recent = (bool) $this->core->fc_get("fp_seen_ip:{$ip}");
-		if ($burst_enabled && !$fp_seen_recent && !$verified_crawler) {
+		if ($burst_enabled && !$fp_seen_recent && !$verified_crawler && !$has_grace_period) {
 			$window_sec = (int) get_option('baskerville_nojs_window_sec', 60);
 			$threshold  = (int) get_option('baskerville_nojs_threshold', 20);
 			$cnt        = $this->core->fc_inc_in_window("nojs_cnt:{$ip}", $window_sec);
@@ -475,7 +528,7 @@ class Baskerville_Firewall
 			}
 		}
 
-		if ($burst_enabled && $is_nonbrowser && !$verified_crawler) {
+		if ($burst_enabled && $is_nonbrowser && !$verified_crawler && !$has_grace_period) {
 			$window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
 			$threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
 

@@ -143,21 +143,8 @@ class Baskerville_Admin {
 			'baskerville-burst-protection'
 		);
 
-		add_settings_field(
-			'burst_protection_enabled',
-			'',
-			array($this, 'render_burst_protection_enabled_field'),
-			'baskerville-burst-protection',
-			'baskerville_burst_protection_section'
-		);
-
-		add_settings_field(
-			'enable_burst_protection',
-			esc_html__('Legacy Burst Protection', 'baskerville'),
-			array($this, 'render_burst_protection_field'),
-			'baskerville-burst-protection',
-			'baskerville_burst_protection_section'
-		);
+		// Note: burst_protection_enabled is now rendered manually at the top of the Burst Protection tab
+		// The content (thresholds, etc.) is rendered via render_burst_protection_content()
 
 		// ===== Rate Limits Tab =====
 		add_settings_section(
@@ -3607,6 +3594,7 @@ class Baskerville_Admin {
 						?>
 						</form>
 						<?php
+						$burst_enabled = isset($options['burst_protection_enabled']) ? $options['burst_protection_enabled'] : true;
 						?>
 						<form method="post" action="options.php">
 						<?php
@@ -3614,9 +3602,31 @@ class Baskerville_Admin {
 						// Preserve master switch state
 						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
 						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
-						do_settings_sections('baskerville-burst-protection');
+						?>
+						<table class="form-table" role="presentation">
+							<tr>
+								<th scope="row"></th>
+								<td>
+									<div class="baskerville-toggle-label">
+										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+											<?php esc_html_e('Burst Protection', 'baskerville'); ?>
+										</span>
+										<input type="hidden" name="baskerville_settings[burst_protection_enabled]" value="0">
+										<label class="baskerville-toggle-switch">
+											<input type="checkbox" name="baskerville_settings[burst_protection_enabled]" value="1" <?php checked($burst_enabled, true); ?> />
+											<span class="baskerville-toggle-slider-regular"></span>
+										</label>
+										<span class="baskerville-toggle-text">
+											<?php echo $burst_enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+										</span>
+									</div>
+								</td>
+							</tr>
+						</table>
+						<?php
 						submit_button();
 						?>
+						<?php $this->render_burst_protection_content(); ?>
 						</form>
 						<form method="post" action="options.php">
 						<?php
@@ -5115,11 +5125,7 @@ done
 		<?php
 	}
 
-	public function render_burst_protection_field() {
-		$options = get_option('baskerville_settings', array());
-		// Default to true (enabled) if not set
-		$burst_enabled = !isset($options['enable_burst_protection']) || $options['enable_burst_protection'];
-
+	public function render_burst_protection_content() {
 		// Get current thresholds
 		$nocookie_threshold = (int) get_option('baskerville_nocookie_threshold', 10);
 		$nocookie_window = (int) get_option('baskerville_nocookie_window_sec', 60);
@@ -5127,20 +5133,10 @@ done
 		$nojs_window = (int) get_option('baskerville_nojs_window_sec', 60);
 		$ban_ttl = (int) get_option('baskerville_ban_ttl_sec', 600);
 		?>
-		<label>
-			<input type="checkbox"
-				   name="baskerville_settings[enable_burst_protection]"
-				   value="1"
-				   <?php checked($burst_enabled, true); ?> />
-			<?php esc_html_e('Enable automatic burst protection', 'baskerville'); ?>
-		</label>
-		<p class="description">
-			<?php esc_html_e('Burst protection blocks IPs making too many requests in a short time, even if "Enable 403 ban" is disabled.', 'baskerville'); ?>
-		</p>
 
 		<div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 15px; margin: 15px 0;">
 			<h4 style="margin-top: 0;"><?php esc_html_e('What is Burst Protection?', 'baskerville'); ?></h4>
-			<p><?php esc_html_e('Burst protection prevents abuse by blocking IPs that make too many requests too quickly. It works independently of bot classification and the "Enable 403 ban" setting.', 'baskerville'); ?></p>
+			<p><?php esc_html_e('Burst protection prevents abuse by blocking IPs that make too many requests too quickly. When the Master Switch is ON, burst protection will automatically block suspicious traffic patterns.', 'baskerville'); ?></p>
 
 			<p><?php esc_html_e('When an IP exceeds the threshold, it receives a 403 Forbidden response and is temporarily banned. All burst types are counted separately per IP address using sliding time windows.', 'baskerville'); ?></p>
 
