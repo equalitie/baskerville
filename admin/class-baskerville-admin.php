@@ -1827,13 +1827,13 @@ class Baskerville_Admin {
 				<div class="live-stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
 					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">⚡</div>
 					<div class="stat-value" id="blocks-hour" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Last Hour', 'baskerville'); ?></div>
+					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Blocked Last Hour', 'baskerville'); ?></div>
 				</div>
 
 				<div class="live-stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
 					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🌍</div>
 					<div class="stat-value" id="top-country" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Top Country', 'baskerville'); ?></div>
+					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Top Country Blocked', 'baskerville'); ?></div>
 				</div>
 			</div>
 
@@ -3660,6 +3660,30 @@ class Baskerville_Admin {
 						<?php
 						submit_button();
 						?>
+
+						<div style="background: #f0f6fc; border-left: 4px solid #2271b1; padding: 15px 20px; margin: 20px 0;">
+							<h3 style="margin: 0 0 10px 0; color: #1d2327;"><?php esc_html_e('How Rate Limiting Works', 'baskerville'); ?></h3>
+							<p style="margin: 0 0 10px 0; color: #50575e;">
+								<?php esc_html_e('Rate limiting protects your API endpoints from abuse by limiting the number of requests per IP address within a time window.', 'baskerville'); ?>
+							</p>
+							<p style="margin: 0 0 10px 0; color: #50575e;">
+								<strong><?php esc_html_e('Protected endpoints:', 'baskerville'); ?></strong>
+								<?php esc_html_e('REST API (/wp-json/), GraphQL, XML-RPC, and webhook URLs.', 'baskerville'); ?>
+							</p>
+							<p style="margin: 0 0 10px 0; color: #50575e;">
+								<strong><?php esc_html_e('When limit is exceeded:', 'baskerville'); ?></strong>
+								<?php esc_html_e('Returns HTTP 429 (Too Many Requests) with Retry-After header.', 'baskerville'); ?>
+							</p>
+							<p style="margin: 0; color: #50575e;">
+								<strong><?php esc_html_e('Example:', 'baskerville'); ?></strong>
+								<?php
+								printf(
+									/* translators: 1: number of requests, 2: time window in seconds */
+									esc_html__('With default settings (100 requests / 60 seconds), an IP making more than 100 API calls per minute will be temporarily blocked.', 'baskerville')
+								);
+								?>
+							</p>
+						</div>
 						<table class="form-table" role="presentation">
 							<tr>
 								<th scope="row">
