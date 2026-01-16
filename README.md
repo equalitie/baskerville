@@ -4,7 +4,7 @@ A comprehensive WordPress security plugin with GeoIP-based access control, AI-po
 
 ## Features
 
-- 🛡️ **AI-Powered Bot Detection** - Machine learning classification of bots vs. humans
+- 🛡️ **AI-Powered Bot Detection** - Classification of bots vs. humans
 - 🌍 **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist)
 - 🔍 **Browser Fingerprinting** - Advanced client-side fingerprinting with Canvas, WebGL, Audio
 - 📊 **Traffic Analytics** - Real-time statistics and blocking insights
@@ -14,18 +14,35 @@ A comprehensive WordPress security plugin with GeoIP-based access control, AI-po
 
 ## Building
 
+Run from the **parent directory** of the plugin folder:
+
 ```bash
-zip -r9q baskerville-plugin.zip baskerville_plugin/ \
-  -x "*/.DS_Store" "*/__MACOSX/*" \
-     "*/.git/*" "*/.gitignore" \
-     "*/.idea/*" \
-     "*/node_modules/*" \
-     "*.log"
+cd ..   # from baskerville/ go to parent directory
+zip -r9 baskerville.zip baskerville/ \
+  -x "*.DS_Store" \
+  -x "baskerville/.git/*" \
+  -x "baskerville/.gitignore" \
+  -x "baskerville/.idea/*" \
+  -x "baskerville/.claude/*" \
+  -x "baskerville/vendor/*" \
+  -x "*.log" \
+  -x "*.txt" \
+  -x "*.sh" \
+  -x "*.html" \
+  -x "baskerville/test-*.php" \
+  -x "baskerville/composer.json" \
+  -x "baskerville/deployment.md" \
+  -x "baskerville/bot-detector*.js" \
+  -x "baskerville/ab" \
+  -x "baskerville/done" \
+  -x "baskerville/sleep"
 ```
+
+**Note**: The `vendor/` folder is excluded. After plugin installation, go to **Settings → Baskerville → Settings** and click "Install MaxMind Library" to enable GeoIP features.
 
 ## Installation
 
-1. Upload `baskerville-plugin.zip` in WordPress Admin → Plugins → Add New → Upload Plugin
+1. Upload `baskerville.zip` in WordPress Admin → Plugins → Add New → Upload Plugin
 2. Activate the plugin
 3. Go to Settings → Baskerville to configure
 
@@ -476,7 +493,7 @@ Baskerville with **File Logging** adds **5% overhead** while providing:
 ### File Structure
 
 ```
-baskerville_plugin/
+baskerville/
 ├── admin/
 │   └── class-baskerville-admin.php    # Admin UI, settings, performance tests
 ├── includes/
@@ -488,7 +505,7 @@ baskerville_plugin/
 ├── assets/
 │   ├── js/baskerville.js              # Frontend fingerprinting script
 │   └── css/                           # Styles
-├── vendor/                            # MaxMind GeoIP2 library
+├── vendor/                            # MaxMind GeoIP2 library (auto-installed)
 └── baskerville.php                    # Main plugin file
 ```
 
