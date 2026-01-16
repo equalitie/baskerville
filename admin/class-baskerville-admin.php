@@ -965,6 +965,51 @@ class Baskerville_Admin {
 		return 'MaxMind (if configured)';
 	}
 
+	/**
+	 * Get active GeoIP source with status
+	 * Returns array with 'source' name and 'available' boolean
+	 */
+	private function get_active_geoip_source() {
+		// Check server-side sources first
+		if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
+			return array('source' => 'NGINX GeoIP2', 'available' => true, 'country' => sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
+		}
+		if (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
+			return array('source' => 'NGINX GeoIP (legacy)', 'available' => true, 'country' => sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
+		}
+		if (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
+			return array('source' => 'NGINX Custom Header', 'available' => true, 'country' => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
+		}
+		if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+			return array('source' => 'Cloudflare', 'available' => true, 'country' => sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
+		}
+
+		// Check MaxMind
+		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
+
+		if (file_exists($db_path) && file_exists($autoload_path)) {
+			// Try to load and test MaxMind
+			if (!class_exists('GeoIp2\Database\Reader')) {
+				require_once $autoload_path;
+			}
+			if (class_exists('GeoIp2\Database\Reader')) {
+				// Try a test lookup
+				try {
+					$current_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+					$reader = new \GeoIp2\Database\Reader($db_path);
+					$record = $reader->country($current_ip);
+					return array('source' => 'MaxMind GeoLite2', 'available' => true, 'country' => $record->country->isoCode);
+				} catch (\Exception $e) {
+					return array('source' => 'MaxMind GeoLite2', 'available' => true, 'country' => null, 'note' => 'Configured but lookup failed');
+				}
+			}
+		}
+
+		// Nothing available
+		return array('source' => null, 'available' => false);
+	}
+
 	private function get_countries_list() {
 		return array(
 			'AF' => esc_html__('Afghanistan', 'baskerville'),
@@ -3548,7 +3593,41 @@ class Baskerville_Admin {
 						</form>
 						<?php
 						$geoip_enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
+						$geoip_status = $this->get_active_geoip_source();
 						?>
+
+						<!-- GeoIP Source Status Banner -->
+						<?php if ($geoip_status['available']): ?>
+						<div style="margin: 20px 0; padding: 15px 20px; background: #d4edda; border-left: 4px solid #28a745; display: flex; align-items: center; gap: 15px;">
+							<span style="font-size: 24px;">&#127760;</span>
+							<div>
+								<strong><?php esc_html_e('GeoIP Source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_status['source']); ?>
+								<?php if (!empty($geoip_status['country'])): ?>
+									&mdash; <?php esc_html_e('Your country:', 'baskerville'); ?> <strong><?php echo esc_html($geoip_status['country']); ?></strong>
+								<?php endif; ?>
+								<?php if (!empty($geoip_status['note'])): ?>
+									<br><small style="color: #666;"><?php echo esc_html($geoip_status['note']); ?></small>
+								<?php endif; ?>
+							</div>
+						</div>
+						<?php else: ?>
+						<div style="margin: 20px 0; padding: 15px 20px; background: #fff3cd; border-left: 4px solid #ffc107; display: flex; align-items: center; gap: 15px;">
+							<span style="font-size: 24px;">&#9888;</span>
+							<div>
+								<strong style="color: #856404;"><?php esc_html_e('No GeoIP source configured!', 'baskerville'); ?></strong><br>
+								<span style="color: #856404;">
+									<?php
+									printf(
+										/* translators: %s: link to settings tab */
+										esc_html__('Country blocking will not work. Go to %s to install MaxMind GeoLite2 database.', 'baskerville'),
+										'<a href="' . esc_url(admin_url('options-general.php?page=baskerville-settings&tab=settings')) . '"><strong>' . esc_html__('Settings tab', 'baskerville') . '</strong></a>'
+									);
+									?>
+								</span>
+							</div>
+						</div>
+						<?php endif; ?>
+
 						<form method="post" action="options.php">
 						<?php
 						settings_fields('baskerville_settings_group');
@@ -3759,6 +3838,14 @@ class Baskerville_Admin {
 						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
 						submit_button();
 						do_settings_sections('baskerville-settings');
+						?>
+						</form>
+						<?php
+						// Render GeoIP Testing section
+						$this->render_geoip_test_tab();
+						?>
+						<form method="post" action="options.php">
+						<?php
 						break;
 
 					default:

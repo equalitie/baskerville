@@ -33,12 +33,19 @@ class Baskerville_MaxMind_Installer {
 	public function install() {
 		$errors = array();
 
-		// Check if ZipArchive is available
-		if (!class_exists('ZipArchive')) {
+		// Check if ZipArchive or PclZip is available
+		if (!class_exists('ZipArchive') && !class_exists('PclZip')) {
+			// Try to load PclZip from WordPress
+			if (file_exists(ABSPATH . 'wp-admin/includes/class-pclzip.php')) {
+				require_once ABSPATH . 'wp-admin/includes/class-pclzip.php';
+			}
+		}
+
+		if (!class_exists('ZipArchive') && !class_exists('PclZip')) {
 			return array(
 				'success' => false,
-				'message' => esc_html__('ZipArchive class not available. Please contact your hosting provider to enable PHP ZIP extension.', 'baskerville'),
-				'errors' => array( esc_html__( 'ZipArchive not available', 'baskerville' ) )
+				'message' => esc_html__('Neither ZipArchive nor PclZip available. Please contact your hosting provider.', 'baskerville'),
+				'errors' => array( esc_html__( 'No zip handler available', 'baskerville' ) )
 			);
 		}
 
@@ -123,17 +130,11 @@ class Baskerville_MaxMind_Installer {
 		file_put_contents($zip_file, $body);
 
 		// Extract
-		$zip = new ZipArchive();
-		if ($zip->open($zip_file) !== true) {
-			return array(
-				'success' => false,
-				'message' => esc_html__( 'Failed to open MaxMind-DB-Reader zip file.', 'baskerville' )
-			);
-		}
-
 		$extract_to = $this->vendor_dir . 'maxmind-db-temp/';
-		$zip->extractTo($extract_to);
-		$zip->close();
+		$extract_result = $this->extract_zip($zip_file, $extract_to);
+		if (!$extract_result['success']) {
+			return $extract_result;
+		}
 
 		// Move files to correct location
 		$source_dir = $extract_to . 'MaxMind-DB-Reader-php-1.11.1/src/MaxMind/';
@@ -177,17 +178,11 @@ class Baskerville_MaxMind_Installer {
 		file_put_contents($zip_file, $body);
 
 		// Extract
-		$zip = new ZipArchive();
-		if ($zip->open($zip_file) !== true) {
-			return array(
-				'success' => false,
-				'message' => esc_html__( 'Failed to open GeoIP2 zip file.', 'baskerville' )
-			);
-		}
-
 		$extract_to = $this->vendor_dir . 'geoip2-temp/';
-		$zip->extractTo($extract_to);
-		$zip->close();
+		$extract_result = $this->extract_zip($zip_file, $extract_to);
+		if (!$extract_result['success']) {
+			return $extract_result;
+		}
 
 		// Move files to correct location
 		$source_dir = $extract_to . 'GeoIP2-php-2.13.0/src/';
@@ -205,30 +200,78 @@ class Baskerville_MaxMind_Installer {
 	}
 
 	/**
+	 * Extract zip file using ZipArchive or PclZip
+	 */
+	private function extract_zip($zip_file, $extract_to) {
+		if (!is_dir($extract_to)) {
+			wp_mkdir_p($extract_to);
+		}
+
+		// Try ZipArchive first
+		if (class_exists('ZipArchive')) {
+			$zip = new ZipArchive();
+			if ($zip->open($zip_file) === true) {
+				$zip->extractTo($extract_to);
+				$zip->close();
+				return array('success' => true);
+			}
+		}
+
+		// Fallback to PclZip (included with WordPress)
+		if (!class_exists('PclZip')) {
+			if (file_exists(ABSPATH . 'wp-admin/includes/class-pclzip.php')) {
+				require_once ABSPATH . 'wp-admin/includes/class-pclzip.php';
+			}
+		}
+
+		if (class_exists('PclZip')) {
+			$archive = new PclZip($zip_file);
+			$result = $archive->extract(PCLZIP_OPT_PATH, $extract_to);
+			if ($result !== 0) {
+				return array('success' => true);
+			}
+			return array(
+				'success' => false,
+				'message' => esc_html__('PclZip extraction failed: ', 'baskerville') . $archive->errorInfo(true)
+			);
+		}
+
+		return array(
+			'success' => false,
+			'message' => esc_html__('No zip extraction method available.', 'baskerville')
+		);
+	}
+
+	/**
 	 * Create autoload.php file
 	 */
 	private function create_autoload() {
-		$autoload_content = "<?php\n";
-		$autoload_content .= "// Baskerville MaxMind GeoIP2 Autoloader\n\n";
-		$autoload_content .= "spl_autoload_register(function (\$class) {\n";
-		$autoload_content .= "    // MaxMind namespace prefix\n";
-		$autoload_content .= "    \$prefixes = array(\n";
-		$autoload_content .= "        'GeoIp2\\\\' => __DIR__ . '/geoip2/GeoIp2/',\n";
-		$autoload_content .= "        'MaxMind\\\\' => __DIR__ . '/maxmind/',\n";
-		$autoload_content .= "    );\n\n";
-		$autoload_content .= "    foreach (\$prefixes as \$prefix => \$base_dir) {\n";
-		$autoload_content .= "        \$len = strlen(\$prefix);\n";
-		$autoload_content .= "        if (strncmp(\$prefix, \$class, \$len) !== 0) {\n";
-		$autoload_content .= "            continue;\n";
-		$autoload_content .= "        }\n\n";
-		$autoload_content .= "        \$relative_class = substr(\$class, \$len);\n";
-		$autoload_content .= "        \$file = \$base_dir . str_replace('\\\\\\\\', '/', \$relative_class) . '.php';\n\n";
-		$autoload_content .= "        if (file_exists(\$file)) {\n";
-		$autoload_content .= "            require \$file;\n";
-		$autoload_content .= "            return;\n";
-		$autoload_content .= "        }\n";
-		$autoload_content .= "    }\n";
-		$autoload_content .= "});\n";
+		$autoload_content = <<<'PHP'
+<?php
+// Baskerville MaxMind GeoIP2 Autoloader
+
+spl_autoload_register(function ($class) {
+    $prefixes = array(
+        'GeoIp2\\' => __DIR__ . '/geoip2/',
+        'MaxMind\\' => __DIR__ . '/maxmind/',
+    );
+
+    foreach ($prefixes as $prefix => $base_dir) {
+        $len = strlen($prefix);
+        if (strncmp($prefix, $class, $len) !== 0) {
+            continue;
+        }
+
+        $relative_class = substr($class, $len);
+        $file = $base_dir . str_replace('\\', '/', $relative_class) . '.php';
+
+        if (file_exists($file)) {
+            require $file;
+            return;
+        }
+    }
+});
+PHP;
 
 		file_put_contents($this->vendor_dir . 'autoload.php', $autoload_content);
 	}
