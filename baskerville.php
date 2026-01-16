@@ -30,6 +30,7 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-rest.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-honeypot.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
 // Add custom cron interval for file logging (1 minute)
@@ -69,6 +70,10 @@ add_action('plugins_loaded', function () {
 	// Honeypot for AI bot detection
 	$honeypot = new Baskerville_Honeypot($core, $stats, $aiua);
 	$honeypot->init();
+
+	// Cloudflare Turnstile for login/registration/comment protection
+	$turnstile = new Baskerville_Turnstile();
+	$turnstile->init();
 
 	// periodic statistics cleanup
 	add_action('baskerville_cleanup_stats', [$stats, 'cleanup_old_stats']);

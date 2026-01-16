@@ -428,6 +428,23 @@ class Baskerville_Admin {
 			$sanitized['api_rate_limit_window'] = max(10, min(3600, (int) $input['api_rate_limit_window']));
 		}
 
+		// Turnstile settings
+		$sanitized['turnstile_enabled'] = isset($input['turnstile_enabled'])
+			? (bool) $input['turnstile_enabled']
+			: (isset($existing['turnstile_enabled']) ? $existing['turnstile_enabled'] : false);
+
+		if (isset($input['turnstile_site_key'])) {
+			$sanitized['turnstile_site_key'] = sanitize_text_field($input['turnstile_site_key']);
+		} else {
+			$sanitized['turnstile_site_key'] = isset($existing['turnstile_site_key']) ? $existing['turnstile_site_key'] : '';
+		}
+
+		if (isset($input['turnstile_secret_key'])) {
+			$sanitized['turnstile_secret_key'] = sanitize_text_field($input['turnstile_secret_key']);
+		} else {
+			$sanitized['turnstile_secret_key'] = isset($existing['turnstile_secret_key']) ? $existing['turnstile_secret_key'] : '';
+		}
+
 		// Flush rewrite rules when settings are saved (for honeypot route)
 		flush_rewrite_rules();
 
@@ -3431,6 +3448,7 @@ class Baskerville_Admin {
 			$geoip_enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
 			$burst_protection_enabled = isset($options['burst_protection_enabled']) ? $options['burst_protection_enabled'] : true;
 			$api_rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
+			$turnstile_enabled = isset($options['turnstile_enabled']) ? $options['turnstile_enabled'] : false;
 			?>
 			<h2 class="nav-tab-wrapper">
 				<a href="?page=baskerville-settings&tab=live-feed"
@@ -3456,6 +3474,10 @@ class Baskerville_Admin {
 				<a href="?page=baskerville-settings&tab=rate-limits"
 				   class="nav-tab <?php echo $api_rate_limit_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'rate-limits' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Rate Limits', 'baskerville'); ?>
+				</a>
+				<a href="?page=baskerville-settings&tab=turnstile"
+				   class="nav-tab <?php echo $turnstile_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'turnstile' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Turnstile', 'baskerville'); ?>
 				</a>
 				<a href="?page=baskerville-settings&tab=analytics"
 				   class="nav-tab <?php echo $current_tab === 'analytics' ? 'nav-tab-active' : ''; ?>">
@@ -3822,6 +3844,16 @@ class Baskerville_Admin {
 						<?php
 						break;
 
+					case 'turnstile':
+						?>
+						</form>
+						<?php
+						$this->render_turnstile_tab();
+						?>
+						<form method="post" action="options.php">
+						<?php
+						break;
+
 					case 'analytics':
 						?>
 						</form>
@@ -3927,6 +3959,141 @@ class Baskerville_Admin {
 				</td>
 			</tr>
 		</table>
+		<?php
+	}
+
+	private function render_turnstile_tab() {
+		$options = get_option('baskerville_settings', array());
+		$turnstile_enabled = isset($options['turnstile_enabled']) ? $options['turnstile_enabled'] : false;
+		$site_key = isset($options['turnstile_site_key']) ? $options['turnstile_site_key'] : '';
+		$secret_key = isset($options['turnstile_secret_key']) ? $options['turnstile_secret_key'] : '';
+		?>
+		<form method="post" action="options.php">
+			<?php
+			settings_fields('baskerville_settings_group');
+			// Preserve master switch state
+			$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+			echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+			?>
+
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"></th>
+					<td>
+						<div class="baskerville-toggle-label">
+							<span class="baskerville-toggle-text" style="margin-right: 10px;">
+								<?php esc_html_e('Cloudflare Turnstile', 'baskerville'); ?>
+							</span>
+							<input type="hidden" name="baskerville_settings[turnstile_enabled]" value="0">
+							<label class="baskerville-toggle-switch">
+								<input type="checkbox" name="baskerville_settings[turnstile_enabled]" value="1" <?php checked($turnstile_enabled, true); ?> />
+								<span class="baskerville-toggle-slider-regular"></span>
+							</label>
+							<span class="baskerville-toggle-text">
+								<?php echo $turnstile_enabled ? esc_html__('ON', 'baskerville') : esc_html__('OFF', 'baskerville'); ?>
+							</span>
+						</div>
+						<p class="description" style="margin-top: 10px;">
+							<?php esc_html_e('When enabled, Turnstile challenge will be shown on sensitive pages:', 'baskerville'); ?>
+							<strong>wp-login.php</strong>,
+							<strong><?php esc_html_e('Registration', 'baskerville'); ?></strong>,
+							<strong><?php esc_html_e('Comment form', 'baskerville'); ?></strong>
+						</p>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button(); ?>
+
+			<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; margin: 20px 0;">
+				<h3 style="margin-top: 0;"><?php esc_html_e('Cloudflare Turnstile Configuration', 'baskerville'); ?></h3>
+				<p class="description">
+					<?php
+					printf(
+						/* translators: %s: link to Cloudflare dashboard */
+						esc_html__('Get your Site Key and Secret Key from the %s.', 'baskerville'),
+						'<a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank">Cloudflare Dashboard</a>'
+					);
+					?>
+				</p>
+
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row">
+							<label for="turnstile_site_key"><?php esc_html_e('Site Key', 'baskerville'); ?></label>
+						</th>
+						<td>
+							<input type="text"
+								   id="turnstile_site_key"
+								   name="baskerville_settings[turnstile_site_key]"
+								   value="<?php echo esc_attr($site_key); ?>"
+								   class="regular-text"
+								   placeholder="0x4AAAAAAA..."
+							/>
+							<p class="description"><?php esc_html_e('The public site key for your Turnstile widget.', 'baskerville'); ?></p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label for="turnstile_secret_key"><?php esc_html_e('Secret Key', 'baskerville'); ?></label>
+						</th>
+						<td>
+							<input type="password"
+								   id="turnstile_secret_key"
+								   name="baskerville_settings[turnstile_secret_key]"
+								   value="<?php echo esc_attr($secret_key); ?>"
+								   class="regular-text"
+								   placeholder="0x4AAAAAAA..."
+							/>
+							<p class="description"><?php esc_html_e('The secret key for server-side verification. Keep this private!', 'baskerville'); ?></p>
+						</td>
+					</tr>
+				</table>
+			</div>
+		</form>
+
+		<!-- Turnstile Widget Test -->
+		<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; margin: 20px 0;">
+			<h3 style="margin-top: 0;"><?php esc_html_e('Widget Test', 'baskerville'); ?></h3>
+
+			<?php if (empty($site_key)): ?>
+				<div style="padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107;">
+					<strong><?php esc_html_e('Site Key not configured', 'baskerville'); ?></strong><br>
+					<?php esc_html_e('Enter your Turnstile Site Key above and save to test the widget.', 'baskerville'); ?>
+				</div>
+			<?php else: ?>
+				<p><?php esc_html_e('The Turnstile widget should appear below if configured correctly:', 'baskerville'); ?></p>
+
+				<div id="turnstile-test-container" style="margin: 20px 0;">
+					<div class="cf-turnstile"
+						 data-sitekey="<?php echo esc_attr($site_key); ?>"
+						 data-callback="onTurnstileSuccess"
+						 data-error-callback="onTurnstileError"
+						 data-theme="light">
+					</div>
+				</div>
+
+				<div id="turnstile-status" style="margin-top: 15px; padding: 10px; display: none;"></div>
+
+				<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+				<script>
+				function onTurnstileSuccess(token) {
+					var statusDiv = document.getElementById('turnstile-status');
+					statusDiv.style.display = 'block';
+					statusDiv.style.background = '#d4edda';
+					statusDiv.style.borderLeft = '4px solid #28a745';
+					statusDiv.innerHTML = '<strong style="color: #155724;">✓ <?php echo esc_js(__('Turnstile widget is working!', 'baskerville')); ?></strong><br><small><?php echo esc_js(__('Token received (first 20 chars):', 'baskerville')); ?> ' + token.substring(0, 20) + '...</small>';
+				}
+
+				function onTurnstileError(error) {
+					var statusDiv = document.getElementById('turnstile-status');
+					statusDiv.style.display = 'block';
+					statusDiv.style.background = '#f8d7da';
+					statusDiv.style.borderLeft = '4px solid #dc3545';
+					statusDiv.innerHTML = '<strong style="color: #721c24;">✗ <?php echo esc_js(__('Turnstile error:', 'baskerville')); ?></strong> ' + error;
+				}
+				</script>
+			<?php endif; ?>
+		</div>
 		<?php
 	}
 
