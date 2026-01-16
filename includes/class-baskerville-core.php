@@ -560,9 +560,12 @@ class Baskerville_Core {
             $autoload = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
             if (file_exists($autoload)) {
                 require_once $autoload;
-            } else {
-                return null;
             }
+        }
+
+        // Check again after loading autoload - if class still doesn't exist, return null
+        if (!class_exists('GeoIp2\Database\Reader')) {
+            return null;
         }
 
         try {
