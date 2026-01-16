@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ab-test
+spec:
+  containers:
+  - name: ab
+    image: httpd:alpine
+    command: ["sleep", "3600"]
+  restartPolicy: Never
