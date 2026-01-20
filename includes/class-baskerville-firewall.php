@@ -182,6 +182,12 @@ class Baskerville_Firewall
 			return;
 		}
 
+		// Skip firewall for Turnstile challenge/verify pages to prevent redirect loops
+		if (strpos($request_uri, '/baskerville-challenge') !== false ||
+			strpos($request_uri, '/baskerville-verify') !== false) {
+			return;
+		}
+
 		// Check if this is an API request (REST, GraphQL, webhooks, etc.)
 		$is_api = $this->core->is_api_request();
 		if ($is_api) {
@@ -442,6 +448,22 @@ class Baskerville_Firewall
 		// Check for grace period (after geo-ban was cleared, user needs time to get cookie)
 		$has_grace_period = (bool) $this->core->fc_get("geo_grace:{$ip}");
 
+		// Early score evaluation for Turnstile challenge decision
+		$evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
+		$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
+		$risk           = (int)($evaluation['score'] ?? 0);
+
+		// Turnstile challenge for borderline bot scores (BEFORE burst protection)
+		// This gives borderline visitors a chance to prove they're human instead of getting 403
+		if (isset($GLOBALS['baskerville_turnstile'])) {
+			$turnstile = $GLOBALS['baskerville_turnstile'];
+			$baskerville_id = $this->core->get_cookie_id();
+
+			if ($turnstile->should_challenge($risk, $baskerville_id)) {
+				$turnstile->redirect_to_challenge();
+			}
+		}
+
 		// 1) no-cookie burst: ANY IP without valid cookie making too many requests
 		if ($burst_enabled && !$has_valid_cookie && !$verified_crawler && !$has_grace_period) {
 			$window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
@@ -559,19 +581,22 @@ class Baskerville_Firewall
 		}
 
 		// 5) High risk from server headers + doesn't look like a browser
-		$evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
-		$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
-		$risk           = (int)($evaluation['score'] ?? 0);
+		// (evaluation and classification already computed above for Turnstile check)
 
-		if ($burst_enabled && ($classification['classification'] ?? '') === 'bad_bot' && !$verified_crawler) {
+		// Check if we should ban all detected bots (not just bad_bot)
+		$ban_all_bots = isset($options['ban_all_detected_bots']) && $options['ban_all_detected_bots'];
+		$cls = $classification['classification'] ?? '';
+		$is_bannable_bot = ($cls === 'bad_bot') || ($ban_all_bots && $cls === 'bot');
+
+		if ($burst_enabled && $is_bannable_bot && !$verified_crawler) {
 			$window_sec = (int) get_option('baskerville_nocookie_window_sec', 60);
 			$threshold  = (int) get_option('baskerville_nocookie_threshold', 10);
-			$cnt        = $this->core->fc_inc_in_window("badbot_cnt:{$ip}", $window_sec);
+			$cnt        = $this->core->fc_inc_in_window("bot_cnt:{$ip}", $window_sec);
 
 			// Log to stats if >= 3 requests (but don't ban yet)
 			// Use gate to log only once per IP per window
 			if ($cnt >= 3) {
-				$gate_key = "badbot_logged:{$ip}";
+				$gate_key = "bot_logged:{$ip}";
 				if (!$this->core->fc_get($gate_key)) {
 					$this->core->fc_set($gate_key, 1, $window_sec);
 					$cookie_id = $this->core->get_cookie_id();
@@ -590,7 +615,7 @@ class Baskerville_Firewall
 
 			// Ban only if threshold exceeded
 			if ($cnt > $threshold) {
-				$reason = 'classified-bad-bot-burst';
+				$reason = $ban_all_bots ? 'classified-bot-burst' : 'classified-bad-bot-burst';
 				$ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
 
 				$this->set_ban($ip, $reason, $ttl, [
@@ -605,9 +630,13 @@ class Baskerville_Firewall
 					'until'  => time() + $ttl,
 				]);
 			}
-		} elseif ($risk >= 85 && !$looks_like_browser && !$verified_crawler) {
-			// very suspicious — can block immediately
-			$reason = 'high-risk-nonbrowser';
+		}
+
+		// 6) Instant ban for high-risk non-browser visitors
+		$instant_ban_threshold = isset($options['instant_ban_threshold']) ? (int) $options['instant_ban_threshold'] : 85;
+		if ($risk >= $instant_ban_threshold && !$looks_like_browser && !$verified_crawler) {
+			// Very suspicious — block immediately without waiting for burst
+			$reason = "high-risk-nonbrowser>={$instant_ban_threshold}";
 			$ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
 
 			$this->set_ban($ip, $reason, $ttl, [

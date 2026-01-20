@@ -1,16 +1,19 @@
 # Baskerville WordPress Plugin
 
-A comprehensive WordPress security plugin with GeoIP-based access control, AI-powered bot detection, and advanced fingerprinting.
+A WordPress security plugin with GeoIP-based access control, AI-powered bot detection, Cloudflare Turnstile integration, and advanced fingerprinting.
 
 ## Features
 
-- 🛡️ **AI-Powered Bot Detection** - Classification of bots vs. humans
+- 🛡️ **AI-Powered Bot Detection** - Classification of bots vs. humans with configurable thresholds
 - 🌍 **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist)
 - 🔍 **Browser Fingerprinting** - Advanced client-side fingerprinting with Canvas, WebGL, Audio
-- 📊 **Traffic Analytics** - Real-time statistics and blocking insights
+- ☁️ **Cloudflare Turnstile** - CAPTCHA challenge for borderline bot scores with precision analytics
+- 🍯 **Honeypot Detection** - Hidden links to catch AI crawlers
+- 📊 **Traffic Analytics** - Real-time statistics, live feed, and Turnstile precision metrics
 - ⚡ **Performance Optimized** - Minimal overhead (~1ms with page cache, ~30-50ms without)
 - 🔐 **IP Whitelist** - Bypass firewall for trusted IPs
 - 🚀 **Caching** - APCu + file-based caching for GeoIP lookups
+- 🚨 **Under Attack Mode** - Emergency mode to challenge all visitors
 
 ## Building
 
@@ -69,245 +72,44 @@ zip -r9 baskerville.zip baskerville/ \
 - Development environments
 - Monitoring services
 
-## Performance Testing
+### Cloudflare Turnstile
 
-Baskerville includes built-in performance benchmarks to measure overhead. Access via **Settings → Baskerville → Performance**.
+Turnstile provides a CAPTCHA-like challenge for visitors with borderline bot scores, allowing legitimate users to prove they're human instead of being blocked outright.
 
-### Internal Benchmarks
+1. Go to **Settings → Baskerville → Turnstile**
+2. Get your Site Key and Secret Key from [Cloudflare Dashboard](https://dash.cloudflare.com/?to=/:account/turnstile)
+3. Enter the keys and enable Turnstile
+4. Configure the borderline score range (default: 40-70)
 
-These tests measure individual component performance:
+**Settings**:
+- **Bot Score Challenge** - Show Turnstile to visitors with scores in the borderline range
+- **Score Range** - Define min/max bot score for challenge (e.g., 40-70)
+- **Under Attack Mode** - Emergency mode that challenges ALL visitors (use during attacks)
+- **Form Protection** - Protect login, registration, and comment forms
 
-#### 1. GeoIP Lookup Test (100 iterations)
+**Score interpretation**:
+- 0-39: Likely human (allowed)
+- 40-70: Borderline (show Turnstile challenge)
+- 71-100: Likely bot (blocked)
 
-**What it tests**: Time to perform GeoIP country lookups
+**Precision Analytics**:
+The Analytics tab shows Turnstile effectiveness:
+- **Redirects** - Number of challenges shown
+- **Passed** - Visitors who completed the challenge
+- **Failed** - Visitors who failed or abandoned (likely bots)
+- **Precision** - % of challenges that caught bots: `(redirects - passes) / redirects`
 
-**Command**: Click "Run Test" button in Performance tab
+### Bot Control
 
-**Expected results**:
-- **With cache**: 1-5ms per lookup
-- **Without cache**: 10-20ms per lookup
-- **With NGINX GeoIP2**: <1ms per lookup
+Configure how bots are detected and banned.
 
-**Interpretation**:
-- First run will be slower (populates cache)
-- Subsequent runs use cached results
-- APCu cache is 10x faster than file cache
+1. Go to **Settings → Baskerville → Bot Control**
 
----
+**Settings**:
+- **Ban All Detected Bots** - Ban all `bot` classifications, not just `bad_bot`
+- **Instant Ban Threshold** - Score threshold (0-100) for immediate ban without waiting for burst protection. Visitors with scores >= threshold are banned instantly if they don't look like a browser and aren't verified crawlers.
 
-#### 2. AI/UA Classification Test (100 iterations)
-
-**What it tests**: Time to classify user agents using AI model
-
-**Command**: Click "Run Test" button in Performance tab
-
-**Expected results**: 0.5-2ms per classification
-
-**What it measures**:
-- Pattern matching against bot signatures
-- Heuristic scoring based on headers
-- Browser vs. bot classification logic
-
-**Interpretation**:
-- Consistent timing across runs (no caching)
-- Higher scores = more bot-like behavior
-- Real browsers: 0-30 score, Bots: 60-100 score
-
----
-
-#### 3. Cache Operations Test (APCu: 1000 ops, File: 100 ops)
-
-**What it tests**: Performance of cache SET and GET operations
-
-**Command**: Click "Run Test" button in Performance tab
-
-**Expected results**:
-- **APCu**: SET ~0.05ms, GET ~0.03ms
-- **File cache**: SET ~0.5ms, GET ~0.3ms
-
-**Interpretation**:
-- APCu is ~10x faster than file cache
-- Install APCu for production use: `apt install php-apcu`
-- File cache is automatic fallback (no setup needed)
-
----
-
-#### 4. Full Firewall Check Test (100 iterations)
-
-**What it tests**: Complete firewall execution including all checks
-
-**Command**: Click "Run Test" button in Performance tab
-
-**Simulates**:
-- GeoIP country lookup
-- AI/UA classification
-- Ban cache check
-- Fingerprint cookie validation
-
-**Expected results**: 5-20ms per request (without page cache)
-
-**Interpretation**:
-- This is the **total overhead** per request
-- With page cache: firewall is bypassed (0ms overhead)
-- Most time spent on GeoIP lookup + AI classification
-
----
-
-#### 5. Run All Tests
-
-**What it tests**: All benchmarks sequentially
-
-**Command**: Click "Run All" button in Performance tab
-
-**Output**: Summary of all tests with total execution time
-
----
-
-### External Load Testing
-
-Use Apache Bench (ab) to measure real-world performance overhead.
-
----
-
-#### Testing Methodology
-
-To accurately measure Baskerville's overhead, you need to test:
-1. **With plugin** (firewall active but not blocking)
-2. **Without plugin** (plugin deactivated)
-
-**Important**: Firewall must NOT block your test traffic! Use one of the methods below.
-
----
-
-#### Method 1: File Logging Mode (Recommended) ✅
-
-**Best for**: Shared hosting (GoDaddy, Bluehost, etc.)
-
-**Setup**:
-1. Go to **Settings → Baskerville → General Settings**
-2. Select **"File Logging"** mode
-3. Test normally - firewall will process requests but log to file (~1-2ms overhead)
-
-**Why this works**: File logging has minimal overhead while maintaining full firewall protection.
-
----
-
-#### Method 2: Whitelist Your IP
-
-**Best for**: Testing with database logging or full analytics
-
-**Setup**:
-1. Go to **Settings → Baskerville → IP Whitelist**
-2. Click **"Add My IP"** button
-3. Test normally - firewall will completely bypass your IP (~0ms overhead)
-
-**Note**: This shows minimum overhead but disables firewall for your IP.
-
----
-
-#### Step-by-Step Testing Instructions
-
-**Set your site URL** (replace with your domain):
-```bash
-SITE_URL="https://your-wordpress-site.com"
-```
-
-**1. Test WITH Baskerville (File Logging)**
-
-```bash
-echo "=== WITH BASKERVILLE (File Logging) ==="
-for i in {1..10}; do
-  ab -n 1 -c 1 "$SITE_URL/" 2>&1 | grep "Time per request:" | head -1
-  sleep 4  # Wait between requests to avoid rate limiting
-done
-```
-
-**2. Deactivate Plugin**
-
-Go to WordPress Admin → Plugins → Deactivate "Baskerville"
-
-**3. Test WITHOUT Baskerville**
-
-```bash
-echo "=== WITHOUT BASKERVILLE ==="
-for i in {1..10}; do
-  ab -n 1 -c 1 "$SITE_URL/" 2>&1 | grep "Time per request:" | head -1
-  sleep 4
-done
-```
-
-**4. Calculate Overhead**
-
-Compare average response times:
-- **With Baskerville**: Average of 10 results
-- **Without Baskerville**: Average of 10 results
-- **Overhead**: Difference between the two
-
----
-
-#### Expected Results
-
-**File Logging Mode** (Recommended):
-```
-With Baskerville:    ~1300ms per request
-Without Baskerville: ~1250ms per request
-Overhead:            ~50-70ms (5%)
-```
-
-**Whitelisted IP** (Minimum overhead):
-```
-With Baskerville:    ~1250ms per request
-Without Baskerville: ~1250ms per request
-Overhead:            ~0-5ms (0%)
-```
-
-**Database Logging Mode** (Slow on shared hosting):
-```
-With Baskerville:    ~1900ms per request
-Without Baskerville: ~1400ms per request
-Overhead:            ~500ms (36%) ❌ NOT RECOMMENDED
-```
-
----
-
-#### Comparison with Other Security Plugins
-
-| Plugin | Overhead | Features |
-|--------|----------|----------|
-| **Baskerville (File Logging)** | ~50-70ms (5%) | GeoIP + AI + Fingerprinting + Analytics |
-| **Wordfence** | 50-150ms (5-15%) | Basic firewall + malware scanner |
-| **Sucuri** | 30-80ms (3-8%) | Basic firewall |
-| **iThemes Security** | 20-60ms (2-6%) | Basic security features |
-
-✅ **Baskerville offers MORE features with COMPARABLE overhead**
-
----
-
-#### Troubleshooting
-
-**Problem**: Getting 403 errors during testing
-
-**Solution**:
-- Use **File Logging** mode (test as bot, firewall active)
-- OR whitelist your IP (test without firewall)
-- OR make fewer requests (< 8 requests per minute)
-
-**Problem**: High variance in results (±200ms)
-
-**Solution**:
-- This is normal due to network/server variability
-- Run 20-30 samples instead of 10
-- Test at different times of day
-- Use median instead of average
-
-**Problem**: Both tests show same speed
-
-**Solution**:
-- Page caching is active (good!)
-- Cached pages bypass both WordPress AND Baskerville
-- To measure real overhead, clear page cache before each test
-
----
+**Example**: With threshold set to 70, a visitor with score 75 and suspicious headers will be banned immediately.
 
 ### Performance Optimization Tips
 
@@ -391,44 +193,6 @@ opcache.max_accelerated_files=10000
 opcache.validate_timestamps=0 # Production only
 ```
 
----
-
-## Performance Benchmarks
-
-Based on real-world testing across different hosting environments.
-
----
-
-### Test Environment Examples
-
-**VPS/Dedicated Server**:
-- **Server**: DigitalOcean 2 vCPU, 4GB RAM
-- **WordPress**: 6.4 + WP Super Cache
-- **PHP**: 8.1 with APCu + OPcache
-- **Results**: 50-70ms overhead (File Logging)
-
-**Shared Hosting** (GoDaddy, Bluehost):
-- **Server**: Shared hosting with file cache only
-- **WordPress**: Latest + basic page cache
-- **PHP**: 7.4-8.1 (no APCu)
-- **Results**: 60-80ms overhead (File Logging)
-
----
-
-### Results by Scenario
-
-| Scenario | Time per Request | Baskerville Overhead |
-|----------|-----------------|---------------------|
-| **File Logging** (Recommended) | 1250-1350ms | 50-70ms (5%) ✅ |
-| **Whitelisted IP** | 1200-1300ms | 0-5ms (0%) ✅ |
-| **Database Logging** (Shared) | 1800-2000ms | 500ms+ (36%) ❌ |
-| **With Page Cache** | 50-200ms | <5ms (1-2%) ✅ |
-| **Banned IP (cached)** | 10-20ms | <1ms (instant 403) ✅ |
-
-*Note: Absolute times vary by server, but overhead % is consistent*
-
----
-
 ### Logging Mode Comparison
 
 | Mode | Overhead | Analytics | Shared Hosting | Recommended For |
@@ -443,9 +207,11 @@ Based on real-world testing across different hosting environments.
 
 Baskerville with **File Logging** adds **5% overhead** while providing:
 - ✅ GeoIP-based access control
-- ✅ AI-powered bot detection
+- ✅ AI-powered bot detection with configurable thresholds
+- ✅ Cloudflare Turnstile for borderline cases
+- ✅ Honeypot detection for AI crawlers
 - ✅ Advanced fingerprinting
-- ✅ Real-time traffic analytics
+- ✅ Real-time traffic analytics with precision metrics
 - ✅ Rate limiting & ban management
 
 **Recommendations**:
@@ -453,6 +219,8 @@ Baskerville with **File Logging** adds **5% overhead** while providing:
 - ✅ Enable page caching (WP Super Cache, etc.)
 - ✅ Install APCu if available (10x faster cache)
 - ✅ Whitelist monitoring/testing IPs
+- ✅ Configure Turnstile for borderline scores (40-70)
+- ✅ Set Instant Ban Threshold for high-risk visitors (e.g., 85)
 
 ---
 
@@ -495,18 +263,20 @@ Baskerville with **File Logging** adds **5% overhead** while providing:
 ```
 baskerville/
 ├── admin/
-│   └── class-baskerville-admin.php    # Admin UI, settings, performance tests
+│   └── class-baskerville-admin.php      # Admin UI, settings, analytics
 ├── includes/
-│   ├── class-baskerville-core.php     # Core functions, caching, GeoIP
-│   ├── class-baskerville-firewall.php # Firewall logic, blocking rules
-│   ├── class-baskerville-ai-ua.php    # AI bot detection & classification
-│   ├── class-baskerville-stats.php    # Analytics & database logging
-│   └── class-baskerville-rest.php     # REST API for fingerprinting
+│   ├── class-baskerville-core.php       # Core functions, caching, GeoIP
+│   ├── class-baskerville-firewall.php   # Firewall logic, blocking rules
+│   ├── class-baskerville-ai-ua.php      # AI bot detection & classification
+│   ├── class-baskerville-stats.php      # Analytics & database logging
+│   ├── class-baskerville-rest.php       # REST API for fingerprinting
+│   ├── class-baskerville-turnstile.php  # Cloudflare Turnstile integration
+│   └── class-baskerville-honeypot.php   # Honeypot for AI crawler detection
 ├── assets/
-│   ├── js/baskerville.js              # Frontend fingerprinting script
-│   └── css/                           # Styles
-├── vendor/                            # MaxMind GeoIP2 library (auto-installed)
-└── baskerville.php                    # Main plugin file
+│   ├── js/baskerville.js                # Frontend fingerprinting script
+│   └── css/                             # Styles
+├── vendor/                              # MaxMind GeoIP2 library (auto-installed)
+└── baskerville.php                      # Main plugin file
 ```
 
 ### Database Schema
@@ -539,7 +309,7 @@ CREATE TABLE wp_baskerville_stats (
 
 ## License
 
-MIT License - See LICENSE file for details
+GPL v3 or later - Compatible with WordPress.org plugin directory requirements.
 
 ## Support
 
