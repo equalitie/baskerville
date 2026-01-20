@@ -325,6 +325,17 @@ class Baskerville_Admin {
 			? (bool) $input['ai_bot_control_enabled']
 			: (isset($existing['ai_bot_control_enabled']) ? $existing['ai_bot_control_enabled'] : true);
 
+		$sanitized['ban_all_detected_bots'] = isset($input['ban_all_detected_bots'])
+			? (bool) $input['ban_all_detected_bots']
+			: (isset($existing['ban_all_detected_bots']) ? $existing['ban_all_detected_bots'] : false);
+
+		if (isset($input['instant_ban_threshold'])) {
+			$threshold = (int) $input['instant_ban_threshold'];
+			$sanitized['instant_ban_threshold'] = max(0, min(100, $threshold)); // Clamp between 0-100
+		} elseif (isset($existing['instant_ban_threshold'])) {
+			$sanitized['instant_ban_threshold'] = $existing['instant_ban_threshold'];
+		}
+
 		// Bot Control settings - preserve existing if not in input
 		$sanitized['allow_verified_crawlers'] = isset($input['allow_verified_crawlers'])
 			? (bool) $input['allow_verified_crawlers']
@@ -443,6 +454,27 @@ class Baskerville_Admin {
 			$sanitized['turnstile_secret_key'] = sanitize_text_field($input['turnstile_secret_key']);
 		} else {
 			$sanitized['turnstile_secret_key'] = isset($existing['turnstile_secret_key']) ? $existing['turnstile_secret_key'] : '';
+		}
+
+		// Turnstile borderline challenge settings
+		$sanitized['turnstile_challenge_borderline'] = isset($input['turnstile_challenge_borderline'])
+			? (bool) $input['turnstile_challenge_borderline']
+			: (isset($existing['turnstile_challenge_borderline']) ? $existing['turnstile_challenge_borderline'] : false);
+
+		$sanitized['turnstile_under_attack'] = isset($input['turnstile_under_attack'])
+			? (bool) $input['turnstile_under_attack']
+			: (isset($existing['turnstile_under_attack']) ? $existing['turnstile_under_attack'] : false);
+
+		if (isset($input['turnstile_borderline_min'])) {
+			$sanitized['turnstile_borderline_min'] = max(0, min(100, (int) $input['turnstile_borderline_min']));
+		} else {
+			$sanitized['turnstile_borderline_min'] = isset($existing['turnstile_borderline_min']) ? $existing['turnstile_borderline_min'] : 40;
+		}
+
+		if (isset($input['turnstile_borderline_max'])) {
+			$sanitized['turnstile_borderline_max'] = max(0, min(100, (int) $input['turnstile_borderline_max']));
+		} else {
+			$sanitized['turnstile_borderline_max'] = isset($existing['turnstile_borderline_max']) ? $existing['turnstile_borderline_max'] : 70;
 		}
 
 		// Flush rewrite rules when settings are saved (for honeypot route)
@@ -1491,6 +1523,86 @@ class Baskerville_Admin {
 		return $out;
 	}
 
+	/**
+	 * Get Turnstile challenge timeseries data for charts
+	 * @param int $hours Number of hours to look back
+	 * @return array Timeseries data with pass/fail counts and precision
+	 */
+	private function get_turnstile_timeseries_data($hours = 24) {
+		global $wpdb;
+		$table_name = $wpdb->prefix . 'baskerville_stats';
+
+		$hours  = max(1, min(720, (int)$hours));
+		$cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+		// Determine bucket size based on time period
+		if ($hours <= 12) {
+			$bucket_seconds = 900;  // 15 minutes
+		} elseif ($hours <= 24) {
+			$bucket_seconds = 1800; // 30 minutes
+		} elseif ($hours <= 72) {
+			$bucket_seconds = 3600; // 1 hour
+		} else {
+			$bucket_seconds = 7200; // 2 hours
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results($wpdb->prepare(
+			"SELECT
+				FROM_UNIXTIME(
+				FLOOR(UNIX_TIMESTAMP(timestamp_utc) / %d) * %d
+				) AS time_slot,
+				SUM(CASE WHEN event_type='ts_redir' THEN 1 ELSE 0 END) AS redirect_count,
+				SUM(CASE WHEN event_type='ts_pass' THEN 1 ELSE 0 END) AS pass_count,
+				SUM(CASE WHEN event_type='ts_fail' THEN 1 ELSE 0 END) AS fail_count
+			FROM %i
+			WHERE event_type IN ('ts_redir', 'ts_pass', 'ts_fail')
+			AND timestamp_utc >= %s
+			GROUP BY time_slot
+			ORDER BY time_slot ASC",
+			$bucket_seconds,
+			$bucket_seconds,
+			$table_name,
+			$cutoff
+		), ARRAY_A);
+
+		$out = [];
+		$total_redirects = 0;
+		$total_passes = 0;
+		$total_fails = 0;
+
+		foreach ($results ?: [] as $r) {
+			$redirects = (int)$r['redirect_count'];
+			$passes = (int)$r['pass_count'];
+			$fails = (int)$r['fail_count'];
+			// Precision = % who did NOT pass = (redirects - passes) / redirects
+			$precision = $redirects > 0 ? round((($redirects - $passes) * 100.0) / $redirects, 1) : 0;
+
+			$total_redirects += $redirects;
+			$total_passes += $passes;
+			$total_fails += $fails;
+
+			$out[] = [
+				'time'           => $r['time_slot'],
+				'redirect_count' => $redirects,
+				'pass_count'     => $passes,
+				'fail_count'     => $fails,
+				'precision'      => $precision,
+			];
+		}
+
+		// Calculate total precision = % who did NOT pass
+		$total_precision = $total_redirects > 0 ? round((($total_redirects - $total_passes) * 100.0) / $total_redirects, 1) : 0;
+
+		return [
+			'timeseries'      => $out,
+			'total_redirects' => $total_redirects,
+			'total_passes'    => $total_passes,
+			'total_fails'     => $total_fails,
+			'total_precision' => $total_precision,
+		];
+	}
+
 	private function get_country_stats($hours = 24) {
 		global $wpdb;
 		$table = $wpdb->prefix . 'baskerville_stats';
@@ -2008,11 +2120,21 @@ class Baskerville_Admin {
 
 				events.forEach(function(event) {
 					const icon = getEventIcon(event.classification, event.event_type);
-					const color = getEventColor(event.classification);
+					const color = getEventColor(event.classification, event.event_type);
 					const timeAgo = getTimeAgo(event.created_at);
-					const banBadge = event.is_banned
-						? '<span style="background: #dc3232; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">BANNED</span>'
-						: '<span style="background: #46b450; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">DETECTED</span>';
+
+					// Special handling for Turnstile failed challenge
+					const isTurnstileFail = event.event_type === 'ts_fail';
+					const displayLabel = isTurnstileFail ? 'TURNSTILE FAILED' : event.classification.toUpperCase().replace('_', ' ');
+
+					let banBadge = '';
+					if (isTurnstileFail) {
+						banBadge = '<span style="background: #f97316; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">CHALLENGE FAILED</span>';
+					} else if (event.is_banned) {
+						banBadge = '<span style="background: #dc3232; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">BANNED</span>';
+					} else {
+						banBadge = '<span style="background: #46b450; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px;">DETECTED</span>';
+					}
 
 					// Extract company name from reason or block_reason for AI bots
 					let companyBadge = '';
@@ -2048,7 +2170,14 @@ class Baskerville_Admin {
 						event.reason.toLowerCase().includes('user-agent')
 					);
 
-					if (event.classification === 'ai_bot') {
+					if (isTurnstileFail) {
+						detectionBadge = '<span style="background: #0ea5e9; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">🛡️ TURNSTILE</span>';
+						// Show User-Agent for turnstile failures
+						if (event.ua) {
+							const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+							userAgentInfo = '<br><span style="color: #999; font-size: 10px; margin-left: 28px; font-style: italic;">UA: ' + truncatedUA + '</span>';
+						}
+					} else if (event.classification === 'ai_bot') {
 						if (event.event_type === 'honeypot') {
 							detectionBadge = '<span style="background: #f0a000; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">🍯 HONEYPOT</span>';
 							// Show User-Agent for honeypot too
@@ -2074,16 +2203,17 @@ class Baskerville_Admin {
 
 					const item = $('<div class="live-feed-item"></div>');
 					const countryName = event.country_code ? getCountryName(event.country_code) : '';
+					const reasonText = isTurnstileFail ? 'Failed Cloudflare Turnstile challenge' : (event.reason || 'No reason');
 					item.html(
 						'<span class="feed-icon">' + icon + '</span> ' +
-						'<strong style="color: ' + color + ';">' + event.classification.toUpperCase().replace('_', ' ') + '</strong>' +
+						'<strong style="color: ' + color + ';">' + displayLabel + '</strong>' +
 						detectionBadge + companyBadge + ' ' +
 						event.ip + ' ' +
 						(countryName ? '<span style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">' + countryName + '</span> ' : '') +
 						banBadge +
 						'<span style="color: #999; margin-left: 10px;">' + timeAgo + '</span><br>' +
 						'<span style="color: #666; font-size: 11px; margin-left: 28px;">' +
-						(event.reason || 'No reason') +
+						reasonText +
 						(event.score ? ' (score: ' + event.score + ')' : '') +
 						(event.block_reason ? ' | Ban reason: ' + event.block_reason : '') +
 						'</span>' +
@@ -2116,6 +2246,7 @@ class Baskerville_Admin {
 			}
 
 			function getEventIcon(classification, eventType) {
+				if (eventType === 'ts_fail') return '🛡️';
 				if (eventType === 'honeypot') return '🍯';
 				if (classification === 'ai_bot') return '🤖';
 				if (classification === 'bad_bot') return '🔴';
@@ -2123,7 +2254,8 @@ class Baskerville_Admin {
 				return '⚠️';
 			}
 
-			function getEventColor(classification) {
+			function getEventColor(classification, eventType) {
+				if (eventType === 'ts_fail') return '#dc2626';
 				if (classification === 'ai_bot') return '#9333ea';
 				if (classification === 'bad_bot') return '#dc2626';
 				if (classification === 'bot') return '#f59e0b';
@@ -3556,7 +3688,40 @@ class Baskerville_Admin {
 									</p>
 								</td>
 							</tr>
+							<?php
+							$ban_all_bots = isset($options['ban_all_detected_bots']) ? $options['ban_all_detected_bots'] : false;
+							$instant_ban_threshold = isset($options['instant_ban_threshold']) ? (int) $options['instant_ban_threshold'] : 85;
+							?>
+							<tr>
+								<th scope="row"><?php esc_html_e('Ban All Detected Bots', 'baskerville'); ?></th>
+								<td>
+									<label>
+										<input type="hidden" name="baskerville_settings[ban_all_detected_bots]" value="0">
+										<input type="checkbox" name="baskerville_settings[ban_all_detected_bots]" value="1" <?php checked($ban_all_bots, true); ?> />
+										<?php esc_html_e('Ban all bots detected (not just "bad bots")', 'baskerville'); ?>
+									</label>
+									<p class="description">
+										<?php esc_html_e('When enabled, all visitors classified as "bot" (score ≥70) will be banned after exceeding burst threshold. This includes crawlers like SemrushBot, AhrefsBot, MJ12bot, etc.', 'baskerville'); ?>
+									</p>
+								</td>
+							</tr>
+							<tr>
+								<th scope="row"><?php esc_html_e('Instant Ban Threshold', 'baskerville'); ?></th>
+								<td>
+									<input type="number" name="baskerville_settings[instant_ban_threshold]" value="<?php echo esc_attr($instant_ban_threshold); ?>" min="0" max="100" step="5" style="width: 80px;" />
+									<p class="description">
+										<?php esc_html_e('Bot score threshold for immediate ban (without waiting for burst). Default: 85.', 'baskerville'); ?><br>
+										<?php esc_html_e('Visitors with score ≥ this value AND non-browser User-Agent will be banned instantly on first request.', 'baskerville'); ?><br><br>
+										<strong><?php esc_html_e('Score examples:', 'baskerville'); ?></strong><br>
+										• <?php esc_html_e('0-30: Normal browser with good headers', 'baskerville'); ?><br>
+										• <?php esc_html_e('30-60: Suspicious (old browser, missing headers)', 'baskerville'); ?><br>
+										• <?php esc_html_e('60-80: Likely bot (bot UA, HTTP/1.x, automation signs)', 'baskerville'); ?><br>
+										• <?php esc_html_e('80-100: Definitely bot (webdriver, known bot UA)', 'baskerville'); ?>
+									</p>
+								</td>
+							</tr>
 						</table>
+						<?php submit_button(); ?>
 						</form>
 						<form method="post" action="options.php">
 						<?php
@@ -4004,6 +4169,117 @@ class Baskerville_Admin {
 			</table>
 			<?php submit_button(); ?>
 
+			<!-- Bot Score Challenge Settings -->
+			<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; margin: 20px 0;">
+				<h3 style="margin-top: 0;"><?php esc_html_e('Bot Score Challenge', 'baskerville'); ?></h3>
+				<p class="description">
+					<?php esc_html_e('Show Turnstile challenge to visitors with borderline bot scores instead of blocking them outright.', 'baskerville'); ?>
+				</p>
+
+				<?php
+				$challenge_borderline = isset($options['turnstile_challenge_borderline']) ? (bool) $options['turnstile_challenge_borderline'] : false;
+				$borderline_min = isset($options['turnstile_borderline_min']) ? (int) $options['turnstile_borderline_min'] : 40;
+				$borderline_max = isset($options['turnstile_borderline_max']) ? (int) $options['turnstile_borderline_max'] : 70;
+				$is_disabled = !$turnstile_enabled || empty($site_key) || empty($secret_key);
+				?>
+
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php esc_html_e('Enable', 'baskerville'); ?></th>
+						<td>
+							<label>
+								<input type="hidden" name="baskerville_settings[turnstile_challenge_borderline]" value="0">
+								<input type="checkbox"
+									   name="baskerville_settings[turnstile_challenge_borderline]"
+									   value="1"
+									   <?php checked($challenge_borderline, true); ?>
+									   <?php disabled($is_disabled, true); ?>
+								/>
+								<?php esc_html_e('Use Turnstile challenge for borderline bot scores', 'baskerville'); ?>
+							</label>
+							<?php if ($is_disabled): ?>
+								<p class="description" style="color: #d63638;">
+									<?php esc_html_e('Enable Turnstile and configure keys above to use this feature.', 'baskerville'); ?>
+								</p>
+							<?php else: ?>
+								<p class="description">
+									<?php esc_html_e('Instead of blocking visitors with uncertain bot scores, show them a Turnstile challenge. If they pass, they are allowed through.', 'baskerville'); ?>
+								</p>
+							<?php endif; ?>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row">
+							<label><?php esc_html_e('Score Range', 'baskerville'); ?></label>
+						</th>
+						<td>
+							<input type="number"
+								   name="baskerville_settings[turnstile_borderline_min]"
+								   value="<?php echo esc_attr($borderline_min); ?>"
+								   min="0"
+								   max="100"
+								   step="1"
+								   style="width: 70px;"
+								   <?php disabled($is_disabled, true); ?>
+							/>
+							<span style="margin: 0 10px;"><?php esc_html_e('to', 'baskerville'); ?></span>
+							<input type="number"
+								   name="baskerville_settings[turnstile_borderline_max]"
+								   value="<?php echo esc_attr($borderline_max); ?>"
+								   min="0"
+								   max="100"
+								   step="1"
+								   style="width: 70px;"
+								   <?php disabled($is_disabled, true); ?>
+							/>
+							<p class="description">
+								<?php esc_html_e('Bot score range (0-100) that triggers Turnstile challenge.', 'baskerville'); ?><br>
+								<strong><?php esc_html_e('Recommended:', 'baskerville'); ?></strong> 40-70<br>
+								<span style="color: #666;">
+									• 0-39: <?php esc_html_e('Likely human (allowed)', 'baskerville'); ?><br>
+									• 40-70: <?php esc_html_e('Borderline (show Turnstile)', 'baskerville'); ?><br>
+									• 71-100: <?php esc_html_e('Likely bot (blocked)', 'baskerville'); ?>
+								</span>
+							</p>
+						</td>
+					</tr>
+					<?php
+					$under_attack_mode = isset($options['turnstile_under_attack']) ? (bool) $options['turnstile_under_attack'] : false;
+					?>
+					<tr>
+						<th scope="row"><?php esc_html_e('Under Attack Mode', 'baskerville'); ?></th>
+						<td>
+							<label style="<?php echo $under_attack_mode ? 'color: #d63638; font-weight: bold;' : ''; ?>">
+								<input type="hidden" name="baskerville_settings[turnstile_under_attack]" value="0">
+								<input type="checkbox"
+									   name="baskerville_settings[turnstile_under_attack]"
+									   value="1"
+									   <?php checked($under_attack_mode, true); ?>
+									   <?php disabled($is_disabled, true); ?>
+								/>
+								<?php esc_html_e('Show Turnstile challenge to ALL visitors', 'baskerville'); ?>
+							</label>
+							<?php if ($under_attack_mode): ?>
+								<p class="description" style="color: #d63638; font-weight: bold;">
+									<span class="dashicons dashicons-warning" style="color: #d63638;"></span>
+									<?php esc_html_e('ACTIVE: All visitors must pass Turnstile challenge!', 'baskerville'); ?>
+								</p>
+							<?php else: ?>
+								<p class="description">
+									<?php esc_html_e('Emergency mode for when your site is under attack. When enabled, EVERY visitor (including those classified as human) must pass a Turnstile challenge before accessing the site.', 'baskerville'); ?><br><br>
+									<strong><?php esc_html_e('Use this when:', 'baskerville'); ?></strong><br>
+									• <?php esc_html_e('Your site is experiencing a DDoS or bot attack', 'baskerville'); ?><br>
+									• <?php esc_html_e('You see unusual traffic patterns', 'baskerville'); ?><br>
+									• <?php esc_html_e('Bots are bypassing normal detection', 'baskerville'); ?><br><br>
+									<span style="color: #d63638;"><?php esc_html_e('Warning: This will add friction for real users. Disable when attack subsides.', 'baskerville'); ?></span>
+								</p>
+							<?php endif; ?>
+						</td>
+					</tr>
+				</table>
+			</div>
+
+			<!-- Cloudflare Turnstile Configuration (API Keys) -->
 			<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; margin: 20px 0;">
 				<h3 style="margin-top: 0;"><?php esc_html_e('Cloudflare Turnstile Configuration', 'baskerville'); ?></h3>
 				<p class="description">
@@ -4147,6 +4423,7 @@ class Baskerville_Admin {
 		// Try to get timeseries data with error handling
 		try {
 			$timeseries = $this->get_timeseries_data($hours);
+			$turnstile_data = $this->get_turnstile_timeseries_data($hours);
 			?>
 			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
 				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
@@ -4164,6 +4441,21 @@ class Baskerville_Admin {
 				</div>
 				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 					<canvas id="baskervilleBotTypesPie"></canvas>
+				</div>
+			</div>
+
+			<!-- Turnstile Precision Charts -->
+			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<canvas id="baskervilleTurnstileBar"></canvas>
+				</div>
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+					<h3 style="margin: 0 0 10px 0; color: #666; font-size: 14px;"><?php esc_html_e('Total Precision', 'baskerville'); ?></h3>
+					<div id="turnstilePrecisionValue" style="font-size: 64px; font-weight: bold; color: #E91E63; margin: 20px 0;"></div>
+					<p style="margin: 10px 0 0 0; color: #999; font-size: 12px;"><?php esc_html_e('% of challenges failed (bots caught)', 'baskerville'); ?></p>
+					<div style="margin-top: 20px; text-align: center; color: #666; font-size: 13px;">
+						<div id="turnstileStats"></div>
+					</div>
 				</div>
 			</div>
 
@@ -4380,6 +4672,81 @@ class Baskerville_Admin {
 				}
 			}
 		});
+
+		// 5) Turnstile Precision Chart
+		const turnstileData = <?php echo wp_json_encode($turnstile_data); ?>;
+
+		if (turnstileData && turnstileData.timeseries && turnstileData.timeseries.length > 0) {
+			const tsTimeseries = turnstileData.timeseries;
+			const tsLabels = tsTimeseries.map(i => fmtHHMM(i.time));
+			const tsRedirects = tsTimeseries.map(i => i.redirect_count || 0);
+			const tsPasses = tsTimeseries.map(i => i.pass_count || 0);
+			// Failed = redirects - passed (people who didn't complete the challenge)
+			const tsFails = tsTimeseries.map(i => Math.max(0, (i.redirect_count || 0) - (i.pass_count || 0)));
+			const tsPrecision = tsTimeseries.map(i => i.precision || 0);
+
+			// Bar chart: Passes vs Fails over time
+			const turnstileBarCtx = document.getElementById('baskervilleTurnstileBar').getContext('2d');
+			new Chart(turnstileBarCtx, {
+				type: 'bar',
+				data: {
+					labels: tsLabels,
+					datasets: [
+						{
+							label: '<?php echo esc_js(__('Passed (Humans)', 'baskerville')); ?>',
+							data: tsPasses,
+							stack: 'challenges',
+							backgroundColor: '#4CAF50'
+						},
+						{
+							label: '<?php echo esc_js(__('Failed (Bots)', 'baskerville')); ?>',
+							data: tsFails,
+							stack: 'challenges',
+							backgroundColor: '#E91E63'
+						}
+					]
+				},
+				options: {
+					responsive: true,
+					maintainAspectRatio: true,
+					interaction: { mode: 'index', intersect: false },
+					scales: {
+						x: { stacked: true, title: { display: true, text: '<?php echo esc_js(__('Time', 'baskerville')); ?>' } },
+						y: { stacked: true, beginAtZero: true, title: { display: true, text: '<?php echo esc_js(__('Challenges', 'baskerville')); ?>' } }
+					},
+					plugins: {
+						title: { display: true, text: '<?php echo esc_js(__('Turnstile Challenges', 'baskerville')); ?> — last ' + hours + 'h' },
+						tooltip: {
+							callbacks: {
+								afterBody(items) {
+									const idx = items[0].dataIndex;
+									const redirects = tsRedirects[idx] || 0;
+									const passes = tsPasses[idx] || 0;
+									// Precision = % who did NOT pass
+									const precision = redirects > 0 ? Math.round(((redirects - passes) * 100) / redirects) : 0;
+									return ['<?php echo esc_js(__('Redirects:', 'baskerville')); ?> ' + redirects, '<?php echo esc_js(__('Precision:', 'baskerville')); ?> ' + precision + '%'];
+								}
+							}
+						}
+					}
+				}
+			});
+
+			// Display total precision value
+			document.getElementById('turnstilePrecisionValue').textContent = turnstileData.total_precision + '%';
+
+			// Display stats - Failed = redirects - passed
+			const totalFailed = Math.max(0, turnstileData.total_redirects - turnstileData.total_passes);
+			document.getElementById('turnstileStats').innerHTML =
+				'<strong><?php echo esc_js(__('Challenged:', 'baskerville')); ?></strong> ' + turnstileData.total_redirects + '<br>' +
+				'<strong><?php echo esc_js(__('Passed:', 'baskerville')); ?></strong> ' + turnstileData.total_passes + '<br>' +
+				'<strong><?php echo esc_js(__('Failed:', 'baskerville')); ?></strong> ' + totalFailed;
+		} else {
+			// No turnstile data
+			document.getElementById('baskervilleTurnstileBar').parentElement.innerHTML = '<p style="text-align:center;color:#999;padding:40px;"><?php echo esc_js(__('No Turnstile data available. Enable Turnstile challenge for borderline scores to see data here.', 'baskerville')); ?></p>';
+			document.getElementById('turnstilePrecisionValue').textContent = '—';
+			document.getElementById('turnstileStats').innerHTML = '<em><?php echo esc_js(__('No challenges recorded', 'baskerville')); ?></em>';
+		}
 	})();
 	</script>
 	<?php endif; ?>
@@ -5581,10 +5948,10 @@ done
 			 INNER JOIN (
 				 SELECT ip, MAX(created_at) as max_created
 				 FROM " . esc_sql($table) . "
-				 WHERE classification IN ('bad_bot', 'ai_bot', 'bot') OR score >= 50 OR (block_reason IS NOT NULL AND block_reason != '')
+				 WHERE classification IN ('bad_bot', 'ai_bot', 'bot') OR score >= 50 OR (block_reason IS NOT NULL AND block_reason != '') OR event_type = 'ts_fail'
 				 GROUP BY ip
 			 ) t2 ON t1.ip = t2.ip AND t1.created_at = t2.max_created
-			 WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'bot') OR t1.score >= 50 OR (t1.block_reason IS NOT NULL AND t1.block_reason != ''))
+			 WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'bot') OR t1.score >= 50 OR (t1.block_reason IS NOT NULL AND t1.block_reason != '') OR t1.event_type = 'ts_fail')
 			 ORDER BY t1.created_at DESC
 			 LIMIT %d",
 			30

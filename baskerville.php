@@ -48,6 +48,10 @@ add_action('plugins_loaded', function () {
 	$aiua  = new Baskerville_AI_UA($core);       // AI_UA should receive $core in constructor
 	$stats = new Baskerville_Stats($core, $aiua); // Stats receives Core and AI_UA
 
+	// Cloudflare Turnstile - must be created BEFORE firewall for borderline challenge
+	$turnstile = new Baskerville_Turnstile($core, $stats);
+	$GLOBALS['baskerville_turnstile'] = $turnstile;
+
 	// pre-DB firewall (MUST run IMMEDIATELY, before any other hooks)
 	// This runs directly in plugins_loaded to catch requests as early as possible
 	$fw = new Baskerville_Firewall($core, $stats, $aiua);
@@ -71,8 +75,7 @@ add_action('plugins_loaded', function () {
 	$honeypot = new Baskerville_Honeypot($core, $stats, $aiua);
 	$honeypot->init();
 
-	// Cloudflare Turnstile for login/registration/comment protection
-	$turnstile = new Baskerville_Turnstile();
+	// Initialize Turnstile hooks (object already created before firewall)
 	$turnstile->init();
 
 	// periodic statistics cleanup
