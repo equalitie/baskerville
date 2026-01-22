@@ -201,7 +201,7 @@ class Baskerville_Admin {
 		// IP Whitelist field
 		add_settings_field(
 			'ip_whitelist',
-			esc_html__('Whitelisted IPs', 'baskerville'),
+			esc_html__('Allowed IPs', 'baskerville'),
 			array($this, 'render_ip_whitelist_field'),
 			'baskerville-settings',
 			'baskerville_settings_section'
@@ -234,7 +234,7 @@ class Baskerville_Admin {
 
 		add_settings_field(
 			'blacklist_countries',
-			esc_html__('Black List Countries', 'baskerville'),
+			esc_html__('Block List Countries', 'baskerville'),
 			array($this, 'render_blacklist_countries_field'),
 			'baskerville-country-control',
 			'baskerville_country_control_section'
@@ -242,7 +242,7 @@ class Baskerville_Admin {
 
 		add_settings_field(
 			'whitelist_countries',
-			esc_html__('White List Countries', 'baskerville'),
+			esc_html__('Allow List Countries', 'baskerville'),
 			array($this, 'render_whitelist_countries_field'),
 			'baskerville-country-control',
 			'baskerville_country_control_section'
@@ -268,7 +268,7 @@ class Baskerville_Admin {
 
 		add_settings_field(
 			'blacklist_ai_companies',
-			esc_html__('Black List Companies', 'baskerville'),
+			esc_html__('Block List Companies', 'baskerville'),
 			array($this, 'render_blacklist_ai_companies_field'),
 			'baskerville-ai-bot-control',
 			'baskerville_ai_bot_control_section'
@@ -276,7 +276,7 @@ class Baskerville_Admin {
 
 		add_settings_field(
 			'whitelist_ai_companies',
-			esc_html__('White List Companies', 'baskerville'),
+			esc_html__('Allow List Companies', 'baskerville'),
 			array($this, 'render_whitelist_ai_companies_field'),
 			'baskerville-ai-bot-control',
 			'baskerville_ai_bot_control_section'
@@ -559,7 +559,7 @@ class Baskerville_Admin {
 					   value="blacklist"
 					   class="baskerville-geoip-mode-radio"
 					   <?php checked($mode, 'blacklist'); ?> />
-				<strong><?php esc_html_e('Black List', 'baskerville'); ?></strong> -
+				<strong><?php esc_html_e('Block List', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Block access from specified countries', 'baskerville'); ?>
 			</label>
 			<label style="display: block;">
@@ -568,7 +568,7 @@ class Baskerville_Admin {
 					   value="whitelist"
 					   class="baskerville-geoip-mode-radio"
 					   <?php checked($mode, 'whitelist'); ?> />
-				<strong><?php esc_html_e('White List', 'baskerville'); ?></strong> -
+				<strong><?php esc_html_e('Allow List', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Allow access ONLY from specified countries', 'baskerville'); ?>
 			</label>
 		</fieldset>
@@ -651,7 +651,7 @@ class Baskerville_Admin {
 			<p class="description">
 				<strong style="color: #d32f2f;"><?php esc_html_e('Block access from these countries', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select countries to block. You can select multiple countries.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "Black List" mode is selected above.', 'baskerville'); ?></em><br>
+				<em style="color: #999;"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville'); ?></em><br>
 				<strong><?php esc_html_e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
 				<?php if ($geoip_source === 'MaxMind (if configured)'): ?>
 					<br><em><?php esc_html_e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
@@ -694,7 +694,7 @@ class Baskerville_Admin {
 			<p class="description">
 				<strong style="color: #2271b1;"><?php esc_html_e('Allow access ONLY from these countries', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select countries to allow. You can select multiple countries.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "White List" mode is selected above.', 'baskerville'); ?></em><br>
+				<em style="color: #999;"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville'); ?></em><br>
 				<strong><?php esc_html_e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
 				<?php if ($geoip_source === 'MaxMind (if configured)'): ?>
 					<br><em><?php esc_html_e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
@@ -850,7 +850,7 @@ class Baskerville_Admin {
 					   value="blacklist"
 					   class="baskerville-aibot-mode-radio"
 					   <?php checked($mode, 'blacklist'); ?> />
-				<strong><?php esc_html_e('Black List', 'baskerville'); ?></strong> -
+				<strong><?php esc_html_e('Block List', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Block access from specified companies', 'baskerville'); ?>
 			</label>
 			<label style="display: block;">
@@ -859,7 +859,7 @@ class Baskerville_Admin {
 					   value="whitelist"
 					   class="baskerville-aibot-mode-radio"
 					   <?php checked($mode, 'whitelist'); ?> />
-				<strong><?php esc_html_e('White List', 'baskerville'); ?></strong> -
+				<strong><?php esc_html_e('Allow List', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Allow access ONLY from specified companies', 'baskerville'); ?>
 			</label>
 		</fieldset>
@@ -931,7 +931,7 @@ class Baskerville_Admin {
 			<p class="description">
 				<strong style="color: #d32f2f;"><?php esc_html_e('Block access from these AI bot companies', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select companies to block. You can select multiple companies.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "Black List" mode is selected above.', 'baskerville'); ?></em>
+				<em style="color: #999;"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville'); ?></em>
 			</p>
 		</div>
 
@@ -976,7 +976,7 @@ class Baskerville_Admin {
 			<p class="description">
 				<strong style="color: #2271b1;"><?php esc_html_e('Allow access ONLY from these AI bot companies', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select companies to allow. You can select multiple companies.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "White List" mode is selected above.', 'baskerville'); ?></em>
+				<em style="color: #999;"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville'); ?></em>
 			</p>
 		</div>
 		<?php
@@ -1322,7 +1322,7 @@ class Baskerville_Admin {
 
 			$banner_color = '#2271b1';
 			$icon = '✓';
-			$title = esc_html__('White List Mode Active', 'baskerville');
+			$title = esc_html__('Allow List Mode Active', 'baskerville');
 			$description = sprintf(
 				/* translators: %1$d is the number of countries, %2$s is either 'country' or 'countries', %3$s is the list of country names */
 				esc_html__('Access is allowed ONLY from %1$d %2$s: %3$s', 'baskerville'),
@@ -1353,7 +1353,7 @@ class Baskerville_Admin {
 
 			$banner_color = '#d32f2f';
 			$icon = '✕';
-			$title = esc_html__('Black List Mode Active', 'baskerville');
+			$title = esc_html__('Block List Mode Active', 'baskerville');
 			$description = sprintf(
 				/* translators: %1$d is the number of countries, %2$s is either 'country' or 'countries', %3$s is the list of country names */
 				esc_html__('Access is blocked from %1$d %2$s: %3$s', 'baskerville'),
@@ -1603,6 +1603,63 @@ class Baskerville_Admin {
 		];
 	}
 
+	/**
+	 * Get key metrics for analytics dashboard.
+	 * Returns Block Rate, Challenge Rate, and Passed Challenge Rate.
+	 */
+	private function get_key_metrics($hours = 24) {
+		global $wpdb;
+		$table = $wpdb->prefix . 'baskerville_stats';
+		$cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+		// Total unique IPs
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$total_ips = (int) $wpdb->get_var($wpdb->prepare(
+			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s",
+			$table,
+			$cutoff
+		));
+
+		// Blocked unique IPs (has block_reason)
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$blocked_ips = (int) $wpdb->get_var($wpdb->prepare(
+			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s AND block_reason IS NOT NULL AND block_reason != ''",
+			$table,
+			$cutoff
+		));
+
+		// Challenged unique IPs (ts_redir events)
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$challenged_ips = (int) $wpdb->get_var($wpdb->prepare(
+			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s AND event_type = 'ts_redir'",
+			$table,
+			$cutoff
+		));
+
+		// Passed unique IPs (ts_pass events)
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$passed_ips = (int) $wpdb->get_var($wpdb->prepare(
+			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s AND event_type = 'ts_pass'",
+			$table,
+			$cutoff
+		));
+
+		// Calculate rates (all based on unique IPs)
+		$block_rate = $total_ips > 0 ? round(($blocked_ips * 100.0) / $total_ips, 1) : 0;
+		$challenge_rate = $total_ips > 0 ? round(($challenged_ips * 100.0) / $total_ips, 1) : 0;
+		$pass_rate = $challenged_ips > 0 ? round(($passed_ips * 100.0) / $challenged_ips, 1) : 0;
+
+		return [
+			'total_ips'      => $total_ips,
+			'blocked_ips'    => $blocked_ips,
+			'challenged_ips' => $challenged_ips,
+			'passed_ips'     => $passed_ips,
+			'block_rate'     => $block_rate,
+			'challenge_rate' => $challenge_rate,
+			'pass_rate'      => $pass_rate,
+		];
+	}
+
 	private function get_country_stats($hours = 24) {
 		global $wpdb;
 		$table = $wpdb->prefix . 'baskerville_stats';
@@ -1807,7 +1864,7 @@ class Baskerville_Admin {
 									$is_in_blacklist = in_array($stat['code'], $blacklist_countries);
 									$access_allowed = !$is_in_blacklist;
 									if ($is_in_blacklist) {
-										$status_label = __('Blocked (Blacklist)', 'baskerville');
+										$status_label = __('Blocked (Block List)', 'baskerville');
 										$status_color = '#d32f2f';
 										$status_icon = '🚫';
 									} else {
@@ -1819,7 +1876,7 @@ class Baskerville_Admin {
 									$is_in_whitelist = in_array($stat['code'], $whitelist_countries);
 									$access_allowed = $is_in_whitelist;
 									if ($is_in_whitelist) {
-										$status_label = __('Allowed (Whitelist)', 'baskerville');
+										$status_label = __('Allowed (Allow List)', 'baskerville');
 										$status_color = '#4CAF50';
 										$status_icon = '✅';
 									} else {
@@ -3027,19 +3084,19 @@ class Baskerville_Admin {
 					</tr>
 					<?php if ($geoip_mode === 'blacklist'): ?>
 					<tr>
-						<td style="font-weight: bold;"><?php esc_html_e('Blacklist Countries', 'baskerville'); ?></td>
+						<td style="font-weight: bold;"><?php esc_html_e('Block List Countries', 'baskerville'); ?></td>
 						<td>
 							<?php if (!empty($blacklist_countries)): ?>
 								<code><?php echo esc_html($blacklist_countries); ?></code>
 							<?php else: ?>
-								<em style="color: #999;"><?php esc_html_e('(empty - no countries blacklisted)', 'baskerville'); ?></em>
+								<em style="color: #999;"><?php esc_html_e('(empty - no countries in block list)', 'baskerville'); ?></em>
 							<?php endif; ?>
 						</td>
 					</tr>
 					<?php endif; ?>
 					<?php if ($geoip_mode === 'whitelist'): ?>
 					<tr>
-						<td style="font-weight: bold;"><?php esc_html_e('Whitelist Countries', 'baskerville'); ?></td>
+						<td style="font-weight: bold;"><?php esc_html_e('Allow List Countries', 'baskerville'); ?></td>
 						<td>
 							<?php if (!empty($whitelist_countries)): ?>
 								<code><?php echo esc_html($whitelist_countries); ?></code>
@@ -3050,7 +3107,7 @@ class Baskerville_Admin {
 					</tr>
 					<?php endif; ?>
 					<tr>
-						<td style="font-weight: bold;"><?php esc_html_e('IP in Whitelist?', 'baskerville'); ?></td>
+						<td style="font-weight: bold;"><?php esc_html_e('IP in Allow List?', 'baskerville'); ?></td>
 						<td>
 							<?php if ($is_whitelisted): ?>
 								<span style="color: #46b450; font-weight: bold;">✓ YES (bypasses all protection)</span>
@@ -3084,7 +3141,7 @@ class Baskerville_Admin {
 					</h3>
 					<p style="margin: 0; font-size: 14px;">
 						<?php if ($is_whitelisted): ?>
-							<?php esc_html_e('This IP is in the IP Whitelist and bypasses all protection including GeoIP bans.', 'baskerville'); ?>
+							<?php esc_html_e('This IP is in the IP Allow List and bypasses all protection including GeoIP bans.', 'baskerville'); ?>
 						<?php elseif (!$detected_country): ?>
 							<?php esc_html_e('Country not detected. GeoIP database might be missing. Go to "GeoIP Configuration Status" below to check.', 'baskerville'); ?>
 						<?php elseif ($geoip_mode === 'allow_all'): ?>
@@ -3535,15 +3592,10 @@ class Baskerville_Admin {
 					<?php settings_fields('baskerville_settings_group'); ?>
 					<div style="display: flex; align-items: center; gap: 30px;">
 						<div>
-							<h2 style="margin: 0 0 5px 0; color: <?php echo $master_enabled ? '#2c662d' : '#856404'; ?>;">
+							<h2 style="margin: 0; color: <?php echo $master_enabled ? '#2c662d' : '#856404'; ?>;">
 								<?php echo $master_enabled ? '🟢' : '🟡'; ?>
 								<?php esc_html_e('MASTER SWITCH', 'baskerville'); ?>
 							</h2>
-							<p style="margin: 0; color: <?php echo $master_enabled ? '#555' : '#856404'; ?>;">
-								<?php echo $master_enabled
-									? esc_html__('Blocking is ON', 'baskerville')
-									: esc_html__('Blocking is OFF', 'baskerville'); ?>
-							</p>
 						</div>
 						<div>
 							<div class="baskerville-toggle-label">
@@ -4424,7 +4476,69 @@ class Baskerville_Admin {
 		try {
 			$timeseries = $this->get_timeseries_data($hours);
 			$turnstile_data = $this->get_turnstile_timeseries_data($hours);
+			$key_metrics = $this->get_key_metrics($hours);
 			?>
+
+			<!-- Key Metrics -->
+			<div class="baskerville-key-metrics" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0;">
+				<!-- Block Rate -->
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+						<span style="font-weight: 600; color: #333; font-size: 14px;"><?php esc_html_e('Block Rate', 'baskerville'); ?></span>
+						<span style="font-size: 24px; font-weight: bold; color: #dc2626;"><?php echo esc_html($key_metrics['block_rate']); ?>%</span>
+					</div>
+					<div style="background: #e5e7eb; border-radius: 9999px; height: 12px; overflow: hidden;">
+						<div style="background: linear-gradient(90deg, #dc2626, #ef4444); height: 100%; border-radius: 9999px; transition: width 0.5s ease; width: <?php echo esc_attr(min(100, $key_metrics['block_rate'])); ?>%;"></div>
+					</div>
+					<div style="margin-top: 8px; font-size: 12px; color: #666;">
+						<?php printf(
+							/* translators: %1$s: blocked IPs count, %2$s: total IPs count */
+							esc_html__('%1$s blocked / %2$s total IPs', 'baskerville'),
+							'<strong>' . number_format($key_metrics['blocked_ips']) . '</strong>',
+							number_format($key_metrics['total_ips'])
+						); ?>
+					</div>
+				</div>
+
+				<!-- Challenge Rate -->
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+						<span style="font-weight: 600; color: #333; font-size: 14px;"><?php esc_html_e('Challenge Rate', 'baskerville'); ?></span>
+						<span style="font-size: 24px; font-weight: bold; color: #f59e0b;"><?php echo esc_html($key_metrics['challenge_rate']); ?>%</span>
+					</div>
+					<div style="background: #e5e7eb; border-radius: 9999px; height: 12px; overflow: hidden;">
+						<div style="background: linear-gradient(90deg, #f59e0b, #fbbf24); height: 100%; border-radius: 9999px; transition: width 0.5s ease; width: <?php echo esc_attr(min(100, $key_metrics['challenge_rate'])); ?>%;"></div>
+					</div>
+					<div style="margin-top: 8px; font-size: 12px; color: #666;">
+						<?php printf(
+							/* translators: %1$s: challenged IPs count, %2$s: total IPs count */
+							esc_html__('%1$s challenged / %2$s total IPs', 'baskerville'),
+							'<strong>' . number_format($key_metrics['challenged_ips']) . '</strong>',
+							number_format($key_metrics['total_ips'])
+						); ?>
+					</div>
+				</div>
+
+				<!-- Passed Challenge Rate -->
+				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+						<span style="font-weight: 600; color: #333; font-size: 14px;"><?php esc_html_e('Passed Challenge', 'baskerville'); ?></span>
+						<span style="font-size: 24px; font-weight: bold; color: #10b981;"><?php echo esc_html($key_metrics['pass_rate']); ?>%</span>
+					</div>
+					<div style="background: #e5e7eb; border-radius: 9999px; height: 12px; overflow: hidden;">
+						<div style="background: linear-gradient(90deg, #10b981, #34d399); height: 100%; border-radius: 9999px; transition: width 0.5s ease; width: <?php echo esc_attr(min(100, $key_metrics['pass_rate'])); ?>%;"></div>
+					</div>
+					<div style="margin-top: 8px; font-size: 12px; color: #666;">
+						<?php printf(
+							/* translators: %1$s: passed IPs count, %2$s: challenged IPs count */
+							esc_html__('%1$s passed / %2$s challenged IPs', 'baskerville'),
+							'<strong>' . number_format($key_metrics['passed_ips']) . '</strong>',
+							number_format($key_metrics['challenged_ips'])
+						); ?>
+					</div>
+				</div>
+			</div>
+
 			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
 				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 					<canvas id="baskervilleHumAutoBar"></canvas>
@@ -4898,7 +5012,7 @@ class Baskerville_Admin {
 		if (isset($_POST['baskerville_save_whitelist']) && check_admin_referer('baskerville_whitelist_save', 'baskerville_whitelist_nonce')) {
 			$new_whitelist = isset($_POST['baskerville_ip_whitelist']) ? sanitize_textarea_field(wp_unslash($_POST['baskerville_ip_whitelist'])) : '';
 			update_option('baskerville_ip_whitelist', $new_whitelist);
-			echo '<div class="notice notice-success"><p>' . esc_html__('IP Whitelist saved successfully!', 'baskerville') . '</p></div>';
+			echo '<div class="notice notice-success"><p>' . esc_html__('IP Allow List saved successfully!', 'baskerville') . '</p></div>';
 			$whitelist = $new_whitelist;
 			$ips_array = array_filter(preg_split('~[\s,]+~', $whitelist));
 		}
@@ -4910,21 +5024,21 @@ class Baskerville_Admin {
 				$current_ips[] = $current_ip;
 				$new_whitelist = implode("\n", $current_ips);
 				update_option('baskerville_ip_whitelist', $new_whitelist);
-				/* translators: %s is the IP address added to whitelist */
-				echo '<div class="notice notice-success"><p>' . sprintf(esc_html__('Added %s to whitelist!', 'baskerville'), esc_html($current_ip)) . '</p></div>';
+				/* translators: %s is the IP address added to allow list */
+				echo '<div class="notice notice-success"><p>' . sprintf(esc_html__('Added %s to Allow List!', 'baskerville'), esc_html($current_ip)) . '</p></div>';
 				$whitelist = $new_whitelist;
 				$ips_array = $current_ips;
 			} else {
-				/* translators: %s is the IP address already in whitelist */
-				echo '<div class="notice notice-info"><p>' . sprintf(esc_html__('%s is already in the whitelist.', 'baskerville'), esc_html($current_ip)) . '</p></div>';
+				/* translators: %s is the IP address already in allow list */
+				echo '<div class="notice notice-info"><p>' . sprintf(esc_html__('%s is already in the Allow List.', 'baskerville'), esc_html($current_ip)) . '</p></div>';
 			}
 		}
 		?>
 		<div class="baskerville-whitelist-tab">
-			<h2><?php esc_html_e('IP Whitelist', 'baskerville'); ?></h2>
+			<h2><?php esc_html_e('IP Allow List', 'baskerville'); ?></h2>
 
 			<div class="card" style="max-width: 800px; margin: 20px 0;">
-				<p><?php esc_html_e('Whitelisted IP addresses bypass all firewall checks and will never be blocked by Baskerville.', 'baskerville'); ?></p>
+				<p><?php esc_html_e('IP addresses in the Allow List bypass all firewall checks and will never be blocked by Baskerville.', 'baskerville'); ?></p>
 
 				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
 					<strong><?php esc_html_e('Your Current IP:', 'baskerville'); ?></strong>
@@ -4938,7 +5052,7 @@ class Baskerville_Admin {
 							</button>
 						</form>
 					<?php else: ?>
-						<span style="color: #46b450; margin-left: 10px;">✅ <?php esc_html_e('Already whitelisted', 'baskerville'); ?></span>
+						<span style="color: #46b450; margin-left: 10px;">✅ <?php esc_html_e('Already in Allow List', 'baskerville'); ?></span>
 					<?php endif; ?>
 				</div>
 
@@ -4948,7 +5062,7 @@ class Baskerville_Admin {
 					<table class="form-table">
 						<tr>
 							<th scope="row">
-								<label for="baskerville_ip_whitelist"><?php esc_html_e('Whitelisted IPs', 'baskerville'); ?></label>
+								<label for="baskerville_ip_whitelist"><?php esc_html_e('Allowed IPs', 'baskerville'); ?></label>
 							</th>
 							<td>
 								<textarea
@@ -4970,13 +5084,13 @@ class Baskerville_Admin {
 						</tr>
 					</table>
 
-					<?php submit_button(__('Save Whitelist', 'baskerville'), 'primary', 'baskerville_save_whitelist'); ?>
+					<?php submit_button(__('Save Allow List', 'baskerville'), 'primary', 'baskerville_save_whitelist'); ?>
 				</form>
 			</div>
 
 			<?php if (!empty($ips_array)): ?>
 			<div class="card" style="max-width: 800px; margin: 20px 0;">
-				<h3><?php esc_html_e('Currently Whitelisted IPs', 'baskerville'); ?> (<?php echo count($ips_array); ?>)</h3>
+				<h3><?php esc_html_e('IPs in Allow List', 'baskerville'); ?> (<?php echo count($ips_array); ?>)</h3>
 				<table class="widefat striped" style="margin-top: 10px;">
 					<thead>
 						<tr>
@@ -5013,15 +5127,15 @@ class Baskerville_Admin {
 				<h3><?php esc_html_e('Use Cases', 'baskerville'); ?></h3>
 				<ul style="line-height: 1.8;">
 					<li><strong><?php esc_html_e('Load Testing:', 'baskerville'); ?></strong> <?php esc_html_e('Add your server IP to run Apache Bench or similar tools', 'baskerville'); ?></li>
-					<li><strong><?php esc_html_e('Office Network:', 'baskerville'); ?></strong> <?php esc_html_e('Whitelist your company IP to ensure team members never get blocked', 'baskerville'); ?></li>
+					<li><strong><?php esc_html_e('Office Network:', 'baskerville'); ?></strong> <?php esc_html_e('Add your company IP to ensure team members never get blocked', 'baskerville'); ?></li>
 					<li><strong><?php esc_html_e('Development:', 'baskerville'); ?></strong> <?php esc_html_e('Add localhost (127.0.0.1) if testing locally', 'baskerville'); ?></li>
-					<li><strong><?php esc_html_e('Monitoring Services:', 'baskerville'); ?></strong> <?php esc_html_e('Whitelist uptime monitors or site crawlers', 'baskerville'); ?></li>
+					<li><strong><?php esc_html_e('Monitoring Services:', 'baskerville'); ?></strong> <?php esc_html_e('Add uptime monitors or site crawlers', 'baskerville'); ?></li>
 					<li><strong><?php esc_html_e('API Clients:', 'baskerville'); ?></strong> <?php esc_html_e('Add IPs of your API consumers', 'baskerville'); ?></li>
 				</ul>
 
 				<div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 12px; margin-top: 15px;">
 					<strong>💡 <?php esc_html_e('Tip:', 'baskerville'); ?></strong>
-					<?php esc_html_e('Whitelisted IPs completely bypass the firewall. For better security, consider using GeoIP whitelist or verified crawler detection instead when possible.', 'baskerville'); ?>
+					<?php esc_html_e('IPs in the Allow List completely bypass the firewall. For better security, consider using GeoIP Allow List or verified crawler detection instead when possible.', 'baskerville'); ?>
 				</div>
 			</div>
 		</div>
@@ -5113,9 +5227,9 @@ class Baskerville_Admin {
 				</ol>
 				<p style="color: #2196F3;"><strong><?php esc_html_e('Expected overhead: ~50-70ms (5%)', 'baskerville'); ?></strong></p>
 
-				<h4 style="margin-top: 20px;"><?php esc_html_e('Method 2: Whitelist Your IP', 'baskerville'); ?></h4>
+				<h4 style="margin-top: 20px;"><?php esc_html_e('Method 2: Add Your IP to Allow List', 'baskerville'); ?></h4>
 				<p><?php esc_html_e('Test with firewall BYPASSED (shows minimum overhead):', 'baskerville'); ?></p>
-				<p><?php esc_html_e('Go to IP Whitelist tab → Click "Add My IP" button → Run your tests', 'baskerville'); ?></p>
+				<p><?php esc_html_e('Go to IP Allow List tab → Click "Add My IP" button → Run your tests', 'baskerville'); ?></p>
 
 				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
 					<strong><?php esc_html_e('Your Current IP:', 'baskerville'); ?></strong>
@@ -5176,7 +5290,7 @@ done
 							<td><?php esc_html_e('VPS only', 'baskerville'); ?> ⚠️</td>
 						</tr>
 						<tr>
-							<td><strong><?php esc_html_e('Whitelisted IP', 'baskerville'); ?></strong></td>
+							<td><strong><?php esc_html_e('IP in Allow List', 'baskerville'); ?></strong></td>
 							<td style="color: #4CAF50;">~0-5ms (0%)</td>
 							<td>✅ <?php esc_html_e('Partial', 'baskerville'); ?></td>
 							<td><?php esc_html_e('Load testing', 'baskerville'); ?></td>
@@ -5200,7 +5314,7 @@ done
 				<ul style="line-height: 1.8;">
 					<li><?php esc_html_e('Enable APCu for faster caching (file-based cache is slower)', 'baskerville'); ?></li>
 					<li><?php esc_html_e('Use NGINX GeoIP2 module for fastest country detection', 'baskerville'); ?></li>
-					<li><?php esc_html_e('Whitelist verified crawlers to reduce unnecessary checks', 'baskerville'); ?></li>
+					<li><?php esc_html_e('Allow verified crawlers to reduce unnecessary checks', 'baskerville'); ?></li>
 					<li><?php esc_html_e('The firewall only runs on public HTML pages (not wp-admin, REST API, or AJAX)', 'baskerville'); ?></li>
 					<li><?php esc_html_e('Database writes are batched and use prepared statements', 'baskerville'); ?></li>
 				</ul>
@@ -5314,7 +5428,7 @@ done
 						<li><?php esc_html_e('Bypass all firewall rules (GeoIP, burst protection, bot detection)', 'baskerville'); ?></li>
 						<li><?php esc_html_e('Never receive 403 Forbidden responses', 'baskerville'); ?></li>
 						<li><?php esc_html_e('Only subject to rate limiting (429 Too Many Requests)', 'baskerville'); ?></li>
-						<li><?php esc_html_e('Whitelisted IPs bypass rate limiting completely', 'baskerville'); ?></li>
+						<li><?php esc_html_e('IPs in Allow List bypass rate limiting completely', 'baskerville'); ?></li>
 					</ul>
 				</div>
 			</div>
@@ -5427,7 +5541,7 @@ done
 						<li><strong><?php esc_html_e('High Traffic:', 'baskerville'); ?></strong> 1000 requests/60s</li>
 					</ul>
 					<p style="margin: 5px 0 0 0;">
-						<?php esc_html_e('IPs in the whitelist bypass rate limiting completely.', 'baskerville'); ?>
+						<?php esc_html_e('IPs in the Allow List bypass rate limiting completely.', 'baskerville'); ?>
 					</p>
 				</div>
 
@@ -5808,14 +5922,14 @@ done
 					<li><?php esc_html_e('Each burst type is counted separately per IP address', 'baskerville'); ?></li>
 					<li><?php esc_html_e('Uses sliding time windows (not fixed intervals)', 'baskerville'); ?></li>
 					<li><?php esc_html_e('Verified crawlers (Google, Bing, etc.) bypass all burst protection', 'baskerville'); ?></li>
-					<li><?php esc_html_e('Whitelisted IPs bypass all burst protection', 'baskerville'); ?></li>
+					<li><?php esc_html_e('IPs in Allow List bypass all burst protection', 'baskerville'); ?></li>
 				</ul>
 			</div>
 
 			<div style="background: #ffe5e5; border-left: 4px solid #d63638; padding: 12px; margin-top: 15px;">
 				<strong>⚠️ <?php esc_html_e('For Testing:', 'baskerville'); ?></strong>
 				<?php esc_html_e('If you\'re testing with scripts or non-browser tools, add your IP to the', 'baskerville'); ?>
-				<strong><?php esc_html_e('IP Whitelist', 'baskerville'); ?></strong>
+				<strong><?php esc_html_e('IP Allow List', 'baskerville'); ?></strong>
 				<?php esc_html_e('tab to bypass all protection.', 'baskerville'); ?>
 			</div>
 		</div>
