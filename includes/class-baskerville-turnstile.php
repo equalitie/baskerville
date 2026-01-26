@@ -229,7 +229,7 @@ class Baskerville_Turnstile {
 		// Log challenge redirect
 		$this->log_challenge_event('redirect', null);
 
-		wp_redirect($challenge_url);
+		wp_safe_redirect($challenge_url);
 		exit;
 	}
 
@@ -256,7 +256,10 @@ class Baskerville_Turnstile {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0">
 			<meta name="robots" content="noindex, nofollow">
 			<title><?php echo esc_html__('Security Check', 'baskerville') . ' - ' . esc_html($site_name); ?></title>
-			<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+			<?php
+			wp_register_script( 'cloudflare-turnstile-challenge', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), 'v0', false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
+			wp_print_scripts( 'cloudflare-turnstile-challenge' );
+			?>
 			<style>
 				* { box-sizing: border-box; margin: 0; padding: 0; }
 				body {
@@ -321,6 +324,9 @@ class Baskerville_Turnstile {
 				.loading {
 					color: #999;
 					font-size: 14px;
+				}
+				.cf-turnstile iframe {
+					width: 100% !important;
 				}
 			</style>
 		</head>
@@ -412,7 +418,7 @@ class Baskerville_Turnstile {
 		$this->set_pass_cookie();
 		$this->log_challenge_event('pass', null);
 
-		wp_redirect($return_url);
+		wp_safe_redirect($return_url);
 		exit;
 	}
 
@@ -470,11 +476,10 @@ class Baskerville_Turnstile {
 		?>
 		<div class="cf-turnstile"
 			 data-sitekey="<?php echo esc_attr($this->site_key); ?>"
-			 data-theme="light"
-			 style="margin: 10px 0;">
+			 data-theme="light">
 		</div>
 		<noscript>
-			<p style="color: #dc3545;"><?php esc_html_e('Please enable JavaScript to complete the security check.', 'baskerville'); ?></p>
+			<p class="baskerville-noscript-warning"><?php esc_html_e('Please enable JavaScript to complete the security check.', 'baskerville'); ?></p>
 		</noscript>
 		<?php
 	}
@@ -483,13 +488,7 @@ class Baskerville_Turnstile {
 	 * Enqueue Turnstile script on login page
 	 */
 	public function enqueue_turnstile_script() {
-		wp_enqueue_script(
-			'cloudflare-turnstile',
-			'https://challenges.cloudflare.com/turnstile/v0/api.js',
-			array(),
-			null,
-			true
-		);
+		wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), 'v0', true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 	}
 
 	/**
@@ -497,13 +496,7 @@ class Baskerville_Turnstile {
 	 */
 	public function maybe_enqueue_frontend_script() {
 		if (is_singular() && comments_open()) {
-			wp_enqueue_script(
-				'cloudflare-turnstile',
-				'https://challenges.cloudflare.com/turnstile/v0/api.js',
-				array(),
-				null,
-				true
-			);
+			wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), 'v0', true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 		}
 	}
 
@@ -611,14 +604,13 @@ class Baskerville_Turnstile {
 	 */
 	public function get_challenge_stats() {
 		global $wpdb;
-		$table_name = $wpdb->prefix . 'baskerville_stats';
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$stats = $wpdb->get_results(
 			"SELECT
 				event_type,
 				COUNT(*) as count
-			FROM {$table_name}
+			FROM {$wpdb->prefix}baskerville_stats
 			WHERE event_type LIKE 'turnstile_%'
 			AND timestamp_utc > DATE_SUB(NOW(), INTERVAL 7 DAY)
 			GROUP BY event_type",

@@ -117,17 +117,17 @@ class Baskerville_Firewall
 		// Show specific message based on ban reason (no translations - runs before init)
 		$reason = $meta['reason'] ?? '';
 		if (strpos($reason, 'no-cookie-burst') === 0) {
-			echo 'Forbidden - Too many requests without session cookie';
+			esc_html_e( 'Forbidden - Too many requests without session cookie', 'baskerville' );
 		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			echo 'Forbidden - Too many requests without JavaScript';
+			esc_html_e( 'Forbidden - Too many requests without JavaScript', 'baskerville' );
 		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			echo 'Forbidden - Non-browser client rate limit exceeded';
+			esc_html_e( 'Forbidden - Non-browser client rate limit exceeded', 'baskerville' );
 		} elseif (strpos($reason, 'ai-bot') === 0) {
-			echo 'Forbidden - AI bot detected';
+			esc_html_e( 'Forbidden - AI bot detected', 'baskerville' );
 		} elseif (strpos($reason, 'cached-ban') === 0) {
-			echo 'Forbidden - IP temporarily banned';
+			esc_html_e( 'Forbidden - IP temporarily banned', 'baskerville' );
 		} else {
-			echo 'Forbidden - Bot detected';
+			esc_html_e( 'Forbidden - Bot detected', 'baskerville' );
 		}
 		echo "\n";
 		exit;
@@ -149,7 +149,8 @@ class Baskerville_Firewall
 				header('Retry-After: ' . $retry);
 			}
 		}
-		echo "Forbidden - Access from this country is restricted\n";
+		esc_html_e( 'Forbidden - Access from this country is restricted', 'baskerville' );
+		echo "\n";
 		exit;
 	}
 
@@ -209,7 +210,8 @@ class Baskerville_Firewall
 
 					echo wp_json_encode([
 						'error'       => 'rate_limit_exceeded',
-						'message'     => sprintf( 'Rate limit exceeded. Maximum %d requests per %d seconds.', $max_requests, $window_sec),
+						/* translators: %1$d: maximum number of requests, %2$d: time window in seconds */
+						'message'     => sprintf( esc_html__( 'Rate limit exceeded. Maximum %1$d requests per %2$d seconds.', 'baskerville' ), $max_requests, $window_sec),
 						'retry_after' => $window_sec
 					]);
 					exit;

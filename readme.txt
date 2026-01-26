@@ -1,6 +1,6 @@
 === Baskerville ===
 Contributors: equalitie
-Tags: security, firewall, bot detection, geoip, turnstile, captcha, anti-bot, spam protection
+Tags: security, captcha, spam protection, firewall, anti-bot
 Requires at least: 6.2
 Tested up to: 6.9
 Stable tag: 1.0.0

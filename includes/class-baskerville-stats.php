@@ -972,7 +972,6 @@ class Baskerville_Stats
     public function get_ai_bots_timeseries($hours = 24) {
         try {
             global $wpdb;
-            $table = $wpdb->prefix . 'baskerville_stats';
 
             $hours = max(1, min(168, (int)$hours)); // Max 7 days
             $cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
@@ -991,17 +990,18 @@ class Baskerville_Stats
             $wpdb->query("SET time_zone = '+00:00'");
 
             // Simplified query - just get timestamp and user_agent, group in PHP
-            $query = $wpdb->prepare(
-                "SELECT timestamp_utc, user_agent
-                 FROM {$table}
-                 WHERE classification = %s
-                   AND timestamp_utc >= %s
-                 ORDER BY timestamp_utc ASC",
-                'ai_bot',
-                $cutoff
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT timestamp_utc, user_agent
+                     FROM {$wpdb->prefix}baskerville_stats
+                     WHERE classification = %s
+                       AND timestamp_utc >= %s
+                     ORDER BY timestamp_utc ASC",
+                    'ai_bot',
+                    $cutoff
+                ),
+                ARRAY_A
             );
-
-            $rows = $wpdb->get_results($query, ARRAY_A);
 
             if ($wpdb->last_error) {
                 throw new Exception('Database error: ' . $wpdb->last_error);
