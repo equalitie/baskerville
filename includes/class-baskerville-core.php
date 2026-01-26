@@ -724,15 +724,15 @@ class Baskerville_Core {
             if (!document.getElementById('baskerville-fingerprint')) {
               const f = document.createElement('div');
               f.id = 'baskerville-fingerprint';
-              f.style.cssText = 'position:fixed;top:80px;left:10px;background:rgba(0,0,0,.7);color:#fff;padding:15px;border-radius:8px;z-index:9999;max-width:500px;font-family:monospace;font-size:12px;max-height:80vh;overflow-y:auto;';
-              f.innerHTML = '<div style="font-weight:bold;margin-bottom:10px;color:#4CAF50;">🔍 Baskerville Fingerprint</div><div id="fingerprint-data">Loading fingerprint...</div><button onclick="document.getElementById(\'baskerville-fingerprint\').style.display=\'none\'" style="position:absolute;top:5px;right:8px;background:none;border:none;color:white;cursor:pointer;font-size:16px;">×</button>';
+              f.className = 'baskerville-fp-widget';
+              f.innerHTML = '<div class="baskerville-fp-widget-title">🔍 <?php echo esc_js( esc_html__( 'Baskerville Fingerprint', 'baskerville' ) ); ?></div><div id="fingerprint-data"><?php echo esc_js( esc_html__( 'Loading fingerprint...', 'baskerville' ) ); ?></div><button onclick="document.getElementById(\'baskerville-fingerprint\').style.display=\'none\'" class="baskerville-fp-widget-close">×</button>';
               document.body.appendChild(f);
             }
             if (!document.getElementById('baskerville-score')) {
               const s = document.createElement('div');
               s.id = 'baskerville-score';
-              s.style.cssText = 'position:fixed;top:80px;right:10px;background:rgba(0,0,0,.8);color:#fff;padding:15px;border-radius:8px;z-index:9999;min-width:200px;font-family:monospace;font-size:14px;border:2px solid #4CAF50;';
-              s.innerHTML = '<div style="font-weight:bold;margin-bottom:10px;color:#4CAF50;">🛡️ Risk Score</div><div id="score-data">Calculating...</div><button onclick="document.getElementById(\'baskerville-score\').style.display=\'none\'" style="position:absolute;top:5px;right:8px;background:none;border:none;color:white;cursor:pointer;font-size:16px;">×</button>';
+              s.className = 'baskerville-score-widget';
+              s.innerHTML = '<div class="baskerville-fp-widget-title">🛡️ <?php echo esc_js( esc_html__( 'Risk Score', 'baskerville' ) ); ?></div><div id="score-data"><?php echo esc_js( esc_html__( 'Calculating...', 'baskerville' ) ); ?></div><button onclick="document.getElementById(\'baskerville-score\').style.display=\'none\'" class="baskerville-fp-widget-close">×</button>';
               document.body.appendChild(s);
             }
           }
@@ -867,14 +867,14 @@ class Baskerville_Core {
                      : (typeof v==='object' ? JSON.stringify(v) : String(v)));
                 const el = document.getElementById('fingerprint-data');
                 if (el) el.innerHTML = `
-                  <div style="margin-bottom:6px;"><span style="color:#FFA500;">Hash:</span> ${fingerprintHash.slice(0,16)}...</div>
-                  <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Screen:</span> ${fp.screen}</div>
-                  <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Viewport:</span> ${fp.viewport}</div>
-                  <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Timezone:</span> ${fp.timezone}</div>
-                  <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Language:</span> ${fp.language}</div>
-                  <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Device:</span> ${formatValue(fp.device)}</div>
-                  <div style="margin-bottom:6px;"><span style="color:#87CEEB;">WebGL:</span> ${formatValue(fp.quirks.webgl)}</div>
-                  <div style="margin-bottom:6px;"><span style="color:#FFB6C1;">DPR:</span> ${fp.dpr}</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-hash"><?php echo esc_js( esc_html__( 'Hash:', 'baskerville' ) ); ?></span> ${fingerprintHash.slice(0,16)}...</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Screen:', 'baskerville' ) ); ?></span> ${fp.screen}</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Viewport:', 'baskerville' ) ); ?></span> ${fp.viewport}</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Timezone:', 'baskerville' ) ); ?></span> ${fp.timezone}</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Language:', 'baskerville' ) ); ?></span> ${fp.language}</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Device:', 'baskerville' ) ); ?></span> ${formatValue(fp.device)}</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-blue"><?php echo esc_js( esc_html__( 'WebGL:', 'baskerville' ) ); ?></span> ${formatValue(fp.quirks.webgl)}</div>
+                  <div class="baskerville-fp-widget-item"><span class="baskerville-fp-label-pink"><?php echo esc_js( esc_html__( 'DPR:', 'baskerville' ) ); ?></span> ${fp.dpr}</div>
                 `;
               }
 
@@ -910,14 +910,14 @@ class Baskerville_Core {
                           if (scoreEl) {
                             const sc = result.score ?? 0;
                             const scoreColor = sc >= 60 ? '#ff6b6b' : sc >= 40 ? '#ffa726' : '#4CAF50';
-                            const map = (c)=>({human:['#4CAF50','👤','HUMAN'],bad_bot:['#ff6b6b','🚫','BAD BOT'],ai_bot:['#ff9800','🤖','AI BOT'],bot:['#673AB7','🕷️','BOT']})[c]||['#757575','❓','UNKNOWN'];
+                            const map = (c)=>({human:['#4CAF50','👤','<?php echo esc_js( esc_html__( 'HUMAN', 'baskerville' ) ); ?>'],bad_bot:['#ff6b6b','🚫','<?php echo esc_js( esc_html__( 'BAD BOT', 'baskerville' ) ); ?>'],ai_bot:['#ff9800','🤖','<?php echo esc_js( esc_html__( 'AI BOT', 'baskerville' ) ); ?>'],bot:['#673AB7','🕷️','<?php echo esc_js( esc_html__( 'BOT', 'baskerville' ) ); ?>']})[c]||['#757575','❓','<?php echo esc_js( esc_html__( 'UNKNOWN', 'baskerville' ) ); ?>'];
                             const [color,icon,label] = map(result.classification?.classification);
                             scoreEl.innerHTML = `
-                              <div style="margin-bottom:8px;"><span style="color:${scoreColor};font-size:24px;font-weight:bold;">${sc}/100</span></div>
-                              <div style="margin-bottom:6px;"><span style="color:#4CAF50;">Action:</span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
-                              <div style="margin-bottom:8px;padding:4px 8px;background:rgba(0,0,0,.2);border-left:3px solid ${color};border-radius:4px;">
+                              <div class="baskerville-score-action"><span class="baskerville-score-value" style="color:${scoreColor};">${sc}/100</span></div>
+                              <div class="baskerville-score-action"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Action:', 'baskerville' ) ); ?></span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
+                              <div class="baskerville-score-classification" style="border-left:3px solid ${color};">
                                 <span style="color:${color};font-weight:bold;">${icon} ${label}</span>
-                                <div style="font-size:11px;color:#ccc;margin-top:2px;">${result.classification?.reason||'<?php echo esc_js( esc_html__( 'No reason provided', 'baskerville' ) ); ?>'}</div>
+                                <div class="baskerville-score-reason">${result.classification?.reason||'<?php echo esc_js( esc_html__( 'No reason provided', 'baskerville' ) ); ?>'}</div>
                               </div>
                             `;
                           }
@@ -939,7 +939,7 @@ class Baskerville_Core {
               }
             } catch (e) {
               const el = document.getElementById('fingerprint-data');
-              if (el) el.innerHTML = `<div style="color:#ff6b6b;">Error: ${e.message}</div>`;
+              if (el) el.innerHTML = `<div class="baskerville-score-error"><?php echo esc_js( esc_html__( 'Error:', 'baskerville' ) ); ?> ${e.message}</div>`;
             }
           })();
         })();

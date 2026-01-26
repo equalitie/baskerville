@@ -1,5 +1,29 @@
 /* Baskerville Frontend Styles */
 
+/* ========================================
+   CSS Custom Properties (Variables)
+   For frontend styles - inherits from admin.css when both loaded,
+   otherwise provides fallback values
+   ======================================== */
+:root {
+    /* Status colors */
+    --bsk-color-success-alt: #4CAF50;
+    --bsk-color-danger-bootstrap: #dc3545;
+    --bsk-color-purple-deep: #673AB7;
+    --bsk-color-gray-unknown: #757575;
+    --bsk-color-orange-alt: #FFA500;
+    --bsk-color-sky-blue: #87CEEB;
+    --bsk-color-light-pink: #FFB6C1;
+    --bsk-color-coral: #ff6b6b;
+    --bsk-color-text-lighter: #ccc;
+
+    /* Widget colors */
+    --bsk-color-widget-bg: rgba(0, 0, 0, 0.7);
+    --bsk-color-widget-bg-dark: rgba(0, 0, 0, 0.8);
+    --bsk-color-widget-overlay: rgba(0, 0, 0, 0.2);
+    --bsk-color-bg-white: #fff;
+}
+
 .baskerville-container {
     padding: 20px;
     margin: 20px 0;
@@ -8,4 +32,98 @@
 .baskerville-content {
     font-family: Arial, sans-serif;
     line-height: 1.6;
+}
+
+/* Turnstile widget */
+.cf-turnstile {
+    margin: 10px 0;
+}
+.baskerville-noscript-warning {
+    color: var(--bsk-color-danger-bootstrap);
+}
+
+/* Debug widget styles (fingerprint and score display) */
+.baskerville-fp-widget {
+    position: fixed;
+    top: 80px;
+    left: 10px;
+    background: var(--bsk-color-widget-bg);
+    color: var(--bsk-color-bg-white);
+    padding: 15px;
+    border-radius: 8px;
+    z-index: 9999;
+    max-width: 500px;
+    font-family: monospace;
+    font-size: 12px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.baskerville-fp-widget-title {
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: var(--bsk-color-success-alt);
+}
+.baskerville-fp-widget-close {
+    position: absolute;
+    top: 5px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: var(--bsk-color-bg-white);
+    cursor: pointer;
+    font-size: 16px;
+}
+.baskerville-fp-widget-item {
+    margin-bottom: 6px;
+}
+.baskerville-fp-label-hash { color: var(--bsk-color-orange-alt); }
+.baskerville-fp-label-green { color: var(--bsk-color-success-alt); }
+.baskerville-fp-label-blue { color: var(--bsk-color-sky-blue); }
+.baskerville-fp-label-pink { color: var(--bsk-color-light-pink); }
+
+/* Score widget styles */
+.baskerville-score-widget {
+    position: fixed;
+    top: 80px;
+    right: 10px;
+    background: var(--bsk-color-widget-bg-dark);
+    color: var(--bsk-color-bg-white);
+    padding: 15px;
+    border-radius: 8px;
+    z-index: 9999;
+    min-width: 200px;
+    font-family: monospace;
+    font-size: 14px;
+    border: 2px solid var(--bsk-color-success-alt);
+}
+.baskerville-score-value {
+    font-size: 24px;
+    font-weight: bold;
+}
+.baskerville-score-action {
+    margin-bottom: 6px;
+}
+.baskerville-score-classification {
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    background: var(--bsk-color-widget-overlay);
+    border-radius: 4px;
+}
+.baskerville-score-reason {
+    font-size: 11px;
+    color: var(--bsk-color-text-lighter);
+    margin-top: 2px;
+}
+.baskerville-score-error {
+    color: var(--bsk-color-coral);
+}
+
+/* Honeypot hidden link container */
+.baskerville-honeypot-link {
+    position: absolute;
+    left: -9999px;
+    top: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
 }

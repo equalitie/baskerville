@@ -12,8 +12,8 @@
             var $btn = $(this);
             var $result = $('#import-logs-result');
 
-            $btn.prop('disabled', true).text('Importing...');
-            $result.html('<span class="spinner is-active" style="float:none;margin:0;"></span>');
+            $btn.prop('disabled', true).text(baskervilleAdmin.i18n.importing);
+            $result.html('<span class="spinner is-active baskerville-spinner-inline"></span>');
 
             $.ajax({
                 url: ajaxurl,
@@ -24,19 +24,19 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        $result.html('<span style="color: #46b450;">✓ ' + response.data.message + '</span>');
+                        $result.html('<span class="baskerville-status-success">✓ ' + response.data.message + '</span>');
                         // Reload page after 2 seconds to update stats
                         setTimeout(function() {
                             location.reload();
                         }, 2000);
                     } else {
-                        $result.html('<span style="color: #dc3232;">✗ ' + (response.data.message || 'Import failed') + '</span>');
-                        $btn.prop('disabled', false).text('Import Logs Now');
+                        $result.html('<span class="baskerville-status-error">✗ ' + (response.data.message || baskervilleAdmin.i18n.importFailed) + '</span>');
+                        $btn.prop('disabled', false).text(baskervilleAdmin.i18n.importLogsNow);
                     }
                 },
                 error: function() {
-                    $result.html('<span style="color: #dc3232;">✗ AJAX error occurred</span>');
-                    $btn.prop('disabled', false).text('Import Logs Now');
+                    $result.html('<span class="baskerville-status-error">✗ ' + baskervilleAdmin.i18n.ajaxError + '</span>');
+                    $btn.prop('disabled', false).text(baskervilleAdmin.i18n.importLogsNow);
                 }
             });
         });
