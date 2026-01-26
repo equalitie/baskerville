@@ -473,19 +473,33 @@ class Baskerville_Firewall
 			if ($cnt > $threshold) {
 				$evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
 				$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
+				$cls = $classification['classification'] ?? 'bot';
 
+				// If classified as human, try Turnstile challenge instead of banning
+				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
+					$turnstile = $GLOBALS['baskerville_turnstile'];
+					if ($turnstile->is_enabled()) {
+						if ($turnstile->has_pass_cookie()) {
+							// Already passed Turnstile - allow through, don't ban
+							return;
+						}
+						$turnstile->redirect_to_challenge();
+					}
+				}
+
+				// Not human or Turnstile not available - ban
 				$reason = "no-cookie-burst>{$threshold}/{$window_sec}s";
 				$ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
 
 				$this->set_ban($ip, $reason, $ttl, [
 					'score' => (int)($evaluation['score'] ?? 0),
-					'cls'   => (string)($classification['classification'] ?? 'bot'),
+					'cls'   => (string)$cls,
 				]);
 				$this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
 				$this->send_403_and_exit([
 					'reason' => $reason,
 					'score'  => $evaluation['score'] ?? null,
-					'cls'    => $classification['classification'] ?? null,
+					'cls'    => $cls,
 					'until'  => time() + $ttl,
 				]);
 			}
@@ -502,19 +516,33 @@ class Baskerville_Firewall
 				// Evaluation by server headers (without JS)
 				$evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
 				$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
+				$cls = $classification['classification'] ?? 'unknown';
 
+				// If classified as human, try Turnstile challenge instead of banning
+				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
+					$turnstile = $GLOBALS['baskerville_turnstile'];
+					if ($turnstile->is_enabled()) {
+						if ($turnstile->has_pass_cookie()) {
+							// Already passed Turnstile - allow through, don't ban
+							return;
+						}
+						$turnstile->redirect_to_challenge();
+					}
+				}
+
+				// Not human or Turnstile not available - ban
 				$reason = "nojs-burst>{$threshold}/{$window_sec}s";
 				$ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
 
 				$this->set_ban($ip, $reason, $ttl, [
 					'score' => (int)($evaluation['score'] ?? 0),
-					'cls'   => (string)($classification['classification'] ?? 'unknown'),
+					'cls'   => (string)$cls,
 				]);
 				$this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
 				$this->send_403_and_exit([
 					'reason' => $reason,
 					'score'  => $evaluation['score'] ?? null,
-					'cls'    => $classification['classification'] ?? null,
+					'cls'    => $cls,
 					'until'  => time() + $ttl,
 				]);
 			}
@@ -562,18 +590,33 @@ class Baskerville_Firewall
 			if ($no_cookie && $cnt > $threshold) {
 				$evaluation     = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
 				$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
+				$cls = $classification['classification'] ?? 'bot';
+
+				// If classified as human, try Turnstile challenge instead of banning
+				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
+					$turnstile = $GLOBALS['baskerville_turnstile'];
+					if ($turnstile->is_enabled()) {
+						if ($turnstile->has_pass_cookie()) {
+							// Already passed Turnstile - allow through, don't ban
+							return;
+						}
+						$turnstile->redirect_to_challenge();
+					}
+				}
+
+				// Not human or Turnstile not available - ban
 				$reason         = "nonbrowser-ua-burst>{$threshold}/{$window_sec}s";
 				$ttl            = (int) get_option('baskerville_ban_ttl_sec', 600);
 
 				$this->set_ban($ip, $reason, $ttl, [
 					'score' => (int)($evaluation['score'] ?? 0),
-					'cls'   => (string)($classification['classification'] ?? 'bot'),
+					'cls'   => (string)$cls,
 				]);
 				$this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
 				$this->send_403_and_exit([
 					'reason' => $reason,
 					'score'  => $evaluation['score'] ?? null,
-					'cls'    => $classification['classification'] ?? null,
+					'cls'    => $cls,
 					'until'  => time() + $ttl,
 				]);
 			}
