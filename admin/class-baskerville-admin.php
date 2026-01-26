@@ -504,32 +504,32 @@ class Baskerville_Admin {
 		<fieldset>
 			<legend class="screen-reader-text"><span><?php esc_html_e('Page Visit Logging Mode', 'baskerville'); ?></span></legend>
 
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[log_mode]"
 					   value="disabled"
 					   <?php checked($mode, 'disabled'); ?> />
 				<strong><?php esc_html_e('Disabled', 'baskerville'); ?></strong> -
 				<?php esc_html_e('No page visit logging (blocks & fingerprints still logged)', 'baskerville'); ?>
-				<span style="color: #4CAF50;">⚡ ~0ms overhead</span>
+				<span class="baskerville-text-success"><?php esc_html_e( '⚡ ~0ms overhead', 'baskerville' ); ?></span>
 			</label>
 
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio" name="baskerville_settings[log_mode]" value="file" <?php checked($mode, 'file'); ?> />
 				<strong><?php esc_html_e('File Logging', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Write to log file, batch import to DB every minute', 'baskerville'); ?>
-				<span style="color: #4CAF50;"><?php esc_html_e('⚡ ~1-2ms overhead', 'baskerville'); ?></span>
-				<strong style="color: #2196F3;"><?php esc_html_e('✓ Recommended', 'baskerville'); ?></strong>
+				<span class="baskerville-text-success"><?php esc_html_e('⚡ ~1-2ms overhead', 'baskerville'); ?></span>
+				<strong class="baskerville-text-info"><?php esc_html_e('✓ Recommended', 'baskerville'); ?></strong>
 			</label>
 
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio" name="baskerville_settings[log_mode]" value="database" <?php checked($mode, 'database'); ?> />
 				<strong><?php esc_html_e('Direct Database', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Write to database immediately (high overhead)', 'baskerville'); ?>
-				<span style="color: #ff9800;"><?php esc_html_e('⚠️ ~500ms overhead on shared hosting', 'baskerville'); ?></span>
+				<span class="baskerville-text-warning"><?php esc_html_e('⚠️ ~500ms overhead on shared hosting', 'baskerville'); ?></span>
 			</label>
 
-			<p class="description" style="margin-top: 15px; padding: 10px; background: #f0f0f1; border-left: 4px solid #2196F3;">
+			<p class="description baskerville-alert baskerville-alert-neutral baskerville-alert-xs baskerville-alert-mt">
 				<strong><?php esc_html_e('💡 Recommendation:', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Use <strong>File Logging</strong> for best performance on shared hosting (GoDaddy, Bluehost, etc.)', 'baskerville'); ?><br>
 				<?php esc_html_e('Full analytics with minimal overhead. Logs are processed in background every minute.', 'baskerville'); ?>
@@ -544,7 +544,7 @@ class Baskerville_Admin {
 		$mode = isset($options['geoip_mode']) ? $options['geoip_mode'] : 'allow_all';
 		?>
 		<fieldset>
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[geoip_mode]"
 					   value="allow_all"
@@ -553,7 +553,7 @@ class Baskerville_Admin {
 				<strong><?php esc_html_e('Allow All Countries', 'baskerville'); ?></strong> -
 				<?php esc_html_e('No GeoIP restrictions (allow all countries)', 'baskerville'); ?>
 			</label>
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[geoip_mode]"
 					   value="blacklist"
@@ -562,7 +562,7 @@ class Baskerville_Admin {
 				<strong><?php esc_html_e('Block List', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Block access from specified countries', 'baskerville'); ?>
 			</label>
-			<label style="display: block;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[geoip_mode]"
 					   value="whitelist"
@@ -638,9 +638,8 @@ class Baskerville_Admin {
 		<div>
 			<select name="baskerville_settings[blacklist_countries][]"
 					id="baskerville_blacklist_countries"
-					class="baskerville-country-select"
-					multiple="multiple"
-					style="width: 100%;">
+					class="baskerville-country-select baskerville-input-full"
+					multiple="multiple">
 				<?php foreach ($countries as $code => $name): ?>
 					<option value="<?php echo esc_attr($code); ?>"
 							<?php echo in_array($code, $selected_countries) ? 'selected' : ''; ?>>
@@ -649,9 +648,9 @@ class Baskerville_Admin {
 				<?php endforeach; ?>
 			</select>
 			<p class="description">
-				<strong style="color: #d32f2f;"><?php esc_html_e('Block access from these countries', 'baskerville'); ?></strong><br>
+				<strong class="baskerville-text-danger"><?php esc_html_e('Block access from these countries', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select countries to block. You can select multiple countries.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville'); ?></em><br>
+				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville'); ?></em><br>
 				<strong><?php esc_html_e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
 				<?php if ($geoip_source === 'MaxMind (if configured)'): ?>
 					<br><em><?php esc_html_e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
@@ -681,9 +680,8 @@ class Baskerville_Admin {
 		<div>
 			<select name="baskerville_settings[whitelist_countries][]"
 					id="baskerville_whitelist_countries"
-					class="baskerville-country-select"
-					multiple="multiple"
-					style="width: 100%;">
+					class="baskerville-country-select baskerville-input-full"
+					multiple="multiple">
 				<?php foreach ($countries as $code => $name): ?>
 					<option value="<?php echo esc_attr($code); ?>"
 							<?php echo in_array($code, $selected_countries) ? 'selected' : ''; ?>>
@@ -692,9 +690,9 @@ class Baskerville_Admin {
 				<?php endforeach; ?>
 			</select>
 			<p class="description">
-				<strong style="color: #2271b1;"><?php esc_html_e('Allow access ONLY from these countries', 'baskerville'); ?></strong><br>
+				<strong class="baskerville-text-primary"><?php esc_html_e('Allow access ONLY from these countries', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select countries to allow. You can select multiple countries.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville'); ?></em><br>
+				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville'); ?></em><br>
 				<strong><?php esc_html_e('Current GeoIP source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_source); ?>
 				<?php if ($geoip_source === 'MaxMind (if configured)'): ?>
 					<br><em><?php esc_html_e('To use MaxMind GeoLite2, upload GeoLite2-Country.mmdb to /wp-content/uploads/geoip/', 'baskerville'); ?></em>
@@ -712,7 +710,7 @@ class Baskerville_Admin {
 		$enabled = isset($options['bot_protection_enabled']) ? $options['bot_protection_enabled'] : true;
 		?>
 		<div class="baskerville-toggle-label">
-			<span class="baskerville-toggle-text" style="margin-right: 10px;">
+			<span class="baskerville-toggle-text">
 				<?php esc_html_e('Bot Control', 'baskerville'); ?>
 			</span>
 			<input type="hidden" name="baskerville_settings[bot_protection_enabled]" value="0">
@@ -732,7 +730,7 @@ class Baskerville_Admin {
 		$enabled = isset($options['burst_protection_enabled']) ? $options['burst_protection_enabled'] : true;
 		?>
 		<div class="baskerville-toggle-label">
-			<span class="baskerville-toggle-text" style="margin-right: 10px;">
+			<span class="baskerville-toggle-text">
 				<?php esc_html_e('Burst Protection', 'baskerville'); ?>
 			</span>
 			<input type="hidden" name="baskerville_settings[burst_protection_enabled]" value="0">
@@ -786,7 +784,7 @@ class Baskerville_Admin {
 	public function render_ban_duration_field() {
 		$ban_ttl = (int) get_option('baskerville_ban_ttl_sec', 600);
 		?>
-		<input type="number" name="baskerville_ban_ttl_sec" value="<?php echo esc_attr($ban_ttl); ?>" min="1" max="86400" style="width: 100px;">
+		<input type="number" name="baskerville_ban_ttl_sec" value="<?php echo esc_attr($ban_ttl); ?>" min="1" max="86400" class="baskerville-input-md">
 		<span><?php esc_html_e('seconds', 'baskerville'); ?></span>
 		<p class="description">
 			<?php esc_html_e('How long IP addresses are banned after triggering protection (1-86400 seconds)', 'baskerville'); ?>
@@ -797,7 +795,7 @@ class Baskerville_Admin {
 	public function render_retention_days_field() {
 		$retention = $this->stats->get_retention_days();
 		?>
-		<input type="number" name="baskerville_retention_days" value="<?php echo esc_attr($retention); ?>" min="1" max="365" style="width: 100px;">
+		<input type="number" name="baskerville_retention_days" value="<?php echo esc_attr($retention); ?>" min="1" max="365" class="baskerville-input-md">
 		<span><?php esc_html_e('days', 'baskerville'); ?></span>
 		<p class="description">
 			<?php esc_html_e('Statistics older than this will be automatically deleted (1-365 days)', 'baskerville'); ?>
@@ -826,7 +824,7 @@ class Baskerville_Admin {
 		$mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
 		?>
 		<fieldset>
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[ai_bot_blocking_mode]"
 					   value="allow_all"
@@ -835,16 +833,16 @@ class Baskerville_Admin {
 				<strong><?php esc_html_e('Allow All AI Bots', 'baskerville'); ?></strong> -
 				<?php esc_html_e('No AI bot restrictions (allow all companies)', 'baskerville'); ?>
 			</label>
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[ai_bot_blocking_mode]"
 					   value="block_all"
 					   class="baskerville-aibot-mode-radio"
 					   <?php checked($mode, 'block_all'); ?> />
-				<strong style="color: #d32f2f;"><?php esc_html_e('Block All AI Bots', 'baskerville'); ?></strong> -
+				<strong class="baskerville-text-danger"><?php esc_html_e('Block All AI Bots', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Block all AI bot crawlers (no exceptions)', 'baskerville'); ?>
 			</label>
-			<label style="display: block; margin-bottom: 10px;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[ai_bot_blocking_mode]"
 					   value="blacklist"
@@ -853,7 +851,7 @@ class Baskerville_Admin {
 				<strong><?php esc_html_e('Block List', 'baskerville'); ?></strong> -
 				<?php esc_html_e('Block access from specified companies', 'baskerville'); ?>
 			</label>
-			<label style="display: block;">
+			<label class="baskerville-label-block">
 				<input type="radio"
 					   name="baskerville_settings[ai_bot_blocking_mode]"
 					   value="whitelist"
@@ -918,9 +916,8 @@ class Baskerville_Admin {
 		<div>
 			<select name="baskerville_settings[blacklist_ai_companies][]"
 					id="baskerville_blacklist_ai_companies"
-					class="baskerville-aibot-select"
-					multiple="multiple"
-					style="width: 100%;">
+					class="baskerville-aibot-select baskerville-input-full"
+					multiple="multiple">
 				<?php foreach ($companies as $company): ?>
 					<option value="<?php echo esc_attr($company); ?>"
 							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
@@ -929,9 +926,9 @@ class Baskerville_Admin {
 				<?php endforeach; ?>
 			</select>
 			<p class="description">
-				<strong style="color: #d32f2f;"><?php esc_html_e('Block access from these AI bot companies', 'baskerville'); ?></strong><br>
+				<strong class="baskerville-text-danger"><?php esc_html_e('Block access from these AI bot companies', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select companies to block. You can select multiple companies.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville'); ?></em>
+				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville'); ?></em>
 			</p>
 		</div>
 
@@ -963,9 +960,8 @@ class Baskerville_Admin {
 		<div>
 			<select name="baskerville_settings[whitelist_ai_companies][]"
 					id="baskerville_whitelist_ai_companies"
-					class="baskerville-aibot-select"
-					multiple="multiple"
-					style="width: 100%;">
+					class="baskerville-aibot-select baskerville-input-full"
+					multiple="multiple">
 				<?php foreach ($companies as $company): ?>
 					<option value="<?php echo esc_attr($company); ?>"
 							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
@@ -974,9 +970,9 @@ class Baskerville_Admin {
 				<?php endforeach; ?>
 			</select>
 			<p class="description">
-				<strong style="color: #2271b1;"><?php esc_html_e('Allow access ONLY from these AI bot companies', 'baskerville'); ?></strong><br>
+				<strong class="baskerville-text-primary"><?php esc_html_e('Allow access ONLY from these AI bot companies', 'baskerville'); ?></strong><br>
 				<?php esc_html_e('Search and select companies to allow. You can select multiple companies.', 'baskerville'); ?><br>
-				<em style="color: #999;"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville'); ?></em>
+				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville'); ?></em>
 			</p>
 		</div>
 		<?php
@@ -1818,7 +1814,7 @@ class Baskerville_Admin {
 
 			<?php if (!empty($country_stats)): ?>
 				<!-- Charts Section -->
-				<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+				<div class="baskerville-grid-2">
 					<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 						<canvas id="baskervilleCountryTrafficChart"></canvas>
 					</div>
@@ -2027,37 +2023,37 @@ class Baskerville_Admin {
 		?>
 
 		<!-- Real-time Live Dashboard -->
-		<div class="baskerville-live-dashboard" style="margin-bottom: 40px;">
-			<h2 style="display: flex; align-items: center; gap: 10px;">
-				<span class="dashicons dashicons-visibility" style="font-size: 28px;"></span>
+		<div class="baskerville-live-dashboard">
+			<h2 class="baskerville-dashboard-header">
+				<span class="dashicons dashicons-visibility" ></span>
 				<?php esc_html_e('Live Bot Attack Dashboard', 'baskerville'); ?>
 				<span class="live-indicator" style="display: inline-block; width: 12px; height: 12px; background: #00d084; border-radius: 50%; margin-left: 10px; animation: pulse 2s infinite;"></span>
 			</h2>
 
 			<!-- Live Stats Cards -->
-			<div class="live-stats-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0;">
-				<div class="live-stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🛡️</div>
-					<div class="stat-value" id="blocks-today" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Blocked Today', 'baskerville'); ?></div>
+			<div class="live-stats-grid">
+				<div class="live-stat-card baskerville-gradient-purple">
+					<div class="stat-icon">🛡️</div>
+					<div class="stat-value" id="blocks-today">...</div>
+					<div class="stat-label"><?php esc_html_e('Blocked Today', 'baskerville'); ?></div>
 				</div>
 
-				<div class="live-stat-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">⚡</div>
-					<div class="stat-value" id="blocks-hour" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Blocked Last Hour', 'baskerville'); ?></div>
+				<div class="live-stat-card baskerville-gradient-pink">
+					<div class="stat-icon">⚡</div>
+					<div class="stat-value" id="blocks-hour">...</div>
+					<div class="stat-label"><?php esc_html_e('Blocked Last Hour', 'baskerville'); ?></div>
 				</div>
 
-				<div class="live-stat-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-					<div class="stat-icon" style="font-size: 36px; margin-bottom: 10px;">🌍</div>
-					<div class="stat-value" id="top-country" style="font-size: 32px; font-weight: 700;">...</div>
-					<div class="stat-label" style="font-size: 13px; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 6px;"><?php esc_html_e('Top Country Blocked', 'baskerville'); ?></div>
+				<div class="live-stat-card baskerville-gradient-blue">
+					<div class="stat-icon">🌍</div>
+					<div class="stat-value" id="top-country">...</div>
+					<div class="stat-label"><?php esc_html_e('Top Country Blocked', 'baskerville'); ?></div>
 				</div>
 			</div>
 
 			<!-- Live Feed -->
-			<div class="live-feed-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 30px;">
-				<div class="live-feed" style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); max-height: 600px; overflow-y: auto;">
+			<div class="live-feed-container">
+				<div class="live-feed">
 					<h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
 						<span class="dashicons dashicons-admin-site"></span>
 						<?php esc_html_e('Live Feed', 'baskerville'); ?>
@@ -2071,7 +2067,7 @@ class Baskerville_Admin {
 					</div>
 				</div>
 
-				<div class="top-attackers" style="background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+				<div class="top-attackers">
 					<h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
 						<span class="dashicons dashicons-warning"></span>
 						<?php esc_html_e('Top Attackers', 'baskerville'); ?>
@@ -2526,8 +2522,8 @@ class Baskerville_Admin {
 			$log_mode = isset($options['log_mode']) ? $options['log_mode'] : 'database';
 			?>
 			<?php if ($log_mode === 'database'): ?>
-			<div class="notice notice-success inline" style="margin: 20px 0; padding: 15px;">
-				<h3 style="margin-top: 0;">
+			<div class="notice notice-success inline baskerville-notice">
+				<h3 class="baskerville-section-title">
 					<span class="dashicons dashicons-database"></span>
 					<?php esc_html_e('Logging Status', 'baskerville'); ?>
 				</h3>
@@ -2570,27 +2566,27 @@ class Baskerville_Admin {
 					$cron_message = '⚠️ ' . esc_html__( 'Many pending files - cron might not be running frequently.', 'baskerville' );
 				}
 			?>
-			<div class="notice notice-<?php echo $cron_health === 'good' ? 'info' : ($cron_health === 'error' ? 'error' : 'warning'); ?> inline" style="margin: 20px 0; padding: 15px;">
-				<h3 style="margin-top: 0;">
+			<div class="notice notice-<?php echo $cron_health === 'good' ? 'info' : ($cron_health === 'error' ? 'error' : 'warning'); ?> inline baskerville-notice">
+				<h3 class="baskerville-section-title">
 					<span class="dashicons dashicons-database-import"></span>
 					<?php esc_html_e('Log File Import Status', 'baskerville'); ?>
 				</h3>
 				<table style="margin: 10px 0;">
 					<tr>
 						<td><strong><?php esc_html_e('Logging Mode:', 'baskerville'); ?></strong></td>
-						<td style="padding-left: 15px;">File logging (for performance)</td>
+						<td class="baskerville-td-padded">File logging (for performance)</td>
 					</tr>
 					<tr>
 						<td><strong><?php esc_html_e('Pending log files:', 'baskerville'); ?></strong></td>
-						<td style="padding-left: 15px;"><?php echo esc_html($pending_files); ?></td>
+						<td class="baskerville-td-padded"><?php echo esc_html($pending_files); ?></td>
 					</tr>
 					<tr>
 						<td><strong><?php esc_html_e('Last import:', 'baskerville'); ?></strong></td>
-						<td style="padding-left: 15px;"><?php echo esc_html($last_import_time); ?></td>
+						<td class="baskerville-td-padded"><?php echo esc_html($last_import_time); ?></td>
 					</tr>
 					<tr>
 						<td><strong><?php esc_html_e('WP-Cron status:', 'baskerville'); ?></strong></td>
-						<td style="padding-left: 15px;">
+						<td class="baskerville-td-padded">
 							<?php if ($wp_cron_disabled): ?>
 								<span style="color: #d63638;">❌ Disabled (DISABLE_WP_CRON=true)</span>
 							<?php else: ?>
@@ -2601,7 +2597,7 @@ class Baskerville_Admin {
 					<?php if ($next_cron): ?>
 					<tr>
 						<td><strong><?php esc_html_e('Next auto-import:', 'baskerville'); ?></strong></td>
-						<td style="padding-left: 15px;"><?php echo esc_html(human_time_diff($next_cron, time())); ?> from now</td>
+						<td class="baskerville-td-padded"><?php echo esc_html(human_time_diff($next_cron, time())); ?> from now</td>
 					</tr>
 					<?php endif; ?>
 				</table>
@@ -2629,8 +2625,8 @@ class Baskerville_Admin {
 				</p>
 			</div>
 			<?php elseif ($log_mode === 'disabled'): ?>
-			<div class="notice notice-warning inline" style="margin: 20px 0; padding: 15px;">
-				<h3 style="margin-top: 0;">
+			<div class="notice notice-warning inline baskerville-notice">
+				<h3 class="baskerville-section-title">
 					<span class="dashicons dashicons-warning"></span>
 					<?php esc_html_e('Logging Status', 'baskerville'); ?>
 				</h3>
@@ -2693,7 +2689,7 @@ class Baskerville_Admin {
 			<div class="notice notice-error">
 				<p><strong>Error loading AI bots data:</strong></p>
 				<p><?php echo esc_html($e->getMessage()); ?></p>
-				<pre style="background: #f0f0f0; padding: 10px; overflow: auto;"><?php echo esc_html($e->getTraceAsString()); ?></pre>
+				<pre class="baskerville-pre"><?php echo esc_html($e->getTraceAsString()); ?></pre>
 			</div>
 			<?php
 			return;
@@ -2704,7 +2700,7 @@ class Baskerville_Admin {
 			<div class="notice notice-error">
 				<p><strong>Fatal error loading AI bots data:</strong></p>
 				<p><?php echo esc_html($e->getMessage()); ?></p>
-				<pre style="background: #f0f0f0; padding: 10px; overflow: auto;"><?php echo esc_html($e->getTraceAsString()); ?></pre>
+				<pre class="baskerville-pre"><?php echo esc_html($e->getTraceAsString()); ?></pre>
 			</div>
 			<?php
 			return;
@@ -2717,14 +2713,14 @@ class Baskerville_Admin {
 		$has_data = !empty($data['companies']) && count($data['companies']) > 0;
 		?>
 
-		<div class="baskerville-ai-bots-dashboard" style="margin-top: 20px;">
-			<h2 style="display: flex; align-items: center; gap: 10px;">
-				<span class="dashicons dashicons-chart-bar" style="font-size: 28px;"></span>
+		<div class="baskerville-ai-bots-dashboard">
+			<h2 class="baskerville-dashboard-header">
+				<span class="dashicons dashicons-chart-bar" ></span>
 				<?php esc_html_e('AI Bots Activity', 'baskerville'); ?>
 			</h2>
 
 			<!-- Period Selection Buttons -->
-			<div class="period-buttons" style="margin: 20px 0; display: flex; gap: 10px;">
+			<div class="period-buttons">
 				<a href="<?php echo esc_url($base_url . '&period=12h'); ?>"
 				   class="button <?php echo $period === '12h' ? 'button-primary' : ''; ?>">
 					<?php esc_html_e('12h', 'baskerville'); ?>
@@ -2750,8 +2746,8 @@ class Baskerville_Admin {
 			<?php else: ?>
 
 			<!-- Chart Container -->
-			<div class="chart-container" style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 30px;">
-				<canvas id="aiBotsChart" style="max-height: 400px;"></canvas>
+			<div class="chart-container">
+				<canvas id="aiBotsChart"></canvas>
 			</div>
 
 			<script>
@@ -3089,7 +3085,7 @@ class Baskerville_Admin {
 							<?php if (!empty($blacklist_countries)): ?>
 								<code><?php echo esc_html($blacklist_countries); ?></code>
 							<?php else: ?>
-								<em style="color: #999;"><?php esc_html_e('(empty - no countries in block list)', 'baskerville'); ?></em>
+								<em class="baskerville-text-muted"><?php esc_html_e('(empty - no countries in block list)', 'baskerville'); ?></em>
 							<?php endif; ?>
 						</td>
 					</tr>
@@ -3101,7 +3097,7 @@ class Baskerville_Admin {
 							<?php if (!empty($whitelist_countries)): ?>
 								<code><?php echo esc_html($whitelist_countries); ?></code>
 							<?php else: ?>
-								<em style="color: #999;"><?php esc_html_e('(empty - all countries blocked)', 'baskerville'); ?></em>
+								<em class="baskerville-text-muted"><?php esc_html_e('(empty - all countries blocked)', 'baskerville'); ?></em>
 							<?php endif; ?>
 						</td>
 					</tr>
@@ -3110,9 +3106,9 @@ class Baskerville_Admin {
 						<td style="font-weight: bold;"><?php esc_html_e('IP in Allow List?', 'baskerville'); ?></td>
 						<td>
 							<?php if ($is_whitelisted): ?>
-								<span style="color: #46b450; font-weight: bold;">✓ YES (bypasses all protection)</span>
+								<span style="color: #46b450; font-weight: bold;"><?php esc_html_e( '✓ YES (bypasses all protection)', 'baskerville' ); ?></span>
 							<?php else: ?>
-								<span style="color: #999;">NO</span>
+								<span class="baskerville-text-muted"><?php esc_html_e( 'NO', 'baskerville' ); ?></span>
 							<?php endif; ?>
 						</td>
 					</tr>
@@ -3126,7 +3122,7 @@ class Baskerville_Admin {
 						echo 'background: #ffebee; border: 2px solid #f44336;';
 					}
 				?>">
-					<h3 style="margin-top: 0;">
+					<h3 class="baskerville-section-title">
 						<?php if ($is_whitelisted): ?>
 							✅ <span style="color: #2e7d32;"><?php esc_html_e('ALLOWED', 'baskerville'); ?></span>
 						<?php elseif (!$detected_country): ?>
@@ -3162,7 +3158,7 @@ class Baskerville_Admin {
 			</div>
 
 			<?php if ($error): ?>
-				<div style="background: #ffebee; border-left: 4px solid #d32f2f; padding: 20px; margin-top: 20px;">
+				<div class="baskerville-alert baskerville-alert-danger baskerville-alert-xl baskerville-alert-mt-lg">
 					<h3 style="color: #d32f2f; margin-top: 0;">❌ <?php esc_html_e('Error', 'baskerville'); ?></h3>
 					<p><strong><?php esc_html_e('Critical error occurred:', 'baskerville'); ?></strong></p>
 					<pre style="background: #fff; padding: 15px; border: 1px solid #ddd; overflow-x: auto; font-size: 12px;"><?php echo esc_html($error); ?></pre>
@@ -3312,7 +3308,7 @@ class Baskerville_Admin {
 					// Provide specific help based on diagnostics
 					if (!$results['maxmind_debug']['file_exists']):
 					?>
-						<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
+						<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-mt">
 							<strong>⚠️ <?php esc_html_e('Database file not found!', 'baskerville'); ?></strong><br>
 							<?php esc_html_e('Please upload GeoLite2-Country.mmdb to:', 'baskerville'); ?><br>
 							<code style="display: block; margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd;">
@@ -3322,7 +3318,7 @@ class Baskerville_Admin {
 							<a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank">MaxMind GeoLite2</a>
 						</div>
 					<?php elseif (!$results['maxmind_debug']['is_readable']): ?>
-						<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
+						<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-mt">
 							<strong>⚠️ <?php esc_html_e('Database file exists but is not readable!', 'baskerville'); ?></strong><br>
 							<?php esc_html_e('Check file permissions. Try:', 'baskerville'); ?><br>
 							<code style="display: block; margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd;">
@@ -3330,7 +3326,7 @@ class Baskerville_Admin {
 							</code>
 						</div>
 					<?php elseif (!$results['maxmind_debug']['autoload_exists']): ?>
-						<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
+						<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-mt">
 							<strong>⚠️ <?php esc_html_e('MaxMind PHP library not installed!', 'baskerville'); ?></strong><br>
 							<?php esc_html_e('Click the button below to install automatically (no Composer required):', 'baskerville'); ?><br>
 
@@ -3393,7 +3389,7 @@ class Baskerville_Admin {
 						});
 						</script>
 					<?php elseif ($results['maxmind_debug']['file_size'] == 0): ?>
-						<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin-top: 15px;">
+						<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-mt">
 							<strong>⚠️ <?php esc_html_e('Database file is empty (0 bytes)!', 'baskerville'); ?></strong><br>
 							<?php esc_html_e('The file exists but has no data. Please re-download and upload the database.', 'baskerville'); ?>
 						</div>
@@ -3708,7 +3704,7 @@ class Baskerville_Admin {
 								<th scope="row"></th>
 								<td>
 									<div class="baskerville-toggle-label">
-										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+										<span class="baskerville-toggle-text">
 											<?php esc_html_e('Bot Control', 'baskerville'); ?>
 										</span>
 										<input type="hidden" name="baskerville_settings[bot_protection_enabled]" value="0">
@@ -3760,7 +3756,7 @@ class Baskerville_Admin {
 							<tr>
 								<th scope="row"><?php esc_html_e('Instant Ban Threshold', 'baskerville'); ?></th>
 								<td>
-									<input type="number" name="baskerville_settings[instant_ban_threshold]" value="<?php echo esc_attr($instant_ban_threshold); ?>" min="0" max="100" step="5" style="width: 80px;" />
+									<input type="number" name="baskerville_settings[instant_ban_threshold]" value="<?php echo esc_attr($instant_ban_threshold); ?>" min="0" max="100" step="5" class="baskerville-input-sm" />
 									<p class="description">
 										<?php esc_html_e('Bot score threshold for immediate ban (without waiting for burst). Default: 85.', 'baskerville'); ?><br>
 										<?php esc_html_e('Visitors with score ≥ this value AND non-browser User-Agent will be banned instantly on first request.', 'baskerville'); ?><br><br>
@@ -3798,7 +3794,7 @@ class Baskerville_Admin {
 								<th scope="row"></th>
 								<td>
 									<div class="baskerville-toggle-label">
-										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+										<span class="baskerville-toggle-text">
 											<?php esc_html_e('AI Bot Control', 'baskerville'); ?>
 										</span>
 										<input type="hidden" name="baskerville_settings[ai_bot_control_enabled]" value="0">
@@ -3837,7 +3833,7 @@ class Baskerville_Admin {
 
 						<!-- GeoIP Source Status Banner -->
 						<?php if ($geoip_status['available']): ?>
-						<div style="margin: 20px 0; padding: 15px 20px; background: #d4edda; border-left: 4px solid #28a745; display: flex; align-items: center; gap: 15px;">
+						<div class="baskerville-alert baskerville-alert-success baskerville-alert-lg baskerville-alert-my-lg baskerville-alert-flex">
 							<span style="font-size: 24px;">&#127760;</span>
 							<div>
 								<strong><?php esc_html_e('GeoIP Source:', 'baskerville'); ?></strong> <?php echo esc_html($geoip_status['source']); ?>
@@ -3850,7 +3846,7 @@ class Baskerville_Admin {
 							</div>
 						</div>
 						<?php else: ?>
-						<div style="margin: 20px 0; padding: 15px 20px; background: #fff3cd; border-left: 4px solid #ffc107; display: flex; align-items: center; gap: 15px;">
+						<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-my-lg baskerville-alert-flex">
 							<span style="font-size: 24px;">&#9888;</span>
 							<div>
 								<strong style="color: #856404;"><?php esc_html_e('No GeoIP source configured!', 'baskerville'); ?></strong><br>
@@ -3879,7 +3875,7 @@ class Baskerville_Admin {
 								<th scope="row"></th>
 								<td>
 									<div class="baskerville-toggle-label">
-										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+										<span class="baskerville-toggle-text">
 											<?php esc_html_e('Country Control', 'baskerville'); ?>
 										</span>
 										<input type="hidden" name="baskerville_settings[geoip_enabled]" value="0">
@@ -3926,7 +3922,7 @@ class Baskerville_Admin {
 								<th scope="row"></th>
 								<td>
 									<div class="baskerville-toggle-label">
-										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+										<span class="baskerville-toggle-text">
 											<?php esc_html_e('Burst Protection', 'baskerville'); ?>
 										</span>
 										<input type="hidden" name="baskerville_settings[burst_protection_enabled]" value="0">
@@ -3970,7 +3966,7 @@ class Baskerville_Admin {
 								<th scope="row"></th>
 								<td>
 									<div class="baskerville-toggle-label">
-										<span class="baskerville-toggle-text" style="margin-right: 10px;">
+										<span class="baskerville-toggle-text">
 											<?php esc_html_e('Rate Limits', 'baskerville'); ?>
 										</span>
 										<input type="hidden" name="baskerville_settings[api_rate_limit_enabled]" value="0">
@@ -4198,7 +4194,7 @@ class Baskerville_Admin {
 					<th scope="row"></th>
 					<td>
 						<div class="baskerville-toggle-label">
-							<span class="baskerville-toggle-text" style="margin-right: 10px;">
+							<span class="baskerville-toggle-text">
 								<?php esc_html_e('Cloudflare Turnstile', 'baskerville'); ?>
 							</span>
 							<input type="hidden" name="baskerville_settings[turnstile_enabled]" value="0">
@@ -4223,7 +4219,7 @@ class Baskerville_Admin {
 
 			<!-- Bot Score Challenge Settings -->
 			<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; margin: 20px 0;">
-				<h3 style="margin-top: 0;"><?php esc_html_e('Bot Score Challenge', 'baskerville'); ?></h3>
+				<h3 class="baskerville-section-title"><?php esc_html_e('Bot Score Challenge', 'baskerville'); ?></h3>
 				<p class="description">
 					<?php esc_html_e('Show Turnstile challenge to visitors with borderline bot scores instead of blocking them outright.', 'baskerville'); ?>
 				</p>
@@ -4271,7 +4267,7 @@ class Baskerville_Admin {
 								   min="0"
 								   max="100"
 								   step="1"
-								   style="width: 70px;"
+								   class="baskerville-input-xs"
 								   <?php disabled($is_disabled, true); ?>
 							/>
 							<span style="margin: 0 10px;"><?php esc_html_e('to', 'baskerville'); ?></span>
@@ -4281,7 +4277,7 @@ class Baskerville_Admin {
 								   min="0"
 								   max="100"
 								   step="1"
-								   style="width: 70px;"
+								   class="baskerville-input-xs"
 								   <?php disabled($is_disabled, true); ?>
 							/>
 							<p class="description">
@@ -4333,7 +4329,7 @@ class Baskerville_Admin {
 
 			<!-- Cloudflare Turnstile Configuration (API Keys) -->
 			<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; margin: 20px 0;">
-				<h3 style="margin-top: 0;"><?php esc_html_e('Cloudflare Turnstile Configuration', 'baskerville'); ?></h3>
+				<h3 class="baskerville-section-title"><?php esc_html_e('Cloudflare Turnstile Configuration', 'baskerville'); ?></h3>
 				<p class="description">
 					<?php
 					printf(
@@ -4381,10 +4377,10 @@ class Baskerville_Admin {
 
 		<!-- Turnstile Widget Test -->
 		<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; margin: 20px 0;">
-			<h3 style="margin-top: 0;"><?php esc_html_e('Widget Test', 'baskerville'); ?></h3>
+			<h3 class="baskerville-section-title"><?php esc_html_e('Widget Test', 'baskerville'); ?></h3>
 
 			<?php if (empty($site_key)): ?>
-				<div style="padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107;">
+				<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-no-margin">
 					<strong><?php esc_html_e('Site Key not configured', 'baskerville'); ?></strong><br>
 					<?php esc_html_e('Enter your Turnstile Site Key above and save to test the widget.', 'baskerville'); ?>
 				</div>
@@ -4447,12 +4443,12 @@ class Baskerville_Admin {
 		?>
 
 		<h2 style="display: flex; align-items: center; gap: 10px; margin-top: 20px;">
-			<span class="dashicons dashicons-chart-area" style="font-size: 28px;"></span>
+			<span class="dashicons dashicons-chart-area" ></span>
 			<?php esc_html_e('Traffic Analytics', 'baskerville'); ?>
 		</h2>
 
 		<!-- Period Selection Buttons -->
-		<div class="period-buttons" style="margin: 20px 0; display: flex; gap: 10px;">
+		<div class="period-buttons">
 			<a href="<?php echo esc_url($base_url . '&period=12h'); ?>"
 			   class="button <?php echo $period === '12h' ? 'button-primary' : ''; ?>">
 				<?php esc_html_e('12h', 'baskerville'); ?>
@@ -4480,7 +4476,7 @@ class Baskerville_Admin {
 			?>
 
 			<!-- Key Metrics -->
-			<div class="baskerville-key-metrics" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0;">
+			<div class="baskerville-key-metrics">
 				<!-- Block Rate -->
 				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 					<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
@@ -4539,7 +4535,7 @@ class Baskerville_Admin {
 				</div>
 			</div>
 
-			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+			<div class="baskerville-charts-container">
 				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 					<canvas id="baskervilleHumAutoBar"></canvas>
 				</div>
@@ -4549,7 +4545,7 @@ class Baskerville_Admin {
 			</div>
 
 			<!-- Bot Types Charts -->
-			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+			<div class="baskerville-charts-container">
 				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 					<canvas id="baskervilleBotTypesBar"></canvas>
 				</div>
@@ -4559,7 +4555,7 @@ class Baskerville_Admin {
 			</div>
 
 			<!-- Turnstile Precision Charts -->
-			<div class="baskerville-charts-container" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px;">
+			<div class="baskerville-charts-container">
 				<div style="background: #fff; padding: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 					<canvas id="baskervilleTurnstileBar"></canvas>
 				</div>
@@ -5040,7 +5036,7 @@ class Baskerville_Admin {
 			<div class="card" style="max-width: 800px; margin: 20px 0;">
 				<p><?php esc_html_e('IP addresses in the Allow List bypass all firewall checks and will never be blocked by Baskerville.', 'baskerville'); ?></p>
 
-				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
+				<div class="baskerville-alert baskerville-alert-warning baskerville-alert-sm">
 					<strong><?php esc_html_e('Your Current IP:', 'baskerville'); ?></strong>
 					<code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px; font-size: 14px;"><?php echo esc_html($current_ip); ?></code>
 
@@ -5133,7 +5129,7 @@ class Baskerville_Admin {
 					<li><strong><?php esc_html_e('API Clients:', 'baskerville'); ?></strong> <?php esc_html_e('Add IPs of your API consumers', 'baskerville'); ?></li>
 				</ul>
 
-				<div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 12px; margin-top: 15px;">
+				<div class="baskerville-alert baskerville-alert-info baskerville-alert-sm baskerville-alert-mt">
 					<strong>💡 <?php esc_html_e('Tip:', 'baskerville'); ?></strong>
 					<?php esc_html_e('IPs in the Allow List completely bypass the firewall. For better security, consider using GeoIP Allow List or verified crawler detection instead when possible.', 'baskerville'); ?>
 				</div>
@@ -5231,7 +5227,7 @@ class Baskerville_Admin {
 				<p><?php esc_html_e('Test with firewall BYPASSED (shows minimum overhead):', 'baskerville'); ?></p>
 				<p><?php esc_html_e('Go to IP Allow List tab → Click "Add My IP" button → Run your tests', 'baskerville'); ?></p>
 
-				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
+				<div class="baskerville-alert baskerville-alert-warning baskerville-alert-sm">
 					<strong><?php esc_html_e('Your Current IP:', 'baskerville'); ?></strong>
 					<code style="background: #f5f5f5; padding: 4px 8px; border-radius: 3px; font-size: 14px; margin-left: 5px;">
 						<?php
@@ -5298,12 +5294,12 @@ done
 					</tbody>
 				</table>
 
-				<div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 12px; margin-top: 15px;">
+				<div class="baskerville-alert baskerville-alert-info baskerville-alert-sm baskerville-alert-mt">
 					<strong>💡 <?php esc_html_e('Recommendation:', 'baskerville'); ?></strong>
 					<?php esc_html_e('Use <strong>File Logging</strong> mode (default) for production. It provides full analytics with minimal overhead (~5%), perfect for shared hosting.', 'baskerville'); ?>
 				</div>
 
-				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-top: 15px;">
+				<div class="baskerville-alert baskerville-alert-warning baskerville-alert-sm baskerville-alert-mt">
 					<strong>⚠️ <?php esc_html_e('Note:', 'baskerville'); ?></strong>
 					<?php esc_html_e('Absolute response times vary by server, but overhead percentage is consistent. Focus on the % difference, not absolute milliseconds.', 'baskerville'); ?>
 				</div>
@@ -5397,7 +5393,7 @@ done
 
 				<h4><?php esc_html_e('Detection Methods:', 'baskerville'); ?></h4>
 
-				<div style="background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 4px;">
+				<div class="baskerville-card">
 					<strong>1. <?php esc_html_e('Content-Type Headers:', 'baskerville'); ?></strong>
 					<p style="margin: 8px 0 0 20px; color: #555;">
 						<code>application/json</code>, <code>application/xml</code>, <code>application/graphql</code>,
@@ -5405,7 +5401,7 @@ done
 					</p>
 				</div>
 
-				<div style="background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 4px;">
+				<div class="baskerville-card">
 					<strong>2. <?php esc_html_e('URL Patterns:', 'baskerville'); ?></strong>
 					<p style="margin: 8px 0 0 20px; color: #555;">
 						<code>/api/</code>, <code>/v1/</code>, <code>/v2/</code>, <code>/v3/</code>,
@@ -5415,14 +5411,14 @@ done
 					</p>
 				</div>
 
-				<div style="background: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 4px;">
+				<div class="baskerville-card">
 					<strong>3. <?php esc_html_e('Accept Headers:', 'baskerville'); ?></strong>
 					<p style="margin: 8px 0 0 20px; color: #555;">
 						<?php esc_html_e('Requests with Accept header requesting JSON or XML format', 'baskerville'); ?>
 					</p>
 				</div>
 
-				<div style="background: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 15px 0;">
+				<div class="baskerville-alert baskerville-alert-success baskerville-alert-lg">
 					<strong>✓ <?php esc_html_e('What happens to API requests:', 'baskerville'); ?></strong>
 					<ul style="margin: 10px 0 0 20px;">
 						<li><?php esc_html_e('Bypass all firewall rules (GeoIP, burst protection, bot detection)', 'baskerville'); ?></li>
@@ -5437,7 +5433,7 @@ done
 			<div class="card" style="max-width: 1000px; margin: 20px 0;">
 				<h3><?php esc_html_e('API Rate Limiting', 'baskerville'); ?></h3>
 
-				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0;">
+				<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg">
 					<strong><?php esc_html_e('How Rate Limiting Works:', 'baskerville'); ?></strong>
 					<p style="margin: 8px 0;">
 						<?php esc_html_e('Rate limiting counts requests per IP address in a sliding time window. When the limit is exceeded, API requests receive HTTP 429 (Too Many Requests) with a Retry-After header.', 'baskerville'); ?>
@@ -5513,7 +5509,7 @@ done
 					</tr>
 				</table>
 
-				<div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 15px; margin: 15px 0;">
+				<div class="baskerville-alert baskerville-alert-info baskerville-alert-lg">
 					<strong><?php esc_html_e('Current Configuration:', 'baskerville'); ?></strong>
 					<?php if ($rate_limit_enabled): ?>
 						<p style="margin: 5px 0 0 0;">
@@ -5533,7 +5529,7 @@ done
 					<?php endif; ?>
 				</div>
 
-				<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0;">
+				<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg">
 					<strong>💡 <?php esc_html_e('Recommended Settings:', 'baskerville'); ?></strong>
 					<ul style="margin: 10px 0;">
 						<li><strong><?php esc_html_e('Low Traffic:', 'baskerville'); ?></strong> 100 requests/60s</li>
@@ -5869,7 +5865,7 @@ done
 		$ban_ttl = (int) get_option('baskerville_ban_ttl_sec', 600);
 		?>
 
-		<div style="background: #f0f6fc; border-left: 4px solid #0078d4; padding: 15px; margin: 15px 0;">
+		<div class="baskerville-alert baskerville-alert-info baskerville-alert-lg">
 			<h4 style="margin-top: 0;"><?php esc_html_e('What is Burst Protection?', 'baskerville'); ?></h4>
 			<p><?php esc_html_e('Burst protection prevents abuse by blocking IPs that make too many requests too quickly. When the Master Switch is ON, burst protection will automatically block suspicious traffic patterns.', 'baskerville'); ?></p>
 
@@ -5916,7 +5912,7 @@ done
 				</tbody>
 			</table>
 
-			<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 15px 0;">
+			<div class="baskerville-alert baskerville-alert-warning baskerville-alert-sm">
 				<strong>💡 <?php esc_html_e('How it works:', 'baskerville'); ?></strong>
 				<ul style="margin: 8px 0;">
 					<li><?php esc_html_e('Each burst type is counted separately per IP address', 'baskerville'); ?></li>

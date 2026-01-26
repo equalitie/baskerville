@@ -1,5 +1,276 @@
 /* Baskerville Admin Styles */
 
+/* Labels for radio/checkbox groups - higher specificity to override WP defaults */
+.form-table td fieldset label.baskerville-label-block,
+fieldset label.baskerville-label-block,
+label.baskerville-label-block {
+    display: block !important;
+    margin: 0 0 10px 0 !important;
+}
+.form-table td fieldset label.baskerville-label-block:last-child,
+fieldset label.baskerville-label-block:last-child,
+label.baskerville-label-block:last-child {
+    margin-bottom: 0 !important;
+}
+
+/* Text color utilities */
+.baskerville-text-success { color: #4CAF50; }
+.baskerville-text-info { color: #2196F3; }
+.baskerville-text-warning { color: #ff9800; }
+.baskerville-text-danger { color: #d32f2f; }
+.baskerville-text-muted { color: #999; }
+.baskerville-text-primary { color: #2271b1; }
+
+/* Alert boxes */
+.baskerville-alert {
+    border-left: 4px solid;
+    padding: 12px 15px;
+    margin: 15px 0;
+}
+.baskerville-alert-xs {
+    padding: 10px;
+}
+.baskerville-alert-sm {
+    padding: 12px;
+}
+.baskerville-alert-lg {
+    padding: 15px 20px;
+}
+.baskerville-alert-mt {
+    margin: 0;
+    margin-top: 15px;
+}
+.baskerville-alert-my-lg {
+    margin: 20px 0;
+}
+.baskerville-alert-no-margin {
+    margin: 0;
+}
+.baskerville-alert-xl {
+    padding: 20px;
+}
+.baskerville-alert-mt-lg {
+    margin: 0;
+    margin-top: 20px;
+}
+.baskerville-alert-flex {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+.baskerville-alert-info {
+    background: #f0f6fc;
+    border-left-color: #0078d4;
+}
+.baskerville-alert-warning {
+    background: #fff3cd;
+    border-left-color: #ffc107;
+}
+.baskerville-alert-danger {
+    background: #ffebee;
+    border-left-color: #d32f2f;
+}
+.baskerville-alert-success {
+    background: #d4edda;
+    border-left-color: #28a745;
+}
+.baskerville-alert-neutral {
+    background: #f0f0f1;
+    border-left-color: #2196F3;
+}
+
+/* Card boxes */
+.baskerville-card {
+    background: #f8f9fa;
+    padding: 15px;
+    margin: 15px 0;
+    border-radius: 4px;
+}
+
+/* Input width utilities */
+.baskerville-input-xs { width: 70px; }
+.baskerville-input-sm { width: 80px; }
+.baskerville-input-md { width: 100px; }
+.baskerville-input-full { width: 100%; }
+
+/* Toggle text */
+.baskerville-toggle-text {
+    margin-right: 10px;
+}
+
+/* Grid layouts */
+.baskerville-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+.baskerville-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin: 20px 0;
+}
+.baskerville-grid-2-1 {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+.live-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin: 20px 0;
+}
+.live-feed-container {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-top: 30px;
+}
+.baskerville-key-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin: 20px 0;
+}
+.baskerville-charts-container {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+/* Live stat cards */
+.live-stat-card {
+    color: #fff;
+    padding: 25px;
+    line-height: 1;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.live-stat-card.baskerville-gradient-purple {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+.live-stat-card.baskerville-gradient-pink {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+.live-stat-card.baskerville-gradient-blue {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+.live-stat-card .stat-icon {
+    font-size: 36px;
+    margin-bottom: 10px;
+}
+.live-stat-card .stat-value {
+    font-size: 32px;
+    font-weight: 700;
+}
+.live-stat-card .stat-label {
+    font-size: 13px;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 6px;
+}
+
+/* Live feed */
+.live-feed {
+    background: #fff;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    max-height: 600px;
+    overflow-y: auto;
+}
+.top-attackers {
+    background: #fff;
+    padding: 25px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Notice box enhancements */
+.baskerville-notice {
+    margin: 20px 0;
+    padding: 15px;
+}
+.baskerville-notice h3,
+h3.baskerville-section-title {
+    margin-top: 0;
+}
+
+/* Period buttons */
+.baskerville-period-buttons,
+.period-buttons {
+    margin: 20px 0;
+    display: flex;
+    gap: 10px;
+}
+
+/* Dashboard header */
+.baskerville-dashboard-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.baskerville-dashboard-header .dashicons {
+    font-size: 28px;
+    width: 28px;
+    height: 28px;
+}
+
+/* Dashboard container */
+.baskerville-live-dashboard {
+    margin-bottom: 40px;
+}
+.baskerville-ai-bots-dashboard {
+    margin-top: 20px;
+}
+
+/* Chart container */
+.baskerville-chart-box,
+.chart-container {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    margin-bottom: 30px;
+}
+.baskerville-chart-box canvas,
+.chart-container canvas {
+    max-height: 400px;
+}
+
+/* Table utilities */
+.baskerville-td-label {
+    font-weight: bold;
+}
+.baskerville-td-padded {
+    padding-left: 15px;
+}
+.baskerville-debug-table td {
+    padding: 8px;
+}
+.baskerville-debug-table td:first-child {
+    font-weight: bold;
+    width: 200px;
+}
+.baskerville-debug-table tr:nth-child(even) {
+    background: #f9f9f9;
+}
+.baskerville-debug-table tr {
+    border-bottom: 1px solid #ddd;
+}
+
+/* Pre code blocks */
+.baskerville-pre {
+    background: #f0f0f0;
+    padding: 10px;
+    overflow: auto;
+}
+
 .baskerville-admin-container {
     max-width: 800px;
     margin: 20px 0;

@@ -97,7 +97,11 @@ class Baskerville_Honeypot {
 
 		// Build reason with company name if known AI bot
 		$reason = $company
-			? sprintf(esc_html__('Honeypot triggered: accessed hidden link (%s)', 'baskerville'), $company)
+			? sprintf(
+				/* translators: %s: Company name that accessed the hidden honeypot link. */
+				esc_html__('Honeypot triggered: accessed hidden link (%s)', 'baskerville'),
+				$company
+			)
 			: esc_html__('Honeypot triggered: accessed hidden link', 'baskerville');
 
 		$classification = [
