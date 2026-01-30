@@ -99,21 +99,43 @@ class Baskerville_Turnstile {
 			'index.php?baskerville_verify=1',
 			'top'
 		);
+
+		// Auto-flush rewrite rules once if our rules are missing (version-based check)
+		$flush_version = '1.0';
+		if (get_option('baskerville_turnstile_flush_version') !== $flush_version) {
+			flush_rewrite_rules();
+			update_option('baskerville_turnstile_flush_version', $flush_version);
+		}
 	}
 
 	/**
 	 * Handle challenge and verify routes
 	 */
 	public function handle_routes() {
-		if (get_query_var('baskerville_challenge')) {
+		$request_uri = isset($_SERVER['REQUEST_URI']) ? sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'])) : '';
+
+		// Support ALL methods: rewrite rules, query params, AND direct URL path matching
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$is_challenge = get_query_var('baskerville_challenge')
+			|| isset($_GET['baskerville_challenge'])
+			|| preg_match('#/baskerville-challenge/?(\?|$)#', $request_uri);
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
+		$is_verify = get_query_var('baskerville_verify')
+			|| isset($_GET['baskerville_verify'])
+			|| isset($_POST['baskerville_verify'])
+			|| preg_match('#/baskerville-verify/?(\?|$)#', $request_uri);
+
+		if ($is_challenge) {
 			$this->render_challenge_page();
 			exit;
 		}
 
-		if (get_query_var('baskerville_verify')) {
+		if ($is_verify) {
 			$this->handle_verify();
 			exit;
 		}
+
 	}
 
 	/**
@@ -162,10 +184,14 @@ class Baskerville_Turnstile {
 
 		$pass_data = sanitize_text_field(wp_unslash($_COOKIE['baskerville_pass']));
 
-		// Cookie format: timestamp:hash
-		$parts = explode(':', $pass_data);
+		// Cookie format: timestamp.hash (using dot to avoid URL encoding issues with colon)
+		$parts = explode('.', $pass_data);
 		if (count($parts) !== 2) {
-			return false;
+			// Legacy format support: timestamp:hash (may have URL encoding issues)
+			$parts = explode(':', $pass_data);
+			if (count($parts) !== 2) {
+				return false;
+			}
 		}
 
 		$timestamp = (int) $parts[0];
@@ -183,13 +209,16 @@ class Baskerville_Turnstile {
 
 	/**
 	 * Generate pass cookie hash
+	 * Note: We don't include full IP in hash because sites behind Deflect/CDN
+	 * may see different REMOTE_ADDR values from different edge servers.
+	 * The baskerville_id cookie already contains IP validation.
 	 */
 	private function generate_pass_hash($timestamp) {
-		$ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
 		$secret = get_option('baskerville_cookie_secret', 'default_secret');
 		$baskerville_id = isset($_COOKIE['baskerville_id']) ? sanitize_text_field(wp_unslash($_COOKIE['baskerville_id'])) : '';
 
-		return hash_hmac('sha256', $timestamp . $ip . $baskerville_id, $secret);
+		// Use only timestamp + baskerville_id for hash (baskerville_id already has IP binding)
+		return hash_hmac('sha256', $timestamp . $baskerville_id, $secret);
 	}
 
 	/**
@@ -198,7 +227,7 @@ class Baskerville_Turnstile {
 	private function set_pass_cookie() {
 		$timestamp = time();
 		$hash = $this->generate_pass_hash($timestamp);
-		$value = $timestamp . ':' . $hash;
+		$value = $timestamp . '.' . $hash;
 
 		setcookie(
 			'baskerville_pass',
@@ -211,6 +240,9 @@ class Baskerville_Turnstile {
 				'samesite' => 'Lax',
 			)
 		);
+
+		// Inject into $_COOKIE for current request
+		$_COOKIE['baskerville_pass'] = $value;
 	}
 
 	/**
@@ -224,10 +256,19 @@ class Baskerville_Turnstile {
 				(isset($_SERVER['REQUEST_URI']) ? sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'])) : '/');
 		}
 
-		$challenge_url = home_url('/baskerville-challenge/') . '?return=' . rawurlencode($return_url);
+		$challenge_url = home_url('/') . '?baskerville_challenge=1&return=' . rawurlencode($return_url);
 
 		// Log challenge redirect
 		$this->log_challenge_event('redirect', null);
+
+		// Prevent CDN/EQpress caching of redirects - must be before any output
+		if (!headers_sent()) {
+			header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
+			header('Pragma: no-cache');
+			header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
+			header('X-Baskerville-Redirect: challenge');
+		}
+		nocache_headers();
 
 		wp_safe_redirect($challenge_url);
 		exit;
@@ -257,7 +298,7 @@ class Baskerville_Turnstile {
 			<meta name="robots" content="noindex, nofollow">
 			<title><?php echo esc_html__('Security Check', 'baskerville') . ' - ' . esc_html($site_name); ?></title>
 			<?php
-			wp_register_script( 'cloudflare-turnstile-challenge', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), 'v0', false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
+			wp_register_script( 'cloudflare-turnstile-challenge', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), null, false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 			wp_print_scripts( 'cloudflare-turnstile-challenge' );
 			?>
 			<style>
@@ -338,7 +379,7 @@ class Baskerville_Turnstile {
 
 				<div id="error-message" class="error-message"></div>
 
-				<form method="POST" action="<?php echo esc_url(home_url('/baskerville-verify/')); ?>" id="challenge-form">
+				<form method="POST" action="<?php echo esc_url(home_url('/?baskerville_verify=1')); ?>" id="challenge-form">
 					<input type="hidden" name="return" value="<?php echo esc_attr($return_url); ?>">
 					<?php wp_nonce_field('baskerville_challenge', 'baskerville_nonce'); ?>
 
@@ -357,10 +398,17 @@ class Baskerville_Turnstile {
 
 			<script>
 				function onTurnstileSuccess(token) {
-					document.getElementById('challenge-form').submit();
+					console.log('Turnstile success, submitting form');
+					var form = document.getElementById('challenge-form');
+					if (form) {
+						form.submit();
+					} else {
+						console.error('Form not found!');
+					}
 				}
 
 				function onTurnstileError(error) {
+					console.error('Turnstile error:', error);
 					var errorDiv = document.getElementById('error-message');
 					errorDiv.textContent = '<?php echo esc_js(__('Verification failed. Please refresh and try again.', 'baskerville')); ?>';
 					errorDiv.style.display = 'block';
@@ -378,7 +426,7 @@ class Baskerville_Turnstile {
 		// Verify nonce
 		if (!isset($_POST['baskerville_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['baskerville_nonce'])), 'baskerville_challenge')) {
 			$this->log_challenge_event('fail', 'invalid_nonce');
-			wp_die(esc_html__('Security check failed. Please try again.', 'baskerville'), 403);
+			wp_die(esc_html__('Security check failed. Please try again.', 'baskerville'), esc_html__('Error', 'baskerville'), array('response' => 403));
 		}
 
 		// Get token
@@ -386,7 +434,7 @@ class Baskerville_Turnstile {
 
 		if (empty($token)) {
 			$this->log_challenge_event('fail', 'missing_token');
-			wp_die(esc_html__('Please complete the security check.', 'baskerville'), 403);
+			wp_die(esc_html__('Please complete the security check.', 'baskerville'), esc_html__('Error', 'baskerville'), array('response' => 403));
 		}
 
 		// Verify with Cloudflare
@@ -408,7 +456,7 @@ class Baskerville_Turnstile {
 
 			// Show error and redirect back to challenge
 			wp_die(
-				esc_html($result->get_error_message()) . '<br><br><a href="' . esc_url(home_url('/baskerville-challenge/?return=' . rawurlencode($return_url))) . '">' . esc_html__('Try again', 'baskerville') . '</a>',
+				esc_html($result->get_error_message()) . '<br><br><a href="' . esc_url(home_url('/?baskerville_challenge=1&return=' . rawurlencode($return_url))) . '">' . esc_html__('Try again', 'baskerville') . '</a>',
 				esc_html__('Verification Failed', 'baskerville'),
 				array('response' => 403)
 			);
@@ -488,7 +536,7 @@ class Baskerville_Turnstile {
 	 * Enqueue Turnstile script on login page
 	 */
 	public function enqueue_turnstile_script() {
-		wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), 'v0', true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
+		wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), null, true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 	}
 
 	/**
@@ -496,7 +544,7 @@ class Baskerville_Turnstile {
 	 */
 	public function maybe_enqueue_frontend_script() {
 		if (is_singular() && comments_open()) {
-			wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), 'v0', true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
+			wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), null, true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 		}
 	}
 
@@ -611,7 +659,7 @@ class Baskerville_Turnstile {
 				event_type,
 				COUNT(*) as count
 			FROM {$wpdb->prefix}baskerville_stats
-			WHERE event_type LIKE 'turnstile_%'
+			WHERE event_type LIKE 'ts_%'
 			AND timestamp_utc > DATE_SUB(NOW(), INTERVAL 7 DAY)
 			GROUP BY event_type",
 			ARRAY_A
@@ -624,11 +672,12 @@ class Baskerville_Turnstile {
 		);
 
 		foreach ($stats as $row) {
-			if ($row['event_type'] === 'turnstile_redirect') {
+			// Event types are: ts_redir, ts_pass, ts_fail
+			if ($row['event_type'] === 'ts_redir') {
 				$result['redirects'] = (int) $row['count'];
-			} elseif ($row['event_type'] === 'turnstile_pass') {
+			} elseif ($row['event_type'] === 'ts_pass') {
 				$result['passes'] = (int) $row['count'];
-			} elseif ($row['event_type'] === 'turnstile_fail') {
+			} elseif ($row['event_type'] === 'ts_fail') {
 				$result['fails'] = (int) $row['count'];
 			}
 		}
@@ -640,4 +689,5 @@ class Baskerville_Turnstile {
 
 		return $result;
 	}
+
 }
