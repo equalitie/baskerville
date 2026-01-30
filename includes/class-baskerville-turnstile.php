@@ -298,7 +298,7 @@ class Baskerville_Turnstile {
 			<meta name="robots" content="noindex, nofollow">
 			<title><?php echo esc_html__('Security Check', 'baskerville') . ' - ' . esc_html($site_name); ?></title>
 			<?php
-			wp_register_script( 'cloudflare-turnstile-challenge', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), null, false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
+			wp_register_script( 'cloudflare-turnstile-challenge', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), '1.0', false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 			wp_print_scripts( 'cloudflare-turnstile-challenge' );
 			?>
 			<style>
@@ -536,7 +536,7 @@ class Baskerville_Turnstile {
 	 * Enqueue Turnstile script on login page
 	 */
 	public function enqueue_turnstile_script() {
-		wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), null, true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
+		wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), '1.0', true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 	}
 
 	/**
@@ -544,7 +544,7 @@ class Baskerville_Turnstile {
 	 */
 	public function maybe_enqueue_frontend_script() {
 		if (is_singular() && comments_open()) {
-			wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), null, true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
+			wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), '1.0', true ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 		}
 	}
 
