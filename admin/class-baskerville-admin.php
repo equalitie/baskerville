@@ -26,8 +26,8 @@ class Baskerville_Admin {
 	}
 
 	public function enqueue_admin_scripts($hook) {
-		// Only load on our settings page
-		if ($hook !== 'settings_page_baskerville-settings') {
+		// Only load on our plugin pages
+		if (strpos($hook, 'baskerville') === false) {
 			return;
 		}
 
@@ -51,13 +51,139 @@ class Baskerville_Admin {
 	}
 
 	public function add_admin_menu() {
-		add_options_page(
-			esc_html__('Baskerville Settings', 'baskerville'),
+		// Main menu page (Live Feed is the default)
+		add_menu_page(
 			esc_html__('Baskerville', 'baskerville'),
+			esc_html__('Baskerville', 'baskerville'),
+			'manage_options',
+			'baskerville-settings',
+			array($this, 'admin_page'),
+			'dashicons-shield',
+			80
+		);
+
+		// Submenu pages for each tab
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Live Feed', 'baskerville'),
+			esc_html__('Live Feed', 'baskerville'),
 			'manage_options',
 			'baskerville-settings',
 			array($this, 'admin_page')
 		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Bot Control', 'baskerville'),
+			esc_html__('Bot Control', 'baskerville'),
+			'manage_options',
+			'baskerville-bot-protection',
+			array($this, 'admin_page_bot_protection')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('AI Bot Control', 'baskerville'),
+			esc_html__('AI Bot Control', 'baskerville'),
+			'manage_options',
+			'baskerville-ai-bot-control',
+			array($this, 'admin_page_ai_bot_control')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Country Control', 'baskerville'),
+			esc_html__('Country Control', 'baskerville'),
+			'manage_options',
+			'baskerville-country-control',
+			array($this, 'admin_page_country_control')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Burst Protection', 'baskerville'),
+			esc_html__('Burst Protection', 'baskerville'),
+			'manage_options',
+			'baskerville-burst-protection',
+			array($this, 'admin_page_burst_protection')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Rate Limits', 'baskerville'),
+			esc_html__('Rate Limits', 'baskerville'),
+			'manage_options',
+			'baskerville-rate-limits',
+			array($this, 'admin_page_rate_limits')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Turnstile', 'baskerville'),
+			esc_html__('Turnstile', 'baskerville'),
+			'manage_options',
+			'baskerville-turnstile',
+			array($this, 'admin_page_turnstile')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Analytics', 'baskerville'),
+			esc_html__('Analytics', 'baskerville'),
+			'manage_options',
+			'baskerville-analytics',
+			array($this, 'admin_page_analytics')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('Settings', 'baskerville'),
+			esc_html__('Settings', 'baskerville'),
+			'manage_options',
+			'baskerville-settings-tab',
+			array($this, 'admin_page_settings')
+		);
+	}
+
+	// Callback methods for submenu pages - set tab and call main admin_page
+	public function admin_page_bot_protection() {
+		$_GET['tab'] = 'bot-protection';
+		$this->admin_page();
+	}
+
+	public function admin_page_ai_bot_control() {
+		$_GET['tab'] = 'ai-bot-control';
+		$this->admin_page();
+	}
+
+	public function admin_page_country_control() {
+		$_GET['tab'] = 'country-control';
+		$this->admin_page();
+	}
+
+	public function admin_page_burst_protection() {
+		$_GET['tab'] = 'burst-protection';
+		$this->admin_page();
+	}
+
+	public function admin_page_rate_limits() {
+		$_GET['tab'] = 'rate-limits';
+		$this->admin_page();
+	}
+
+	public function admin_page_turnstile() {
+		$_GET['tab'] = 'turnstile';
+		$this->admin_page();
+	}
+
+	public function admin_page_analytics() {
+		$_GET['tab'] = 'analytics';
+		$this->admin_page();
+	}
+
+	public function admin_page_settings() {
+		$_GET['tab'] = 'settings';
+		$this->admin_page();
 	}
 
 	public function register_settings() {
@@ -1724,7 +1850,7 @@ class Baskerville_Admin {
 		$hours = $hours_map[$period];
 
 		// Build URLs for period buttons
-		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=country-control');
+		$base_url = admin_url('admin.php?page=baskerville-country-control');
 
 		// Get country stats
 		$country_stats = $this->get_country_stats($hours);
@@ -1980,7 +2106,7 @@ class Baskerville_Admin {
 		$stats = $this->get_traffic_stats($period);
 
 		// Build URLs for period buttons
-		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=overview');
+		$base_url = admin_url('admin.php?page=baskerville-settings');
 		?>
 
 		<!-- Real-time Live Dashboard -->
@@ -2532,7 +2658,7 @@ class Baskerville_Admin {
 		}
 
 		// Build URLs for period buttons
-		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=ai-bot-control');
+		$base_url = admin_url('admin.php?page=baskerville-ai-bot-control');
 
 		// Check if we have any data
 		$has_data = !empty($data['companies']) && count($data['companies']) > 0;
@@ -3273,39 +3399,39 @@ class Baskerville_Admin {
 			$turnstile_enabled = isset($options['turnstile_enabled']) ? $options['turnstile_enabled'] : false;
 			?>
 			<h2 class="nav-tab-wrapper">
-				<a href="?page=baskerville-settings&tab=live-feed"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-settings')); ?>"
 				   class="nav-tab <?php echo $current_tab === 'live-feed' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Live Feed', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=bot-protection"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-bot-protection')); ?>"
 				   class="nav-tab <?php echo $bot_protection_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'bot-protection' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Bot Control', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=ai-bot-control"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-ai-bot-control')); ?>"
 				   class="nav-tab <?php echo $ai_bot_control_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'ai-bot-control' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('AI Bot Control', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=country-control"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-country-control')); ?>"
 				   class="nav-tab <?php echo $geoip_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'country-control' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Country Control', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=burst-protection"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-burst-protection')); ?>"
 				   class="nav-tab <?php echo $burst_protection_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'burst-protection' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Burst Protection', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=rate-limits"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-rate-limits')); ?>"
 				   class="nav-tab <?php echo $api_rate_limit_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'rate-limits' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Rate Limits', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=turnstile"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-turnstile')); ?>"
 				   class="nav-tab <?php echo $turnstile_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'turnstile' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Turnstile', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=analytics"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-analytics')); ?>"
 				   class="nav-tab <?php echo $current_tab === 'analytics' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Analytics', 'baskerville'); ?>
 				</a>
-				<a href="?page=baskerville-settings&tab=settings"
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-settings-tab')); ?>"
 				   class="nav-tab <?php echo $current_tab === 'settings' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Settings', 'baskerville'); ?>
 				</a>
@@ -3496,7 +3622,7 @@ class Baskerville_Admin {
 									printf(
 										/* translators: %s: link to settings tab */
 										esc_html__('Country blocking will not work. Go to %s to install MaxMind GeoLite2 database.', 'baskerville'),
-										'<a href="' . esc_url(admin_url('options-general.php?page=baskerville-settings&tab=settings')) . '"><strong>' . esc_html__('Settings tab', 'baskerville') . '</strong></a>'
+										'<a href="' . esc_url(admin_url('admin.php?page=baskerville-settings-tab')) . '"><strong>' . esc_html__('Settings tab', 'baskerville') . '</strong></a>'
 									);
 									?>
 								</span>
@@ -4074,7 +4200,7 @@ class Baskerville_Admin {
 		$hours = $hours_map[$period];
 
 		// Build URLs for period buttons
-		$base_url = admin_url('options-general.php?page=baskerville-settings&tab=analytics');
+		$base_url = admin_url('admin.php?page=baskerville-analytics');
 		?>
 
 		<h2 class="baskerville-section-heading">
