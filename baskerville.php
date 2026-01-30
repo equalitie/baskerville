@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Baskerville
  * Plugin URI: https://wordpress.org/plugins/baskerville/
- * Description: A WordPress plugin by Equalitie.
+ * Description: Advanced security plugin with bot detection, GeoIP access control, and Cloudflare Turnstile integration.
  * Version: 1.0.0
  * Requires at least: 6.2
  * Requires PHP: 7.4

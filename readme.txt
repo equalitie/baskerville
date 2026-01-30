@@ -7,7 +7,7 @@ Stable tag: 1.0.0
 Requires PHP: 7.4
 License: GPL v3
 
-Advanced WordPress security plugin with AI-powered bot detection, GeoIP access control, and Cloudflare Turnstile integration.
+Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
 
 == Description ==
 
@@ -15,7 +15,7 @@ Baskerville is a comprehensive WordPress security plugin that protects your site
 
 **Key Features:**
 
-* **AI-Powered Bot Detection** - Intelligent classification of bots vs. humans with configurable score thresholds
+* **AI Bot Detection** - Intelligent classification of bots vs. humans with configurable score thresholds
 * **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist modes)
 * **Cloudflare Turnstile** - CAPTCHA challenge for borderline bot scores with precision analytics
 * **Browser Fingerprinting** - Advanced client-side fingerprinting (Canvas, WebGL, Audio)
@@ -63,11 +63,64 @@ Emergency mode that shows Turnstile challenge to ALL visitors. Use this when you
 
 With page caching enabled, overhead is near zero. Without caching, expect ~30-50ms overhead per request.
 
+== External Services ==
+
+This plugin connects to the following third-party services:
+
+= Cloudflare Turnstile =
+
+When Turnstile is enabled, the plugin loads JavaScript from Cloudflare's servers to display CAPTCHA challenges:
+
+* Service URL: https://challenges.cloudflare.com/turnstile/v0/api.js
+* Verification API: https://challenges.cloudflare.com/turnstile/v0/siteverify
+* Data sent: Turnstile token, visitor IP address
+* Purpose: Human verification to prevent bot access
+* Privacy Policy: https://www.cloudflare.com/privacypolicy/
+* Terms of Service: https://www.cloudflare.com/website-terms/
+
+Turnstile is only loaded when you enable it in plugin settings and provide your Cloudflare API keys.
+
+= MaxMind GeoIP Database =
+
+When you use the one-click GeoIP database installer, the plugin downloads the GeoLite2-Country database from MaxMind:
+
+* Download URL: https://download.maxmind.com/
+* Data sent: Your MaxMind license key (required for download)
+* Purpose: Determine visitor country for geo-blocking features
+* Privacy Policy: https://www.maxmind.com/en/privacy-policy
+* Terms of Service: https://www.maxmind.com/en/geolite2/eula
+
+The database is stored locally on your server. No visitor data is sent to MaxMind during lookups.
+
+== Privacy ==
+
+= Data Collected =
+
+This plugin collects and stores the following visitor data locally in your WordPress database:
+
+* IP addresses
+* Browser fingerprints (Canvas, WebGL, Audio hashes)
+* User agent strings
+* Country codes (derived from IP)
+* Bot scores and classifications
+* Timestamps of visits
+
+= Data Retention =
+
+Statistics are automatically deleted after the retention period you configure (default: 14 days). You can adjust this in Settings > Baskerville > Settings.
+
+= GDPR Compliance =
+
+* All data is stored locally on your server
+* No visitor data is shared with third parties (except Cloudflare when Turnstile verification occurs)
+* Data retention is configurable
+* Consider adding disclosure to your site's privacy policy
+
 == Changelog ==
 
 = 1.0.0 =
 * Initial release
-* AI-powered bot detection and classification
+* AI bot detection and classification
 * GeoIP-based access control (whitelist/blacklist)
 * Cloudflare Turnstile integration with precision analytics
 * Browser fingerprinting (Canvas, WebGL, Audio)
@@ -78,3 +131,8 @@ With page caching enabled, overhead is near zero. Without caching, expect ~30-50
 * Form protection (login, registration, comments)
 * Configurable instant ban threshold
 * Ban all detected bots option
+
+== Upgrade Notice ==
+
+= 1.0.0 =
+Initial release.

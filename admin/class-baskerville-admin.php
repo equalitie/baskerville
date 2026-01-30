@@ -2514,24 +2514,18 @@ class Baskerville_Admin {
 			}
 
 		} catch (Exception $e) {
-			error_log('Baskerville AI Bots Tab Error: ' . $e->getMessage());
-			error_log('Baskerville AI Bots Tab Trace: ' . $e->getTraceAsString());
 			?>
 			<div class="notice notice-error">
-				<p><strong>Error loading AI bots data:</strong></p>
+				<p><strong><?php esc_html_e( 'Error loading AI bots data:', 'baskerville' ); ?></strong></p>
 				<p><?php echo esc_html($e->getMessage()); ?></p>
-				<pre class="baskerville-pre"><?php echo esc_html($e->getTraceAsString()); ?></pre>
 			</div>
 			<?php
 			return;
 		} catch (Error $e) {
-			error_log('Baskerville AI Bots Tab Fatal Error: ' . $e->getMessage());
-			error_log('Baskerville AI Bots Tab Trace: ' . $e->getTraceAsString());
 			?>
 			<div class="notice notice-error">
-				<p><strong>Fatal error loading AI bots data:</strong></p>
+				<p><strong><?php esc_html_e( 'Fatal error loading AI bots data:', 'baskerville' ); ?></strong></p>
 				<p><?php echo esc_html($e->getMessage()); ?></p>
-				<pre class="baskerville-pre"><?php echo esc_html($e->getTraceAsString()); ?></pre>
 			</div>
 			<?php
 			return;

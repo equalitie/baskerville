@@ -569,8 +569,6 @@ class Baskerville_Turnstile {
 
 		if (is_wp_error($response)) {
 			// On network error, allow through (fail open)
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			error_log('Baskerville Turnstile: API error - ' . $response->get_error_message());
 			return true;
 		}
 

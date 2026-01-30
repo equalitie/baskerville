@@ -1067,7 +1067,6 @@ class Baskerville_Stats
             ];
 
         } catch (Exception $e) {
-            error_log('Baskerville get_ai_bots_timeseries error: ' . $e->getMessage());
             throw $e;
         }
     }
