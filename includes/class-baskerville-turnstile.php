@@ -115,15 +115,13 @@ class Baskerville_Turnstile {
 		$request_uri = isset($_SERVER['REQUEST_URI']) ? sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'])) : '';
 
 		// Support ALL methods: rewrite rules, query params, AND direct URL path matching
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$is_challenge = get_query_var('baskerville_challenge')
-			|| isset($_GET['baskerville_challenge'])
+			|| filter_has_var(INPUT_GET, 'baskerville_challenge')
 			|| preg_match('#/baskerville-challenge/?(\?|$)#', $request_uri);
 
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
 		$is_verify = get_query_var('baskerville_verify')
-			|| isset($_GET['baskerville_verify'])
-			|| isset($_POST['baskerville_verify'])
+			|| filter_has_var(INPUT_GET, 'baskerville_verify')
+			|| filter_has_var(INPUT_POST, 'baskerville_verify')
 			|| preg_match('#/baskerville-verify/?(\?|$)#', $request_uri);
 
 		if ($is_challenge) {

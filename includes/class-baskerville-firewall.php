@@ -187,7 +187,7 @@ class Baskerville_Firewall
 		// Support both rewrite rules (/baskerville-challenge/) and query params (?baskerville_challenge=1)
 		// Also check query string directly in case $_GET is not populated
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
-		$query_string = isset($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : '';
+		$query_string = isset($_SERVER['QUERY_STRING']) ? sanitize_text_field(wp_unslash($_SERVER['QUERY_STRING'])) : '';
 		$is_turnstile_page = (
 			strpos($request_uri, '/baskerville-challenge') !== false ||
 			strpos($request_uri, '/baskerville-verify') !== false ||
@@ -195,9 +195,9 @@ class Baskerville_Firewall
 			strpos($request_uri, 'baskerville_verify') !== false ||
 			strpos($query_string, 'baskerville_challenge') !== false ||
 			strpos($query_string, 'baskerville_verify') !== false ||
-			isset($_GET['baskerville_challenge']) ||
-			isset($_GET['baskerville_verify']) ||
-			isset($_POST['baskerville_verify'])
+			filter_has_var(INPUT_GET, 'baskerville_challenge') ||
+			filter_has_var(INPUT_GET, 'baskerville_verify') ||
+			filter_has_var(INPUT_POST, 'baskerville_verify')
 		);
 
 		if ($is_turnstile_page) {
