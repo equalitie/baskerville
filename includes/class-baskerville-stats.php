@@ -42,17 +42,14 @@ class Baskerville_Stats
           classification_reason text NOT NULL,
           block_reason varchar(128) NULL,
           event_type varchar(16) NOT NULL DEFAULT 'fp',
-
           had_fp tinyint(1) NOT NULL DEFAULT 0,
           fp_received_at datetime NULL,
           visit_count int(11) NOT NULL DEFAULT 1,
-
           top_factor_json longtext NULL,
           top_factor varchar(64) NULL,
-
           created_at timestamp DEFAULT CURRENT_TIMESTAMP,
           updated_at timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (id),
+          PRIMARY KEY  (id),
           UNIQUE KEY visit_key (visit_key),
           KEY ip (ip),
           KEY country_code (country_code),
