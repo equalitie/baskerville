@@ -14,6 +14,7 @@ class Baskerville_Admin {
 		$this->aiua = $aiua;
 
 		add_action('admin_menu', array($this, 'add_admin_menu'));
+		add_action('admin_head', array($this, 'admin_menu_icon_style'));
 		add_action('admin_init', array($this, 'register_settings'));
 		add_action('wp_ajax_baskerville_install_maxmind', array($this, 'ajax_install_maxmind'));
 		add_action('wp_ajax_baskerville_clear_geoip_cache', array($this, 'ajax_clear_geoip_cache'));
@@ -50,15 +51,36 @@ class Baskerville_Admin {
 		));
 	}
 
+	/**
+	 * Output custom CSS for menu icon size
+	 */
+	public function admin_menu_icon_style() {
+		?>
+		<style>
+			#adminmenu .toplevel_page_baskerville-settings div.wp-menu-image.svg {
+				background-size: 24px auto;
+			}
+		</style>
+		<?php
+	}
+
 	public function add_admin_menu() {
 		// Main menu page (Live Feed is the default)
+		// Load custom SVG icon
+		$icon_file = BASKERVILLE_PLUGIN_PATH . 'assets/icon-menu.svg';
+		$icon = 'dashicons-shield'; // fallback
+		if (file_exists($icon_file)) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local file read for menu icon
+			$icon = 'data:image/svg+xml;base64,' . base64_encode(file_get_contents($icon_file));
+		}
+
 		add_menu_page(
 			esc_html__('Baskerville', 'baskerville'),
 			esc_html__('Baskerville', 'baskerville'),
 			'manage_options',
 			'baskerville-settings',
 			array($this, 'admin_page'),
-			'dashicons-shield',
+			$icon,
 			80
 		);
 
