@@ -319,19 +319,19 @@ class Baskerville_AI_UA {
                 $contrib[] = ['key'=>'zero_plugins', 'delta'=>6, 'why'=> __( 'Windows with zero plugins', 'baskerville' )];
             }
 
-            // 6) PDF viewer flag (Chrome-специфика)
+            // 6) PDF viewer flag (Chrome-specific)
             if ($pdfViewer === false && preg_match('~chrome/|crios/|edg/~i', $ua)) {
                 $score += 4; $reasons[] = __( 'Chrome-like UA without pdfViewer', 'baskerville' );
                 $contrib[] = ['key'=>'chrome_no_pdf', 'delta'=>4, 'why'=> __( 'Chrome-like UA without pdfViewer', 'baskerville' )];
             }
 
-            // 7) Outer/inner отношения окна
+            // 7) Outer/inner window ratio
             if ($outerToInner > 1.6 || $outerToInner < 1.0) {
                 $score += 5; $reasons[] = __( 'Odd outer/inner ratio', 'baskerville' );
                 $contrib[] = ['key'=>'odd_outer_inner_ratio', 'delta'=>5, 'why'=> __( 'Odd outer/inner ratio', 'baskerville' )];
             }
 
-            // 8) Языки: сверка navigator.language и Accept-Language
+            // 8) Language check: compare navigator.language with Accept-Language
             if ($lang && $acceptLang && strpos($acceptLang, substr($lang,0,2)) === false) {
                 $score += 5; $reasons[] = __( 'Language mismatch vs Accept-Language', 'baskerville' );
                 $contrib[] = ['key'=>'language_mismatch', 'delta'=>5, 'why'=> __( 'Language mismatch vs Accept-Language', 'baskerville' )];
@@ -344,11 +344,11 @@ class Baskerville_AI_UA {
             }
         }
 
-        // Нормировка/порог
+        // Normalization/threshold
         if ($score < 0) $score = 0;
         if ($score > 100) $score = 100;
 
-        // Рекомендация
+        // Recommendation
         $action = 'allow';
         if     ($score >= 60) $action = 'challenge';
         elseif ($score >= 40) $action = 'rate_limit';
@@ -425,7 +425,7 @@ class Baskerville_AI_UA {
             ];
         }
 
-        // 1) Явные AI-боты по UA — приоритетно
+        // 1) Explicit AI bots by UA — priority check
         if ($this->is_ai_bot_user_agent($user_agent)) {
             $company = $this->get_ai_bot_company($user_agent);
             return [

@@ -893,7 +893,7 @@ class Baskerville_Core {
               };
 
               if (fpWasSentThisTab() || fpWasSentRecently()) {
-                // FP уже есть (и сервер держит HttpOnly baskerville_fp) — POST не нужен
+                // FP already exists (server holds HttpOnly baskerville_fp) — no POST needed
               } else {
                   const send = async () => {
                     try {
