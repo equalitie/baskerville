@@ -246,32 +246,26 @@ class Baskerville_MaxMind_Installer {
 	 * Create autoload.php file
 	 */
 	private function create_autoload() {
-		$autoload_content = <<<'PHP'
-<?php
-// Baskerville MaxMind GeoIP2 Autoloader
-
-spl_autoload_register(function ($class) {
-    $prefixes = array(
-        'GeoIp2\\' => __DIR__ . '/geoip2/',
-        'MaxMind\\' => __DIR__ . '/maxmind/',
-    );
-
-    foreach ($prefixes as $prefix => $base_dir) {
-        $len = strlen($prefix);
-        if (strncmp($prefix, $class, $len) !== 0) {
-            continue;
-        }
-
-        $relative_class = substr($class, $len);
-        $file = $base_dir . str_replace('\\', '/', $relative_class) . '.php';
-
-        if (file_exists($file)) {
-            require $file;
-            return;
-        }
-    }
-});
-PHP;
+		$autoload_content = "<?php\n"
+			. "// Baskerville MaxMind GeoIP2 Autoloader\n\n"
+			. "spl_autoload_register(function (\$class) {\n"
+			. "    \$prefixes = array(\n"
+			. "        'GeoIp2\\\\' => __DIR__ . '/geoip2/',\n"
+			. "        'MaxMind\\\\' => __DIR__ . '/maxmind/',\n"
+			. "    );\n\n"
+			. "    foreach (\$prefixes as \$prefix => \$base_dir) {\n"
+			. "        \$len = strlen(\$prefix);\n"
+			. "        if (strncmp(\$prefix, \$class, \$len) !== 0) {\n"
+			. "            continue;\n"
+			. "        }\n\n"
+			. "        \$relative_class = substr(\$class, \$len);\n"
+			. "        \$file = \$base_dir . str_replace('\\\\', '/', \$relative_class) . '.php';\n\n"
+			. "        if (file_exists(\$file)) {\n"
+			. "            require \$file;\n"
+			. "            return;\n"
+			. "        }\n"
+			. "    }\n"
+			. "});\n";
 
 		file_put_contents($this->vendor_dir . 'autoload.php', $autoload_content);
 	}
