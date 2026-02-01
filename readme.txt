@@ -119,20 +119,4 @@ Statistics are automatically deleted after the retention period you configure (d
 == Changelog ==
 
 = 1.0.0 =
-* Initial release
-* AI bot detection and classification
-* GeoIP-based access control (whitelist/blacklist)
-* Cloudflare Turnstile integration with precision analytics
-* Browser fingerprinting (Canvas, WebGL, Audio)
-* Honeypot detection for AI crawlers
-* Real-time traffic analytics and live feed
-* Under Attack Mode
-* IP whitelist
-* Form protection (login, registration, comments)
-* Configurable instant ban threshold
-* Ban all detected bots option
-
-== Upgrade Notice ==
-
-= 1.0.0 =
 Initial release.
