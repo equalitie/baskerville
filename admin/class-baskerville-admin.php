@@ -16,7 +16,9 @@ class Baskerville_Admin {
 		add_action('admin_menu', array($this, 'add_admin_menu'));
 		add_action('admin_head', array($this, 'admin_menu_icon_style'));
 		add_action('admin_init', array($this, 'register_settings'));
+		add_action('admin_notices', array($this, 'show_activation_notices'));
 		add_action('wp_ajax_baskerville_install_maxmind', array($this, 'ajax_install_maxmind'));
+		add_action('wp_ajax_baskerville_update_deflect_geoip', array($this, 'ajax_update_deflect_geoip'));
 		add_action('wp_ajax_baskerville_clear_geoip_cache', array($this, 'ajax_clear_geoip_cache'));
 		add_action('wp_ajax_baskerville_run_benchmark', array($this, 'ajax_run_benchmark'));
 		add_action('wp_ajax_baskerville_get_live_feed', array($this, 'ajax_get_live_feed'));
@@ -62,6 +64,26 @@ class Baskerville_Admin {
 			}
 		</style>
 		<?php
+	}
+
+	/**
+	 * Show activation notices (e.g., Deflect GeoIP download result)
+	 */
+	public function show_activation_notices() {
+		// Check for Deflect GeoIP activation result
+		$result = get_transient('baskerville_deflect_geoip_activation_result');
+		if ($result) {
+			delete_transient('baskerville_deflect_geoip_activation_result');
+
+			$class = $result['success'] ? 'notice-success' : 'notice-error';
+			$message = $result['message'] ?? __('Unknown result', 'baskerville');
+
+			printf(
+				'<div class="notice %s is-dismissible"><p><strong>Baskerville:</strong> %s</p></div>',
+				esc_attr($class),
+				esc_html($message)
+			);
+		}
 	}
 
 	public function add_admin_menu() {
@@ -1161,7 +1183,29 @@ class Baskerville_Admin {
 		} elseif (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
 			return 'Cloudflare';
 		}
-		return 'MaxMind (if configured)';
+
+		// Check MaxMind first
+		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
+		if (file_exists($db_path) && file_exists($autoload_path)) {
+			return 'MaxMind GeoLite2';
+		}
+
+		// Check Deflect GeoIP as fallback
+		if (!class_exists('Baskerville_Deflect_GeoIP')) {
+			$class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+			if (file_exists($class_file)) {
+				require_once $class_file;
+			}
+		}
+		if (class_exists('Baskerville_Deflect_GeoIP')) {
+			$deflect = new Baskerville_Deflect_GeoIP();
+			if ($deflect->is_installed()) {
+				return 'Deflect GeoIP';
+			}
+		}
+
+		return 'None configured';
 	}
 
 	/**
@@ -1183,7 +1227,7 @@ class Baskerville_Admin {
 			return array('source' => 'Cloudflare', 'available' => true, 'country' => sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
 		}
 
-		// Check MaxMind
+		// Check MaxMind first (priority over Deflect)
 		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
 		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
 
@@ -1201,6 +1245,26 @@ class Baskerville_Admin {
 					return array('source' => 'MaxMind GeoLite2', 'available' => true, 'country' => $record->country->isoCode);
 				} catch (\Exception $e) {
 					return array('source' => 'MaxMind GeoLite2', 'available' => true, 'country' => null, 'note' => 'Configured but lookup failed');
+				}
+			}
+		}
+
+		// Check Deflect GeoIP as fallback
+		if (!class_exists('Baskerville_Deflect_GeoIP')) {
+			$class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+			if (file_exists($class_file)) {
+				require_once $class_file;
+			}
+		}
+		if (class_exists('Baskerville_Deflect_GeoIP')) {
+			$deflect = new Baskerville_Deflect_GeoIP();
+			if ($deflect->is_installed()) {
+				try {
+					$current_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+					$country = $deflect->lookup($current_ip);
+					return array('source' => 'Deflect GeoIP', 'available' => true, 'country' => $country);
+				} catch (\Exception $e) {
+					return array('source' => 'Deflect GeoIP', 'available' => true, 'country' => null, 'note' => 'Configured but lookup failed');
 				}
 			}
 		}
@@ -2869,6 +2933,30 @@ class Baskerville_Admin {
 		}
 	}
 
+	public function ajax_update_deflect_geoip() {
+		check_ajax_referer('baskerville_update_deflect_geoip', 'nonce');
+
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville')));
+		}
+
+		if (!class_exists('Baskerville_Deflect_GeoIP')) {
+			require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+		}
+
+		$deflect = new Baskerville_Deflect_GeoIP();
+		$force = isset($_POST['force']) && $_POST['force'] === 'true';
+		$result = $deflect->update($force);
+
+		if ($result['success']) {
+			$stats = $deflect->get_stats();
+			$result['stats'] = $stats;
+			wp_send_json_success($result);
+		} else {
+			wp_send_json_error($result);
+		}
+	}
+
 	public function ajax_clear_geoip_cache() {
 		check_ajax_referer('baskerville_clear_geoip_cache', 'nonce');
 
@@ -2887,8 +2975,19 @@ class Baskerville_Admin {
 	}
 
 	private function render_geoip_test_tab() {
-		// Always use current IP
-		$current_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+		// Get current visitor IP
+		$visitor_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+
+		// Check if testing a custom IP (via POST)
+		$test_ip = '';
+		if (isset($_POST['test_ip']) && isset($_POST['_wpnonce'])) {
+			if (wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'])), 'baskerville_test_ip')) {
+				$test_ip = sanitize_text_field(wp_unslash($_POST['test_ip']));
+			}
+		}
+		$current_ip = !empty($test_ip) && filter_var($test_ip, FILTER_VALIDATE_IP) ? $test_ip : $visitor_ip;
+		$is_custom_ip = !empty($test_ip) && $test_ip !== $visitor_ip;
+
 		$results = null;
 		$error = null;
 
@@ -2905,6 +3004,36 @@ class Baskerville_Admin {
 		?>
 
 		<div class="geoip-test-container">
+			<!-- IP Test Form -->
+			<div class="geoip-test-form baskerville-mb-20">
+				<h2><?php esc_html_e('Test IP Address', 'baskerville'); ?></h2>
+				<p class="baskerville-text-muted"><?php esc_html_e('Enter any IP address to test GeoIP detection and blocking status.', 'baskerville'); ?></p>
+				<form method="post" action="">
+					<?php wp_nonce_field('baskerville_test_ip'); ?>
+					<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+						<input type="text"
+							   name="test_ip"
+							   value="<?php echo esc_attr($current_ip); ?>"
+							   placeholder="<?php esc_attr_e('Enter IP address (IPv4 or IPv6)', 'baskerville'); ?>"
+							   style="width: 300px; padding: 8px;"
+						/>
+						<button type="submit" class="button button-primary"><?php esc_html_e('Test IP', 'baskerville'); ?></button>
+						<?php if ($is_custom_ip): ?>
+							<a href="?page=baskerville&tab=geoip-test" class="button"><?php esc_html_e('Reset to My IP', 'baskerville'); ?></a>
+						<?php endif; ?>
+					</div>
+					<?php if ($is_custom_ip): ?>
+						<p class="baskerville-mt-10">
+							<span class="baskerville-badge baskerville-badge-info"><?php esc_html_e('Testing custom IP', 'baskerville'); ?></span>
+							<?php
+							/* translators: %s: visitor's IP address */
+							printf(esc_html__('Your actual IP: %s', 'baskerville'), '<code>' . esc_html($visitor_ip) . '</code>');
+							?>
+						</p>
+					<?php endif; ?>
+				</form>
+			</div>
+
 			<?php
 			// Get GeoIP ban settings
 			$options = get_option('baskerville_settings', array());
@@ -3047,8 +3176,11 @@ class Baskerville_Admin {
 				</div>
 			<?php elseif ($results): ?>
 				<div class="geoip-info-box">
-					<strong><?php esc_html_e('Your IP:', 'baskerville'); ?></strong> <code><?php echo esc_html($current_ip); ?></code>
-					<br><strong><?php esc_html_e('Priority order:', 'baskerville'); ?></strong> NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → MaxMind
+					<strong><?php esc_html_e('Testing IP:', 'baskerville'); ?></strong> <code><?php echo esc_html($current_ip); ?></code>
+					<?php if ($is_custom_ip): ?>
+						<span class="baskerville-badge baskerville-badge-warning"><?php esc_html_e('Custom IP', 'baskerville'); ?></span>
+					<?php endif; ?>
+					<br><strong><?php esc_html_e('Priority order:', 'baskerville'); ?></strong> NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → MaxMind → Deflect GeoIP
 				</div>
 
 				<div class="geoip-results">
@@ -3093,7 +3225,7 @@ class Baskerville_Admin {
 					<!-- MaxMind -->
 					<div class="geoip-source <?php echo $results['maxmind'] ? 'available' : 'unavailable'; ?>">
 						<div class="geoip-status-icon"><?php echo $results['maxmind'] ? '✅' : '❌'; ?></div>
-						<div class="geoip-source-name">MaxMind GeoLite2</div>
+						<div class="geoip-source-name">MaxMind GeoLite2 <small class="baskerville-text-muted">(<?php esc_html_e('manual updates', 'baskerville'); ?>)</small></div>
 						<div class="geoip-source-result <?php echo $results['maxmind'] ? 'available' : 'unavailable'; ?>">
 							<?php
 							if ($results['maxmind']) {
@@ -3104,12 +3236,28 @@ class Baskerville_Admin {
 							?>
 						</div>
 					</div>
+
+					<!-- Deflect GeoIP -->
+					<div class="geoip-source <?php echo $results['deflect'] ? 'available' : 'unavailable'; ?>">
+						<div class="geoip-status-icon"><?php echo $results['deflect'] ? '✅' : '❌'; ?></div>
+						<div class="geoip-source-name">Deflect GeoIP <small class="baskerville-text-muted">(<?php esc_html_e('less accurate, auto-updates', 'baskerville'); ?>)</small></div>
+						<div class="geoip-source-result <?php echo $results['deflect'] ? 'available' : 'unavailable'; ?>">
+							<?php
+							if ($results['deflect']) {
+								echo esc_html($results['deflect']);
+							} else {
+								echo esc_html__('Database not installed', 'baskerville');
+							}
+							?>
+						</div>
+					</div>
 				</div>
 
 				<!-- MaxMind Debug Information -->
 				<?php if (isset($results['maxmind_debug'])): ?>
 				<div class="baskerville-debug-box">
-					<h3><?php esc_html_e('MaxMind Debug Information', 'baskerville'); ?></h3>
+					<h3><?php esc_html_e('MaxMind GeoLite2 Database', 'baskerville'); ?> <span class="baskerville-badge baskerville-badge-warning"><?php esc_html_e('Manual updates', 'baskerville'); ?></span></h3>
+					<p class="baskerville-text-muted"><?php esc_html_e('More accurate than Deflect GeoIP but requires manual download and updates. You need to register at MaxMind and upload the database file yourself.', 'baskerville'); ?></p>
 					<table class="baskerville-debug-table-full">
 						<tr>
 							<td>Expected DB Path:</td>
@@ -3276,25 +3424,130 @@ class Baskerville_Admin {
 				</div>
 				<?php endif; ?>
 
+				<!-- Deflect GeoIP Debug Information -->
+				<?php if (isset($results['deflect_debug'])): ?>
+				<div class="baskerville-debug-box">
+					<h3><?php esc_html_e('Deflect GeoIP Database', 'baskerville'); ?> <span class="baskerville-badge baskerville-badge-success"><?php esc_html_e('Auto-updates', 'baskerville'); ?></span></h3>
+					<p class="baskerville-text-muted"><?php esc_html_e('Free, open-source GeoIP database. Less accurate than MaxMind but updates automatically every week — no manual action required.', 'baskerville'); ?></p>
+
+					<table class="baskerville-debug-table-full">
+						<tr>
+							<td><?php esc_html_e('Status:', 'baskerville'); ?></td>
+							<td>
+								<span class="<?php echo $results['deflect_debug']['installed'] ? 'baskerville-status-yes' : 'baskerville-status-no'; ?>">
+									<?php echo $results['deflect_debug']['installed'] ? esc_html__('Installed', 'baskerville') . ' ✓' : esc_html__('Not installed', 'baskerville') . ' ✗'; ?>
+								</span>
+							</td>
+						</tr>
+						<?php if ($results['deflect_debug']['installed']): ?>
+						<tr>
+							<td><?php esc_html_e('Version:', 'baskerville'); ?></td>
+							<td><code><?php echo esc_html($results['deflect_debug']['version'] ?? 'N/A'); ?></code></td>
+						</tr>
+						<tr>
+							<td><?php esc_html_e('IPv4 Prefixes:', 'baskerville'); ?></td>
+							<td><?php echo number_format($results['deflect_debug']['ipv4_count'] ?? 0); ?></td>
+						</tr>
+						<tr>
+							<td><?php esc_html_e('IPv6 Prefixes:', 'baskerville'); ?></td>
+							<td><?php echo number_format($results['deflect_debug']['ipv6_count'] ?? 0); ?></td>
+						</tr>
+						<tr>
+							<td><?php esc_html_e('Database Path:', 'baskerville'); ?></td>
+							<td><code><?php echo esc_html($results['deflect_debug']['db_path'] ?? 'N/A'); ?></code></td>
+						</tr>
+						<?php endif; ?>
+						<?php if (isset($results['deflect_debug']['error'])): ?>
+						<tr class="baskerville-alert-danger">
+							<td><?php esc_html_e('Error:', 'baskerville'); ?></td>
+							<td class="baskerville-text-danger"><?php echo esc_html($results['deflect_debug']['error']); ?></td>
+						</tr>
+						<?php endif; ?>
+					</table>
+
+					<div class="baskerville-mt-15">
+						<button id="baskerville-update-deflect-geoip" class="button button-primary">
+							<?php echo $results['deflect_debug']['installed'] ? esc_html__('Check for Updates', 'baskerville') : esc_html__('Install Deflect GeoIP Database', 'baskerville'); ?>
+						</button>
+						<span id="baskerville-deflect-status" class="baskerville-ml-10"></span>
+					</div>
+
+					<script>
+					jQuery(document).ready(function($) {
+						$('#baskerville-update-deflect-geoip').on('click', function(e) {
+							e.preventDefault();
+							var $btn = $(this);
+							var $status = $('#baskerville-deflect-status');
+
+							$btn.prop('disabled', true).text('<?php esc_html_e('Downloading...', 'baskerville'); ?>');
+							$status.html('<span class="baskerville-status-pending">⏳ <?php esc_html_e('Checking for updates and downloading database...', 'baskerville'); ?></span>');
+
+							$.ajax({
+								url: ajaxurl,
+								type: 'POST',
+								data: {
+									action: 'baskerville_update_deflect_geoip',
+									nonce: '<?php echo esc_js(wp_create_nonce('baskerville_update_deflect_geoip')); ?>',
+									force: 'true'
+								},
+								success: function(response) {
+									if (response.success) {
+										var msg = response.data.message;
+										if (response.data.stats) {
+											msg += ' (IPv4: ' + response.data.stats.ipv4_count + ', IPv6: ' + response.data.stats.ipv6_count + ')';
+										}
+										$status.html('<span class="baskerville-status-success">✓ ' + msg + '</span>');
+										if (response.data.updated) {
+											setTimeout(function() {
+												location.reload();
+											}, 2000);
+										} else {
+											$btn.prop('disabled', false).text('<?php esc_html_e('Check for Updates', 'baskerville'); ?>');
+										}
+									} else {
+										$status.html('<span class="baskerville-status-error">✗ ' + response.data.message + '</span>');
+										$btn.prop('disabled', false).text('<?php esc_html_e('Retry', 'baskerville'); ?>');
+									}
+								},
+								error: function() {
+									$status.html('<span class="baskerville-status-error">✗ <?php esc_html_e('Request failed. Please try again.', 'baskerville'); ?></span>');
+									$btn.prop('disabled', false).text('<?php esc_html_e('Retry', 'baskerville'); ?>');
+								}
+							});
+						});
+					});
+					</script>
+
+					<div class="baskerville-alert baskerville-alert-info baskerville-mt-15">
+						<strong><?php esc_html_e('About Deflect GeoIP:', 'baskerville'); ?></strong><br>
+						<?php esc_html_e('This is a free, open-source alternative to MaxMind GeoLite2. The database is compiled from public routing data and updated every Monday.', 'baskerville'); ?>
+						<br><a href="https://github.com/deflect-ca/deflect-geoip" target="_blank"><?php esc_html_e('Learn more on GitHub', 'baskerville'); ?></a>
+					</div>
+				</div>
+				<?php endif; ?>
+
 				<?php
 				// Show which source would be used
 				$active_source = null;
 				$active_country = null;
-				if ($results['nginx_geoip2']) {
+				if ($results['nginx_geoip2'] && $results['nginx_geoip2'] !== 'N/A (only for current IP)') {
 					$active_source = 'NGINX GeoIP2';
 					$active_country = $results['nginx_geoip2'];
-				} elseif ($results['nginx_geoip_legacy']) {
+				} elseif ($results['nginx_geoip_legacy'] && $results['nginx_geoip_legacy'] !== 'N/A (only for current IP)') {
 					$active_source = 'NGINX GeoIP (legacy)';
 					$active_country = $results['nginx_geoip_legacy'];
-				} elseif ($results['nginx_custom_header']) {
+				} elseif ($results['nginx_custom_header'] && $results['nginx_custom_header'] !== 'N/A (only for current IP)') {
 					$active_source = 'NGINX Custom Header';
 					$active_country = $results['nginx_custom_header'];
-				} elseif ($results['cloudflare']) {
+				} elseif ($results['cloudflare'] && $results['cloudflare'] !== 'N/A (only for current IP)') {
 					$active_source = 'Cloudflare';
 					$active_country = $results['cloudflare'];
 				} elseif ($results['maxmind']) {
 					$active_source = 'MaxMind GeoLite2';
 					$active_country = $results['maxmind'];
+				} elseif ($results['deflect']) {
+					$active_source = 'Deflect GeoIP';
+					$active_country = $results['deflect'];
 				}
 				?>
 

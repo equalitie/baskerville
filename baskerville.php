@@ -33,11 +33,15 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-insta
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
-// Add custom cron interval for file logging (1 minute)
+// Add custom cron intervals
 add_filter('cron_schedules', function($schedules) {
 	$schedules['baskerville_1min'] = array(
 		'interval' => 60, // 1 minute in seconds
 		'display'  => __('Every Minute (Baskerville)', 'baskerville')
+	);
+	$schedules['baskerville_weekly'] = array(
+		'interval' => 604800, // 7 days in seconds
+		'display'  => __('Weekly (Baskerville)', 'baskerville')
 	);
 	return $schedules;
 });
@@ -89,6 +93,30 @@ add_action('plugins_loaded', function () {
 
 	// periodic old log file cleanup
 	add_action('baskerville_cleanup_log_files', [$stats, 'cleanup_old_log_files']);
+
+	// periodic Deflect GeoIP database update (weekly)
+	add_action('baskerville_update_deflect_geoip', function() {
+		try {
+			if (!class_exists('Baskerville_Deflect_GeoIP')) {
+				$class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+				if (!file_exists($class_file)) {
+					return;
+				}
+				require_once $class_file;
+			}
+			$deflect = new Baskerville_Deflect_GeoIP();
+			$deflect->update(true);
+		} catch (\Exception $e) {
+			// Log error but don't crash
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('Baskerville: Deflect GeoIP update failed: ' . $e->getMessage());
+			}
+		} catch (\Error $e) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('Baskerville: Deflect GeoIP update error: ' . $e->getMessage());
+			}
+		}
+	});
 
 	// admin
 	if (is_admin()) {

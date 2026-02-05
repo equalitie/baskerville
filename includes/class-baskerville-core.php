@@ -499,7 +499,7 @@ class Baskerville_Core {
 
     /**
      * Get country code for IP address
-     * Priority: 1) NGINX GeoIP, 2) Cloudflare, 3) MaxMind local DB
+     * Priority: 1) NGINX GeoIP, 2) Cloudflare, 3) MaxMind, 4) Deflect GeoIP
      * @param string $ip
      * @return string|null Two-letter country code (e.g., 'US', 'RU') or null if unknown
      */
@@ -529,9 +529,14 @@ class Baskerville_Core {
         elseif (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
             $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
         }
-        // 3. Fallback to MaxMind local database
+        // 3. Try MaxMind local database first
         else {
             $country = $this->lookup_country_maxmind($ip);
+
+            // 4. Fallback to Deflect GeoIP (free, no registration required)
+            if ($country === null) {
+                $country = $this->lookup_country_deflect($ip);
+            }
         }
 
         // Normalize and validate
@@ -545,6 +550,37 @@ class Baskerville_Core {
         $this->fc_set($cache_key, $country ?: 'XX', 7 * 86400);
 
         return $country;
+    }
+
+    /**
+     * Lookup country code using Deflect GeoIP database
+     * @param string $ip
+     * @return string|null
+     */
+    private function lookup_country_deflect($ip) {
+        try {
+            if (!class_exists('Baskerville_Deflect_GeoIP')) {
+                $class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+                if (!file_exists($class_file)) {
+                    return null;
+                }
+                require_once $class_file;
+            }
+
+            if (!class_exists('Baskerville_Deflect_GeoIP')) {
+                return null;
+            }
+
+            $deflect = new Baskerville_Deflect_GeoIP();
+            if (!$deflect->is_installed()) {
+                return null;
+            }
+            return $deflect->lookup($ip);
+        } catch (\Exception $e) {
+            return null;
+        } catch (\Error $e) {
+            return null;
+        }
     }
 
     /**
@@ -592,6 +628,8 @@ class Baskerville_Core {
             'nginx_geoip_legacy' => null,
             'nginx_custom_header' => null,
             'cloudflare' => null,
+            'deflect' => null,
+            'deflect_debug' => array(),
             'maxmind' => null,
             'maxmind_debug' => array(),
             'is_current_ip' => $is_current_ip,
@@ -621,6 +659,39 @@ class Baskerville_Core {
             $results['nginx_geoip_legacy'] = 'N/A (only for current IP)';
             $results['nginx_custom_header'] = 'N/A (only for current IP)';
             $results['cloudflare'] = 'N/A (only for current IP)';
+        }
+
+        // Test Deflect GeoIP
+        if (!class_exists('Baskerville_Deflect_GeoIP')) {
+            $class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+            if (file_exists($class_file)) {
+                require_once $class_file;
+            }
+        }
+
+        if (class_exists('Baskerville_Deflect_GeoIP')) {
+            $deflect = new Baskerville_Deflect_GeoIP();
+            $deflect_stats = $deflect->get_stats();
+            $results['deflect_debug']['installed'] = $deflect_stats['installed'];
+            $results['deflect_debug']['version'] = $deflect_stats['version'];
+            $results['deflect_debug']['ipv4_count'] = $deflect_stats['ipv4_count'];
+            $results['deflect_debug']['ipv6_count'] = $deflect_stats['ipv6_count'];
+            $results['deflect_debug']['db_path'] = $deflect->get_db_path();
+            $results['deflect_debug']['file_exists'] = file_exists($deflect->get_db_path());
+
+            if ($deflect_stats['installed']) {
+                try {
+                    $results['deflect'] = $deflect->lookup($ip);
+                    $results['deflect_debug']['lookup_success'] = $results['deflect'] !== null;
+                } catch (\Exception $e) {
+                    $results['deflect'] = null;
+                    $results['deflect_debug']['lookup_success'] = false;
+                    $results['deflect_debug']['error'] = $e->getMessage();
+                }
+            }
+        } else {
+            $results['deflect_debug']['installed'] = false;
+            $results['deflect_debug']['error'] = 'Class not available';
         }
 
         // Test MaxMind directly with detailed diagnostics

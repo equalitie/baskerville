@@ -78,8 +78,73 @@ class Baskerville_Installer {
 			wp_schedule_event(time(), 'daily', 'baskerville_cleanup_log_files');
 		}
 
+		// Cron for weekly Deflect GeoIP database update
+		if (!wp_next_scheduled('baskerville_update_deflect_geoip')) {
+			wp_schedule_event(time(), 'baskerville_weekly', 'baskerville_update_deflect_geoip');
+		}
+
+		// Download Deflect GeoIP database on activation
+		self::install_deflect_geoip();
+
 		// Rebuild rewrite rules (in case there are custom endpoints/rewriting)
 		flush_rewrite_rules();
+	}
+
+	/**
+	 * Install Deflect GeoIP database
+	 * This is non-critical - plugin works without it (falls back to MaxMind or no GeoIP)
+	 */
+	private static function install_deflect_geoip() {
+		try {
+			if (!class_exists('Baskerville_Deflect_GeoIP')) {
+				$class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+				if (!file_exists($class_file)) {
+					return; // Silently skip if class file missing
+				}
+				require_once $class_file;
+			}
+
+			$deflect = new Baskerville_Deflect_GeoIP();
+
+			// Only download if not already installed
+			if (!$deflect->is_installed()) {
+				$result = $deflect->update(true);
+
+				// Save result for admin notice
+				set_transient('baskerville_deflect_geoip_activation_result', $result, 60);
+			} else {
+				// Already installed
+				$stats = $deflect->get_stats();
+				set_transient('baskerville_deflect_geoip_activation_result', array(
+					'success' => true,
+					'message' => sprintf(
+						/* translators: %s: version string */
+						__('Deflect GeoIP database already installed (version %s)', 'baskerville'),
+						$stats['version'] ?? 'unknown'
+					),
+				), 60);
+			}
+		} catch (\Exception $e) {
+			// Non-critical error - log and continue
+			set_transient('baskerville_deflect_geoip_activation_result', array(
+				'success' => false,
+				'message' => sprintf(
+					/* translators: %s: error message */
+					__('Deflect GeoIP download failed: %s (plugin will work without it)', 'baskerville'),
+					$e->getMessage()
+				),
+			), 60);
+		} catch (\Error $e) {
+			// PHP Error - log and continue
+			set_transient('baskerville_deflect_geoip_activation_result', array(
+				'success' => false,
+				'message' => sprintf(
+					/* translators: %s: error message */
+					__('Deflect GeoIP error: %s (plugin will work without it)', 'baskerville'),
+					$e->getMessage()
+				),
+			), 60);
+		}
 	}
 
 	/**
@@ -91,6 +156,7 @@ class Baskerville_Installer {
 		wp_clear_scheduled_hook('baskerville_cleanup_cache');
 		wp_clear_scheduled_hook('baskerville_process_log_files');
 		wp_clear_scheduled_hook('baskerville_cleanup_log_files');
+		wp_clear_scheduled_hook('baskerville_update_deflect_geoip');
 
 		// Clean up rewrite rules
 		flush_rewrite_rules();
