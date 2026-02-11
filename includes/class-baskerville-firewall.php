@@ -496,7 +496,7 @@ class Baskerville_Firewall
 				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
 					$turnstile = $GLOBALS['baskerville_turnstile'];
 					if ($turnstile->is_enabled()) {
-						if ($turnstile->has_pass_cookie()) {
+						if ($turnstile->has_valid_pass()) {
 							// Already passed Turnstile - allow through, don't ban
 							return;
 						}
@@ -539,7 +539,7 @@ class Baskerville_Firewall
 				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
 					$turnstile = $GLOBALS['baskerville_turnstile'];
 					if ($turnstile->is_enabled()) {
-						if ($turnstile->has_pass_cookie()) {
+						if ($turnstile->has_valid_pass()) {
 							// Already passed Turnstile - allow through, don't ban
 							return;
 						}
@@ -613,7 +613,7 @@ class Baskerville_Firewall
 				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
 					$turnstile = $GLOBALS['baskerville_turnstile'];
 					if ($turnstile->is_enabled()) {
-						if ($turnstile->has_pass_cookie()) {
+						if ($turnstile->has_valid_pass()) {
 							// Already passed Turnstile - allow through, don't ban
 							return;
 						}

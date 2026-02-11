@@ -148,8 +148,8 @@ class Baskerville_Turnstile {
 			return false;
 		}
 
-		// Check if already passed challenge
-		if ($this->has_pass_cookie()) {
+		// Check if already passed challenge (cookie or server-side cache)
+		if ($this->has_valid_pass()) {
 			return false;
 		}
 
@@ -170,6 +170,30 @@ class Baskerville_Turnstile {
 
 		// Check if score is in borderline range
 		return $score >= $this->borderline_min && $score <= $this->borderline_max;
+	}
+
+	/**
+	 * Check if visitor has valid pass (cookie OR server-side cache).
+	 * CDN/edge proxies (like Deflect) may strip cookies on GET requests
+	 * before forwarding to origin. Server-side cache ensures the pass
+	 * is still recognized even when the cookie is stripped.
+	 */
+	public function has_valid_pass() {
+		// First check cookie (fast path)
+		if ($this->has_pass_cookie()) {
+			return true;
+		}
+
+		// Fallback: check server-side file cache by IP
+		// This handles the case where CDN strips baskerville_pass cookie
+		if ($this->core) {
+			$ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+			if (!empty($ip) && $this->core->fc_get("turnstile_pass:{$ip}")) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -255,6 +279,16 @@ class Baskerville_Turnstile {
 
 		// Inject into $_COOKIE for current request
 		$_COOKIE['baskerville_pass'] = $value;
+
+		// Also store pass in server-side file cache by IP.
+		// CDN/edge (Deflect) may strip cookies on GET requests before
+		// forwarding to origin, so the cookie alone is unreliable.
+		if ($this->core) {
+			$ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+			if (!empty($ip)) {
+				$this->core->fc_set("turnstile_pass:{$ip}", $timestamp, 86400);
+			}
+		}
 	}
 
 	/**
@@ -290,7 +324,12 @@ class Baskerville_Turnstile {
 			// Debug headers to diagnose challenge loop
 			$has_cookie = isset($_COOKIE['baskerville_pass']) ? '1' : '0';
 			header('X-Bsk-HasPassCookie: ' . $has_cookie);
-			header('X-Bsk-CodeVer: v2-no-id-bind');
+			header('X-Bsk-CodeVer: v3-server-pass');
+
+			// Check server-side pass cache
+			$ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+			$server_pass = ($this->core && !empty($ip)) ? $this->core->fc_get("turnstile_pass:{$ip}") : null;
+			header('X-Bsk-ServerPass: ' . ($server_pass ? '1' : '0'));
 
 			if (isset($_COOKIE['baskerville_pass'])) {
 				$raw = sanitize_text_field(wp_unslash($_COOKIE['baskerville_pass']));
@@ -556,7 +595,7 @@ class Baskerville_Turnstile {
 			// Debug: show what cookie value was set
 			$set_val = isset($_COOKIE['baskerville_pass']) ? $_COOKIE['baskerville_pass'] : 'NOT_SET';
 			header('X-Bsk-VerifySetVal: ' . substr($set_val, 0, 20));
-			header('X-Bsk-VerifyCodeVer: v2-no-id-bind');
+			header('X-Bsk-VerifyCodeVer: v3-server-pass');
 			// Secret prefix for consistency check
 			$secret = get_option('baskerville_cookie_secret', 'default_secret');
 			header('X-Bsk-VerifySecretPfx: ' . substr($secret, 0, 6));
