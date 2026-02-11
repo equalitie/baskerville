@@ -200,23 +200,37 @@ class Baskerville_Turnstile {
 			return false;
 		}
 
-		// Verify hash
+		// Verify hash (current format: not bound to baskerville_id)
 		$expected_hash = $this->generate_pass_hash($timestamp);
-		return hash_equals($expected_hash, $hash);
+		if (hash_equals($expected_hash, $hash)) {
+			return true;
+		}
+
+		// Legacy fallback: hash was bound to baskerville_id (before mobile redirect loop fix)
+		$baskerville_id = isset($_COOKIE['baskerville_id']) ? sanitize_text_field(wp_unslash($_COOKIE['baskerville_id'])) : '';
+		if (!empty($baskerville_id)) {
+			$secret = get_option('baskerville_cookie_secret', 'default_secret');
+			$legacy_hash = hash_hmac('sha256', $timestamp . $baskerville_id, $secret);
+			if (hash_equals($legacy_hash, $hash)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
 	 * Generate pass cookie hash
-	 * Note: We don't include full IP in hash because sites behind Deflect/CDN
-	 * may see different REMOTE_ADDR values from different edge servers.
-	 * The baskerville_id cookie already contains IP validation.
+	 * Note: We intentionally do NOT bind this hash to baskerville_id or IP.
+	 * The baskerville_id cookie is IP-bound and gets regenerated when the IP changes
+	 * (common on mobile/cellular networks), which would invalidate the pass cookie
+	 * and cause a redirect loop. The pass cookie is HttpOnly+Secure+SameSite=Lax,
+	 * so the forgery risk without per-user binding is minimal.
 	 */
 	private function generate_pass_hash($timestamp) {
 		$secret = get_option('baskerville_cookie_secret', 'default_secret');
-		$baskerville_id = isset($_COOKIE['baskerville_id']) ? sanitize_text_field(wp_unslash($_COOKIE['baskerville_id'])) : '';
 
-		// Use only timestamp + baskerville_id for hash (baskerville_id already has IP binding)
-		return hash_hmac('sha256', $timestamp . $baskerville_id, $secret);
+		return hash_hmac('sha256', 'baskerville_pass.' . $timestamp, $secret);
 	}
 
 	/**
@@ -261,10 +275,56 @@ class Baskerville_Turnstile {
 
 		// Prevent CDN/EQpress caching of redirects - must be before any output
 		if (!headers_sent()) {
+			// Vary by Cookie so EQpress/CDN creates separate cache entries
+			// for requests with vs without baskerville_pass cookie.
+			// Without this, EQpress caches the 302 redirect and serves it
+			// even to visitors who already passed the challenge.
+			header('Vary: Cookie');
 			header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
 			header('Pragma: no-cache');
 			header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
 			header('X-Baskerville-Redirect: challenge');
+			// Tell EQpress/nginx this is not cacheable
+			header('X-Accel-Expires: 0');
+
+			// Debug headers to diagnose challenge loop
+			$has_cookie = isset($_COOKIE['baskerville_pass']) ? '1' : '0';
+			header('X-Bsk-HasPassCookie: ' . $has_cookie);
+			header('X-Bsk-CodeVer: v2-no-id-bind');
+
+			if (isset($_COOKIE['baskerville_pass'])) {
+				$raw = sanitize_text_field(wp_unslash($_COOKIE['baskerville_pass']));
+				// Show first 20 chars of cookie value
+				header('X-Bsk-PassVal: ' . substr($raw, 0, 20));
+				$parts = explode('.', $raw);
+				if (count($parts) === 2) {
+					$ts = (int) $parts[0];
+					$age = time() - $ts;
+					header('X-Bsk-PassAge: ' . $age . 's');
+					header('X-Bsk-PassExpired: ' . ($age > 86400 ? '1' : '0'));
+					$expected = $this->generate_pass_hash($ts);
+					header('X-Bsk-HashMatch: ' . (hash_equals($expected, $parts[1]) ? '1' : '0'));
+					header('X-Bsk-ExpectedPrefix: ' . substr($expected, 0, 8));
+					header('X-Bsk-ActualPrefix: ' . substr($parts[1], 0, 8));
+				} else {
+					header('X-Bsk-PassParts: ' . count($parts));
+					// Try colon separator
+					$parts2 = explode(':', $raw);
+					header('X-Bsk-ColonParts: ' . count($parts2));
+				}
+			}
+
+			// Show baskerville_id status too
+			$bid = isset($_COOKIE['baskerville_id']) ? sanitize_text_field(wp_unslash($_COOKIE['baskerville_id'])) : 'none';
+			header('X-Bsk-BId: ' . substr($bid, 0, 30));
+
+			// Show ALL cookie names (CDN may strip baskerville_pass before it reaches origin)
+			$cookie_names = array_keys($_COOKIE);
+			header('X-Bsk-AllCookies: ' . implode(',', $cookie_names));
+
+			// Show secret prefix for consistency check
+			$secret = get_option('baskerville_cookie_secret', 'default_secret');
+			header('X-Bsk-SecretPfx: ' . substr($secret, 0, 6));
 		}
 		nocache_headers();
 
@@ -285,6 +345,14 @@ class Baskerville_Turnstile {
 		if ($return_host !== $site_host) {
 			$return_url = home_url('/');
 		}
+
+		// Prevent CDN caching of challenge page (stale nonce would break verification)
+		if (!headers_sent()) {
+			header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
+			header('Pragma: no-cache');
+			header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
+		}
+		nocache_headers();
 
 		$site_name = get_bloginfo('name');
 		?>
@@ -395,14 +463,28 @@ class Baskerville_Turnstile {
 			</div>
 
 			<script>
+				var RETURN_URL = <?php echo wp_json_encode(esc_url($return_url)); ?>;
 				function onTurnstileSuccess(token) {
-					console.log('Turnstile success, submitting form');
 					var form = document.getElementById('challenge-form');
-					if (form) {
-						form.submit();
-					} else {
-						console.error('Form not found!');
-					}
+					if (!form) return;
+					// fetch() instead of form.submit() - CDN edge won't
+					// intercept XHR with managed challenge (only page nav)
+					var formData = new FormData(form);
+					fetch(form.action, {
+						method: 'POST',
+						body: formData,
+						credentials: 'same-origin',
+						headers: { 'X-Requested-With': 'XMLHttpRequest' }
+					})
+					.then(function(res) {
+						if (res.ok) {
+							window.location.replace(RETURN_URL);
+						} else {
+							document.getElementById('error-message').textContent = 'Verification failed.';
+							document.getElementById('error-message').style.display = 'block';
+						}
+					})
+					.catch(function() { form.submit(); });
 				}
 
 				function onTurnstileError(error) {
@@ -460,11 +542,37 @@ class Baskerville_Turnstile {
 			);
 		}
 
-		// Success! Set pass cookie and redirect
+		// Success! Set pass cookie via 200 response (not 302).
+		// CDN edge (Deflect) may strip Set-Cookie from 302 redirects or intercept
+		// the POST with its own managed challenge. A 200 HTML page with meta refresh
+		// ensures the browser stores the cookie before navigating.
 		$this->set_pass_cookie();
 		$this->log_challenge_event('pass', null);
 
-		wp_safe_redirect($return_url);
+		if (!headers_sent()) {
+			header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0, private');
+			header('Pragma: no-cache');
+			header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
+			// Debug: show what cookie value was set
+			$set_val = isset($_COOKIE['baskerville_pass']) ? $_COOKIE['baskerville_pass'] : 'NOT_SET';
+			header('X-Bsk-VerifySetVal: ' . substr($set_val, 0, 20));
+			header('X-Bsk-VerifyCodeVer: v2-no-id-bind');
+			// Secret prefix for consistency check
+			$secret = get_option('baskerville_cookie_secret', 'default_secret');
+			header('X-Bsk-VerifySecretPfx: ' . substr($secret, 0, 6));
+		}
+		nocache_headers();
+
+		// Flush any WordPress output buffers so the HTML actually reaches the browser
+		while (ob_get_level()) {
+			ob_end_clean();
+		}
+
+		$safe_url = esc_url($return_url);
+		echo '<!DOCTYPE html><html><head><meta charset="utf-8">';
+		echo '<meta http-equiv="refresh" content="0;url=' . esc_attr($safe_url) . '">';
+		echo '</head><body><script>window.location.replace(' . wp_json_encode($safe_url) . ');</script>';
+		echo '</body></html>';
 		exit;
 	}
 
