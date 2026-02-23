@@ -79,7 +79,7 @@ class Baskerville_Admin {
 			$message = $result['message'] ?? __('Unknown result', 'baskerville');
 
 			printf(
-				'<div class="notice %s is-dismissible"><p><strong>Baskerville:</strong> %s</p></div>',
+				'<div class="notice %s is-dismissible"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville' ) . '</strong> %s</p></div>',
 				esc_attr($class),
 				esc_html($message)
 			);
@@ -2624,7 +2624,7 @@ class Baskerville_Admin {
 				<table class="baskerville-simple-table">
 					<tr>
 						<td><strong><?php esc_html_e('Logging Mode:', 'baskerville'); ?></strong></td>
-						<td class="baskerville-td-padded">File logging (for performance)</td>
+						<td class="baskerville-td-padded"><?php esc_html_e( 'File logging (for performance)', 'baskerville' ); ?></td>
 					</tr>
 					<tr>
 						<td><strong><?php esc_html_e('Pending log files:', 'baskerville'); ?></strong></td>
@@ -2638,16 +2638,22 @@ class Baskerville_Admin {
 						<td><strong><?php esc_html_e('WP-Cron status:', 'baskerville'); ?></strong></td>
 						<td class="baskerville-td-padded">
 							<?php if ($wp_cron_disabled): ?>
-								<span class="baskerville-text-danger">❌ Disabled (DISABLE_WP_CRON=true)</span>
+								<span class="baskerville-text-danger">❌ <?php esc_html_e( 'Disabled (DISABLE_WP_CRON=true)', 'baskerville' ); ?></span>
 							<?php else: ?>
-								<span class="baskerville-text-success">✓ Enabled</span>
+								<span class="baskerville-text-success">✓ <?php esc_html_e( 'Enabled', 'baskerville' ); ?></span>
 							<?php endif; ?>
 						</td>
 					</tr>
 					<?php if ($next_cron): ?>
 					<tr>
 						<td><strong><?php esc_html_e('Next auto-import:', 'baskerville'); ?></strong></td>
-						<td class="baskerville-td-padded"><?php echo esc_html(human_time_diff($next_cron, time())); ?> from now</td>
+						<td class="baskerville-td-padded"><?php
+						printf(
+							/* translators: %s: human-readable time difference */
+							esc_html__( '%s from now', 'baskerville' ),
+							esc_html( human_time_diff( $next_cron, time() ) )
+						);
+						?></td>
 					</tr>
 					<?php endif; ?>
 				</table>
@@ -2657,7 +2663,7 @@ class Baskerville_Admin {
 						<?php echo esc_html($cron_message); ?>
 						<?php if ($wp_cron_disabled): ?>
 							<br><br>
-							<strong>Fix:</strong> Add this to your server crontab:<br>
+							<strong><?php esc_html_e( 'Fix:', 'baskerville' ); ?></strong> <?php esc_html_e( 'Add this to your server crontab:', 'baskerville' ); ?><br>
 							<code class="baskerville-code">
 								* * * * * wget -q -O - <?php echo esc_url(site_url('wp-cron.php?doing_wp_cron')); ?> &>/dev/null || curl -s <?php echo esc_url(site_url('wp-cron.php?doing_wp_cron')); ?> &>/dev/null
 							</code>
@@ -3056,11 +3062,11 @@ class Baskerville_Admin {
 				if ($geoip_mode === 'blacklist' && !empty($blacklist_countries)) {
 					$blacklist_arr = array_map('trim', array_map('strtoupper', explode(',', $blacklist_countries)));
 					$would_block = in_array($detected_country, $blacklist_arr, true);
-					$block_reason = $would_block ? 'Country IS in blacklist' : 'Country NOT in blacklist';
+					$block_reason = $would_block ? __( 'Country IS in blacklist', 'baskerville' ) : __( 'Country NOT in blacklist', 'baskerville' );
 				} elseif ($geoip_mode === 'whitelist' && !empty($whitelist_countries)) {
 					$whitelist_arr = array_map('trim', array_map('strtoupper', explode(',', $whitelist_countries)));
 					$would_block = !in_array($detected_country, $whitelist_arr, true);
-					$block_reason = $would_block ? 'Country NOT in whitelist' : 'Country in whitelist';
+					$block_reason = $would_block ? __( 'Country NOT in whitelist', 'baskerville' ) : __( 'Country in whitelist', 'baskerville' );
 				}
 			}
 			?>
@@ -3185,7 +3191,7 @@ class Baskerville_Admin {
 					<?php if ($is_custom_ip): ?>
 						<span class="baskerville-badge baskerville-badge-warning"><?php esc_html_e('Custom IP', 'baskerville'); ?></span>
 					<?php endif; ?>
-					<br><strong><?php esc_html_e('Priority order:', 'baskerville'); ?></strong> NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → MaxMind → Deflect GeoIP
+					<br><strong><?php esc_html_e('Priority order:', 'baskerville'); ?></strong> <?php esc_html_e( 'NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → MaxMind → Deflect GeoIP', 'baskerville' ); ?>
 				</div>
 
 				<div class="geoip-results">
@@ -3194,7 +3200,7 @@ class Baskerville_Admin {
 					<!-- NGINX GeoIP2 -->
 					<div class="geoip-source <?php echo $results['nginx_geoip2'] ? 'available' : 'unavailable'; ?>">
 						<div class="geoip-status-icon"><?php echo $results['nginx_geoip2'] ? '✅' : '❌'; ?></div>
-						<div class="geoip-source-name">NGINX GeoIP2</div>
+						<div class="geoip-source-name"><?php esc_html_e( 'NGINX GeoIP2', 'baskerville' ); ?></div>
 						<div class="geoip-source-result <?php echo $results['nginx_geoip2'] ? 'available' : 'unavailable'; ?>">
 							<?php echo $results['nginx_geoip2'] ? esc_html($results['nginx_geoip2']) : esc_html__('Not configured', 'baskerville'); ?>
 						</div>
@@ -3203,7 +3209,7 @@ class Baskerville_Admin {
 					<!-- NGINX GeoIP Legacy -->
 					<div class="geoip-source <?php echo $results['nginx_geoip_legacy'] ? 'available' : 'unavailable'; ?>">
 						<div class="geoip-status-icon"><?php echo $results['nginx_geoip_legacy'] ? '✅' : '❌'; ?></div>
-						<div class="geoip-source-name">NGINX GeoIP (legacy)</div>
+						<div class="geoip-source-name"><?php esc_html_e( 'NGINX GeoIP (legacy)', 'baskerville' ); ?></div>
 						<div class="geoip-source-result <?php echo $results['nginx_geoip_legacy'] ? 'available' : 'unavailable'; ?>">
 							<?php echo $results['nginx_geoip_legacy'] ? esc_html($results['nginx_geoip_legacy']) : esc_html__('Not configured', 'baskerville'); ?>
 						</div>
@@ -3212,7 +3218,7 @@ class Baskerville_Admin {
 					<!-- NGINX Custom Header -->
 					<div class="geoip-source <?php echo $results['nginx_custom_header'] ? 'available' : 'unavailable'; ?>">
 						<div class="geoip-status-icon"><?php echo $results['nginx_custom_header'] ? '✅' : '❌'; ?></div>
-						<div class="geoip-source-name">NGINX Custom Header</div>
+						<div class="geoip-source-name"><?php esc_html_e( 'NGINX Custom Header', 'baskerville' ); ?></div>
 						<div class="geoip-source-result <?php echo $results['nginx_custom_header'] ? 'available' : 'unavailable'; ?>">
 							<?php echo $results['nginx_custom_header'] ? esc_html($results['nginx_custom_header']) : esc_html__('Not configured', 'baskerville'); ?>
 						</div>
@@ -3221,7 +3227,7 @@ class Baskerville_Admin {
 					<!-- Cloudflare -->
 					<div class="geoip-source <?php echo $results['cloudflare'] ? 'available' : 'unavailable'; ?>">
 						<div class="geoip-status-icon"><?php echo $results['cloudflare'] ? '✅' : '❌'; ?></div>
-						<div class="geoip-source-name">Cloudflare</div>
+						<div class="geoip-source-name"><?php esc_html_e( 'Cloudflare', 'baskerville' ); ?></div>
 						<div class="geoip-source-result <?php echo $results['cloudflare'] ? 'available' : 'unavailable'; ?>">
 							<?php echo $results['cloudflare'] ? esc_html($results['cloudflare']) : esc_html__('Not available', 'baskerville'); ?>
 						</div>
@@ -3230,7 +3236,7 @@ class Baskerville_Admin {
 					<!-- MaxMind -->
 					<div class="geoip-source <?php echo $results['maxmind'] ? 'available' : 'unavailable'; ?>">
 						<div class="geoip-status-icon"><?php echo $results['maxmind'] ? '✅' : '❌'; ?></div>
-						<div class="geoip-source-name">MaxMind GeoLite2 <small class="baskerville-text-muted">(<?php esc_html_e('manual updates', 'baskerville'); ?>)</small></div>
+						<div class="geoip-source-name"><?php esc_html_e( 'MaxMind GeoLite2', 'baskerville' ); ?> <small class="baskerville-text-muted">(<?php esc_html_e('manual updates', 'baskerville'); ?>)</small></div>
 						<div class="geoip-source-result <?php echo $results['maxmind'] ? 'available' : 'unavailable'; ?>">
 							<?php
 							if ($results['maxmind']) {
@@ -3245,7 +3251,7 @@ class Baskerville_Admin {
 					<!-- Deflect GeoIP -->
 					<div class="geoip-source <?php echo $results['deflect'] ? 'available' : 'unavailable'; ?>">
 						<div class="geoip-status-icon"><?php echo $results['deflect'] ? '✅' : '❌'; ?></div>
-						<div class="geoip-source-name">Deflect GeoIP <small class="baskerville-text-muted">(<?php esc_html_e('less accurate, auto-updates', 'baskerville'); ?>)</small></div>
+						<div class="geoip-source-name"><?php esc_html_e( 'Deflect GeoIP', 'baskerville' ); ?> <small class="baskerville-text-muted">(<?php esc_html_e('less accurate, auto-updates', 'baskerville'); ?>)</small></div>
 						<div class="geoip-source-result <?php echo $results['deflect'] ? 'available' : 'unavailable'; ?>">
 							<?php
 							if ($results['deflect']) {
@@ -3265,70 +3271,70 @@ class Baskerville_Admin {
 					<p class="baskerville-text-muted"><?php esc_html_e('More accurate than Deflect GeoIP but requires manual download and updates. You need to register at MaxMind and upload the database file yourself.', 'baskerville'); ?></p>
 					<table class="baskerville-debug-table-full">
 						<tr>
-							<td>Expected DB Path:</td>
+							<td><?php esc_html_e( 'Expected DB Path:', 'baskerville' ); ?></td>
 							<td>
 								<code><?php echo esc_html($results['maxmind_debug']['expected_path']); ?></code>
 							</td>
 						</tr>
 						<tr>
-							<td>File Exists:</td>
+							<td><?php esc_html_e( 'File Exists:', 'baskerville' ); ?></td>
 							<td>
 								<span class="<?php echo $results['maxmind_debug']['file_exists'] ? 'baskerville-status-yes' : 'baskerville-status-no'; ?>">
-									<?php echo $results['maxmind_debug']['file_exists'] ? 'YES ✓' : 'NO ✗'; ?>
+									<?php echo $results['maxmind_debug']['file_exists'] ? esc_html__( 'YES ✓', 'baskerville' ) : esc_html__( 'NO ✗', 'baskerville' ); ?>
 								</span>
 							</td>
 						</tr>
 						<tr>
-							<td>File Readable:</td>
+							<td><?php esc_html_e( 'File Readable:', 'baskerville' ); ?></td>
 							<td>
 								<span class="<?php echo $results['maxmind_debug']['is_readable'] ? 'baskerville-status-yes' : 'baskerville-status-no'; ?>">
-									<?php echo $results['maxmind_debug']['is_readable'] ? 'YES ✓' : 'NO ✗'; ?>
+									<?php echo $results['maxmind_debug']['is_readable'] ? esc_html__( 'YES ✓', 'baskerville' ) : esc_html__( 'NO ✗', 'baskerville' ); ?>
 								</span>
 							</td>
 						</tr>
 						<tr>
-							<td>File Size:</td>
+							<td><?php esc_html_e( 'File Size:', 'baskerville' ); ?></td>
 							<td>
 								<?php
 								if ($results['maxmind_debug']['file_size'] > 0) {
 									echo number_format($results['maxmind_debug']['file_size'] / 1024 / 1024, 2) . ' MB';
 								} else {
-									echo '<span class="baskerville-text-danger">0 bytes</span>';
+									echo '<span class="baskerville-text-danger">' . esc_html__( '0 bytes', 'baskerville' ) . '</span>';
 								}
 								?>
 							</td>
 						</tr>
 						<tr>
-							<td>WP_CONTENT_DIR:</td>
+							<td><?php esc_html_e( 'WP_CONTENT_DIR:', 'baskerville' ); ?></td>
 							<td>
 								<code><?php echo esc_html($results['maxmind_debug']['wp_content_dir']); ?></code>
 							</td>
 						</tr>
 						<tr>
-							<td>Autoload Path:</td>
+							<td><?php esc_html_e( 'Autoload Path:', 'baskerville' ); ?></td>
 							<td>
 								<code><?php echo esc_html($results['maxmind_debug']['autoload_path']); ?></code>
 							</td>
 						</tr>
 						<tr>
-							<td>Autoload Exists:</td>
+							<td><?php esc_html_e( 'Autoload Exists:', 'baskerville' ); ?></td>
 							<td>
 								<span class="<?php echo $results['maxmind_debug']['autoload_exists'] ? 'baskerville-status-yes' : 'baskerville-status-no'; ?>">
-									<?php echo $results['maxmind_debug']['autoload_exists'] ? 'YES ✓' : 'NO ✗'; ?>
+									<?php echo $results['maxmind_debug']['autoload_exists'] ? esc_html__( 'YES ✓', 'baskerville' ) : esc_html__( 'NO ✗', 'baskerville' ); ?>
 								</span>
 							</td>
 						</tr>
 						<tr>
-							<td>GeoIp2 Class Available:</td>
+							<td><?php esc_html_e( 'GeoIp2 Class Available:', 'baskerville' ); ?></td>
 							<td>
 								<span class="<?php echo $results['maxmind_debug']['class_exists'] ? 'baskerville-status-yes' : 'baskerville-status-no'; ?>">
-									<?php echo $results['maxmind_debug']['class_exists'] ? 'YES ✓' : 'NO ✗'; ?>
+									<?php echo $results['maxmind_debug']['class_exists'] ? esc_html__( 'YES ✓', 'baskerville' ) : esc_html__( 'NO ✗', 'baskerville' ); ?>
 								</span>
 							</td>
 						</tr>
 						<?php if (isset($results['maxmind_debug']['error'])): ?>
 						<tr class="baskerville-alert-danger">
-							<td>Error Message:</td>
+							<td><?php esc_html_e( 'Error Message:', 'baskerville' ); ?></td>
 							<td class="baskerville-text-danger">
 								<?php echo esc_html($results['maxmind_debug']['error']); ?>
 							</td>
@@ -3347,7 +3353,7 @@ class Baskerville_Admin {
 								<?php echo esc_html($results['maxmind_debug']['expected_path']); ?>
 							</code>
 							<strong><?php esc_html_e('Download from:', 'baskerville'); ?></strong>
-							<a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank">MaxMind GeoLite2</a>
+							<a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data" target="_blank"><?php esc_html_e( 'MaxMind GeoLite2', 'baskerville' ); ?></a>
 						</div>
 					<?php elseif (!$results['maxmind_debug']['is_readable']): ?>
 						<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-mt">
@@ -3536,22 +3542,22 @@ class Baskerville_Admin {
 				$active_source = null;
 				$active_country = null;
 				if ($results['nginx_geoip2'] && $results['nginx_geoip2'] !== 'N/A (only for current IP)') {
-					$active_source = 'NGINX GeoIP2';
+					$active_source = __( 'NGINX GeoIP2', 'baskerville' );
 					$active_country = $results['nginx_geoip2'];
 				} elseif ($results['nginx_geoip_legacy'] && $results['nginx_geoip_legacy'] !== 'N/A (only for current IP)') {
-					$active_source = 'NGINX GeoIP (legacy)';
+					$active_source = __( 'NGINX GeoIP (legacy)', 'baskerville' );
 					$active_country = $results['nginx_geoip_legacy'];
 				} elseif ($results['nginx_custom_header'] && $results['nginx_custom_header'] !== 'N/A (only for current IP)') {
-					$active_source = 'NGINX Custom Header';
+					$active_source = __( 'NGINX Custom Header', 'baskerville' );
 					$active_country = $results['nginx_custom_header'];
 				} elseif ($results['cloudflare'] && $results['cloudflare'] !== 'N/A (only for current IP)') {
-					$active_source = 'Cloudflare';
+					$active_source = __( 'Cloudflare', 'baskerville' );
 					$active_country = $results['cloudflare'];
 				} elseif ($results['maxmind']) {
-					$active_source = 'MaxMind GeoLite2';
+					$active_source = __( 'MaxMind GeoLite2', 'baskerville' );
 					$active_country = $results['maxmind'];
 				} elseif ($results['deflect']) {
-					$active_source = 'Deflect GeoIP';
+					$active_source = __( 'Deflect GeoIP', 'baskerville' );
 					$active_country = $results['deflect'];
 				}
 				?>
@@ -3862,6 +3868,9 @@ class Baskerville_Admin {
 						$this->render_ai_bots_tab();
 
 						do_settings_sections('baskerville-ai-bot-control');
+						?>
+						<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
+						<?php
 						submit_button();
 						?>
 						</form>
@@ -4377,7 +4386,7 @@ class Baskerville_Admin {
 					printf(
 						/* translators: %s: link to Cloudflare dashboard */
 						esc_html__('Get your Site Key and Secret Key from the %s.', 'baskerville'),
-						'<a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank">Cloudflare Dashboard</a>'
+						'<a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank">' . esc_html__( 'Cloudflare Dashboard', 'baskerville' ) . '</a>'
 					);
 					?>
 				</p>
@@ -5638,10 +5647,10 @@ done
 					);
 
 					$message = '<div class="baskerville-text-left">';
-					$message .= '<strong>GeoIP:</strong> ' . esc_html($results['geoip']['message']) . '<br>';
-					$message .= '<strong>AI/UA:</strong> ' . esc_html($results['ai-ua']['message']) . '<br>';
-					$message .= '<strong>Cache:</strong> ' . esc_html($results['cache']['message']) . '<br>';
-					$message .= '<strong>Firewall:</strong> ' . esc_html($results['firewall']['message']);
+					$message .= '<strong>' . esc_html__( 'GeoIP:', 'baskerville' ) . '</strong> ' . esc_html($results['geoip']['message']) . '<br>';
+					$message .= '<strong>' . esc_html__( 'AI/UA:', 'baskerville' ) . '</strong> ' . esc_html($results['ai-ua']['message']) . '<br>';
+					$message .= '<strong>' . esc_html__( 'Cache:', 'baskerville' ) . '</strong> ' . esc_html($results['cache']['message']) . '<br>';
+					$message .= '<strong>' . esc_html__( 'Firewall:', 'baskerville' ) . '</strong> ' . esc_html($results['firewall']['message']);
 					$message .= '</div>';
 
 					wp_send_json_success(array(
@@ -5845,9 +5854,9 @@ done
 			<?php esc_html_e('When an IP accesses this link, it is immediately marked as an AI bot.', 'baskerville'); ?><br>
 			<strong><?php esc_html_e('Honeypot URL:', 'baskerville'); ?></strong> <code><?php echo esc_html(home_url('/ai-training-data/')); ?></code><br>
 			<em class="baskerville-desc-danger"><?php esc_html_e('⚠️ The URL name "ai-training-data" is designed to attract AI bots looking for training content!', 'baskerville'); ?></em><br>
-			<strong class="baskerville-desc-danger">⚠️ IMPORTANT:</strong> After enabling, go to
-			<a href="<?php echo esc_url(admin_url('options-permalink.php')); ?>" target="_blank">Settings → Permalinks</a>
-			and click "Save Changes" to activate the honeypot URL!
+			<strong class="baskerville-desc-danger">⚠️ <?php esc_html_e( 'IMPORTANT:', 'baskerville' ); ?></strong> <?php esc_html_e( 'After enabling, go to', 'baskerville' ); ?>
+			<a href="<?php echo esc_url(admin_url('options-permalink.php')); ?>" target="_blank"><?php esc_html_e( 'Settings → Permalinks', 'baskerville' ); ?></a>
+			<?php esc_html_e( 'and click "Save Changes" to activate the honeypot URL!', 'baskerville' ); ?>
 		</p>
 		<?php
 	}
