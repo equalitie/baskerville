@@ -107,14 +107,11 @@ add_action('plugins_loaded', function () {
 			$deflect = new Baskerville_Deflect_GeoIP();
 			$deflect->update(true);
 		} catch (\Exception $e) {
-			// Log error but don't crash
-			if (defined('WP_DEBUG') && WP_DEBUG) {
-				error_log('Baskerville: Deflect GeoIP update failed: ' . $e->getMessage());
-			}
+			/* translators: %s: error message */
+			wp_trigger_error( '', sprintf( esc_html__( 'Baskerville: Deflect GeoIP update failed: %s', 'baskerville' ), $e->getMessage() ), E_USER_WARNING );
 		} catch (\Error $e) {
-			if (defined('WP_DEBUG') && WP_DEBUG) {
-				error_log('Baskerville: Deflect GeoIP update error: ' . $e->getMessage());
-			}
+			/* translators: %s: error message */
+			wp_trigger_error( '', sprintf( esc_html__( 'Baskerville: Deflect GeoIP update error: %s', 'baskerville' ), $e->getMessage() ), E_USER_WARNING );
 		}
 	});
 
