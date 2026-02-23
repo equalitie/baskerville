@@ -37,11 +37,11 @@ require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 add_filter('cron_schedules', function($schedules) {
 	$schedules['baskerville_1min'] = array(
 		'interval' => 60, // 1 minute in seconds
-		'display'  => __('Every Minute (Baskerville)', 'baskerville')
+		'display'  => __('Every Minute (Baskerville)', 'baskerville-ai-security')
 	);
 	$schedules['baskerville_weekly'] = array(
 		'interval' => 604800, // 7 days in seconds
-		'display'  => __('Weekly (Baskerville)', 'baskerville')
+		'display'  => __('Weekly (Baskerville)', 'baskerville-ai-security')
 	);
 	return $schedules;
 });
@@ -108,10 +108,10 @@ add_action('plugins_loaded', function () {
 			$deflect->update(true);
 		} catch (\Exception $e) {
 			/* translators: %s: error message */
-			wp_trigger_error( '', sprintf( esc_html__( 'Baskerville: Deflect GeoIP update failed: %s', 'baskerville' ), $e->getMessage() ), E_USER_WARNING );
+			wp_trigger_error( '', sprintf( esc_html__( 'Baskerville: Deflect GeoIP update failed: %s', 'baskerville-ai-security' ), $e->getMessage() ), E_USER_WARNING );
 		} catch (\Error $e) {
 			/* translators: %s: error message */
-			wp_trigger_error( '', sprintf( esc_html__( 'Baskerville: Deflect GeoIP update error: %s', 'baskerville' ), $e->getMessage() ), E_USER_WARNING );
+			wp_trigger_error( '', sprintf( esc_html__( 'Baskerville: Deflect GeoIP update error: %s', 'baskerville-ai-security' ), $e->getMessage() ), E_USER_WARNING );
 		}
 	});
 

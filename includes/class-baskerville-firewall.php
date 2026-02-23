@@ -117,17 +117,17 @@ class Baskerville_Firewall
 		// Show specific message based on ban reason (no translations - runs before init)
 		$reason = $meta['reason'] ?? '';
 		if (strpos($reason, 'no-cookie-burst') === 0) {
-			esc_html_e( 'Forbidden - Too many requests without session cookie', 'baskerville' );
+			esc_html_e( 'Forbidden - Too many requests without session cookie', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			esc_html_e( 'Forbidden - Too many requests without JavaScript', 'baskerville' );
+			esc_html_e( 'Forbidden - Too many requests without JavaScript', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			esc_html_e( 'Forbidden - Non-browser client rate limit exceeded', 'baskerville' );
+			esc_html_e( 'Forbidden - Non-browser client rate limit exceeded', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'ai-bot') === 0) {
-			esc_html_e( 'Forbidden - AI bot detected', 'baskerville' );
+			esc_html_e( 'Forbidden - AI bot detected', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'cached-ban') === 0) {
-			esc_html_e( 'Forbidden - IP temporarily banned', 'baskerville' );
+			esc_html_e( 'Forbidden - IP temporarily banned', 'baskerville-ai-security' );
 		} else {
-			esc_html_e( 'Forbidden - Bot detected', 'baskerville' );
+			esc_html_e( 'Forbidden - Bot detected', 'baskerville-ai-security' );
 		}
 		echo "\n";
 		exit;
@@ -149,7 +149,7 @@ class Baskerville_Firewall
 				header('Retry-After: ' . $retry);
 			}
 		}
-		esc_html_e( 'Forbidden - Access from this country is restricted', 'baskerville' );
+		esc_html_e( 'Forbidden - Access from this country is restricted', 'baskerville-ai-security' );
 		echo "\n";
 		exit;
 	}
@@ -226,7 +226,7 @@ class Baskerville_Firewall
 					echo wp_json_encode([
 						'error'       => 'rate_limit_exceeded',
 						/* translators: %1$d: maximum number of requests, %2$d: time window in seconds */
-						'message'     => sprintf( esc_html__( 'Rate limit exceeded. Maximum %1$d requests per %2$d seconds.', 'baskerville' ), $max_requests, $window_sec),
+						'message'     => sprintf( esc_html__( 'Rate limit exceeded. Maximum %1$d requests per %2$d seconds.', 'baskerville-ai-security' ), $max_requests, $window_sec),
 						'retry_after' => $window_sec
 					]);
 					exit;

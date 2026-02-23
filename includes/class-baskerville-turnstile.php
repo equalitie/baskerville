@@ -401,7 +401,7 @@ class Baskerville_Turnstile {
 			<meta charset="<?php bloginfo('charset'); ?>">
 			<meta name="viewport" content="width=device-width, initial-scale=1.0">
 			<meta name="robots" content="noindex, nofollow">
-			<title><?php echo esc_html__('Security Check', 'baskerville') . ' - ' . esc_html($site_name); ?></title>
+			<title><?php echo esc_html__('Security Check', 'baskerville-ai-security') . ' - ' . esc_html($site_name); ?></title>
 			<?php
 			wp_register_script( 'cloudflare-turnstile-challenge', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), '1.0', false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 			wp_print_scripts( 'cloudflare-turnstile-challenge' );
@@ -479,8 +479,8 @@ class Baskerville_Turnstile {
 		<body>
 			<div class="challenge-container">
 				<div class="challenge-icon">🛡️</div>
-				<h1><?php esc_html_e('Security Check', 'baskerville'); ?></h1>
-				<p><?php esc_html_e('Please complete this security check to continue to the website. This helps us prevent automated access.', 'baskerville'); ?></p>
+				<h1><?php esc_html_e('Security Check', 'baskerville-ai-security'); ?></h1>
+				<p><?php esc_html_e('Please complete this security check to continue to the website. This helps us prevent automated access.', 'baskerville-ai-security'); ?></p>
 
 				<div id="error-message" class="error-message"></div>
 
@@ -529,7 +529,7 @@ class Baskerville_Turnstile {
 				function onTurnstileError(error) {
 					console.error('Turnstile error:', error);
 					var errorDiv = document.getElementById('error-message');
-					errorDiv.textContent = '<?php echo esc_js(__('Verification failed. Please refresh and try again.', 'baskerville')); ?>';
+					errorDiv.textContent = '<?php echo esc_js(__('Verification failed. Please refresh and try again.', 'baskerville-ai-security')); ?>';
 					errorDiv.style.display = 'block';
 				}
 			</script>
@@ -545,7 +545,7 @@ class Baskerville_Turnstile {
 		// Verify nonce
 		if (!isset($_POST['baskerville_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['baskerville_nonce'])), 'baskerville_challenge')) {
 			$this->log_challenge_event('fail', 'invalid_nonce');
-			wp_die(esc_html__('Security check failed. Please try again.', 'baskerville'), esc_html__('Error', 'baskerville'), array('response' => 403));
+			wp_die(esc_html__('Security check failed. Please try again.', 'baskerville-ai-security'), esc_html__('Error', 'baskerville-ai-security'), array('response' => 403));
 		}
 
 		// Get token
@@ -553,7 +553,7 @@ class Baskerville_Turnstile {
 
 		if (empty($token)) {
 			$this->log_challenge_event('fail', 'missing_token');
-			wp_die(esc_html__('Please complete the security check.', 'baskerville'), esc_html__('Error', 'baskerville'), array('response' => 403));
+			wp_die(esc_html__('Please complete the security check.', 'baskerville-ai-security'), esc_html__('Error', 'baskerville-ai-security'), array('response' => 403));
 		}
 
 		// Verify with Cloudflare
@@ -575,8 +575,8 @@ class Baskerville_Turnstile {
 
 			// Show error and redirect back to challenge
 			wp_die(
-				esc_html($result->get_error_message()) . '<br><br><a href="' . esc_url(home_url('/?baskerville_challenge=1&return=' . rawurlencode($return_url))) . '">' . esc_html__('Try again', 'baskerville') . '</a>',
-				esc_html__('Verification Failed', 'baskerville'),
+				esc_html($result->get_error_message()) . '<br><br><a href="' . esc_url(home_url('/?baskerville_challenge=1&return=' . rawurlencode($return_url))) . '">' . esc_html__('Try again', 'baskerville-ai-security') . '</a>',
+				esc_html__('Verification Failed', 'baskerville-ai-security'),
 				array('response' => 403)
 			);
 		}
@@ -672,7 +672,7 @@ class Baskerville_Turnstile {
 			 data-theme="light">
 		</div>
 		<noscript>
-			<p class="baskerville-noscript-warning"><?php esc_html_e('Please enable JavaScript to complete the security check.', 'baskerville'); ?></p>
+			<p class="baskerville-noscript-warning"><?php esc_html_e('Please enable JavaScript to complete the security check.', 'baskerville-ai-security'); ?></p>
 		</noscript>
 		<?php
 	}
@@ -700,7 +700,7 @@ class Baskerville_Turnstile {
 	 */
 	private function verify_token($token) {
 		if (empty($token)) {
-			return new WP_Error('turnstile_missing', __('Please complete the security check.', 'baskerville'));
+			return new WP_Error('turnstile_missing', __('Please complete the security check.', 'baskerville-ai-security'));
 		}
 
 		$response = wp_remote_post('https://challenges.cloudflare.com/turnstile/v0/siteverify', array(
@@ -721,7 +721,7 @@ class Baskerville_Turnstile {
 
 		if (empty($body['success'])) {
 			$error_codes = isset($body['error-codes']) ? implode(', ', $body['error-codes']) : 'unknown';
-			return new WP_Error('turnstile_failed', __('Security check failed. Please try again.', 'baskerville'), $error_codes);
+			return new WP_Error('turnstile_failed', __('Security check failed. Please try again.', 'baskerville-ai-security'), $error_codes);
 		}
 
 		return true;
@@ -781,7 +781,7 @@ class Baskerville_Turnstile {
 		if (is_wp_error($result)) {
 			wp_die(
 				esc_html($result->get_error_message()),
-				esc_html__('Comment Submission Failed', 'baskerville'),
+				esc_html__('Comment Submission Failed', 'baskerville-ai-security'),
 				array('back_link' => true)
 			);
 		}
