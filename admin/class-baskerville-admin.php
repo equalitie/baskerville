@@ -707,7 +707,14 @@ class Baskerville_Admin {
 
 			<p class="description baskerville-alert baskerville-alert-neutral baskerville-alert-xs baskerville-alert-mt">
 				<strong><?php esc_html_e('💡 Recommendation:', 'baskerville'); ?></strong><br>
-				<?php esc_html_e('Use <strong>File Logging</strong> for best performance on shared hosting (GoDaddy, Bluehost, etc.)', 'baskerville'); ?><br>
+				<?php
+				printf(
+					/* translators: %1$s: opening strong tag, %2$s: closing strong tag */
+					esc_html__( 'Use %1$sFile Logging%2$s for best performance on shared hosting (GoDaddy, Bluehost, etc.)', 'baskerville' ),
+					'<strong>',
+					'</strong>'
+				);
+				?><br>
 				<?php esc_html_e('Full analytics with minimal overhead. Logs are processed in background every minute.', 'baskerville'); ?>
 			</p>
 		</fieldset>
@@ -5331,7 +5338,14 @@ done
 
 				<div class="baskerville-alert baskerville-alert-info baskerville-alert-sm baskerville-alert-mt">
 					<strong>💡 <?php esc_html_e('Recommendation:', 'baskerville'); ?></strong>
-					<?php esc_html_e('Use <strong>File Logging</strong> mode (default) for production. It provides full analytics with minimal overhead (~5%), perfect for shared hosting.', 'baskerville'); ?>
+					<?php
+				printf(
+					/* translators: %1$s: opening strong tag, %2$s: closing strong tag */
+					esc_html__( 'Use %1$sFile Logging%2$s mode (default) for production. It provides full analytics with minimal overhead (~5%%), perfect for shared hosting.', 'baskerville' ),
+					'<strong>',
+					'</strong>'
+				);
+				?>
 				</div>
 
 				<div class="baskerville-alert baskerville-alert-warning baskerville-alert-sm baskerville-alert-mt">
