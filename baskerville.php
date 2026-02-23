@@ -1,15 +1,15 @@
 <?php
 /**
- * Plugin Name: Baskerville
- * Plugin URI: https://wordpress.org/plugins/baskerville/
- * Description: Advanced security plugin with bot detection, GeoIP access control, and Cloudflare Turnstile integration.
+ * Plugin Name: Baskerville AI Security
+ * Plugin URI: https://wordpress.org/plugins/baskerville-ai-security/
+ * Description: Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
  * Version: 1.0.0
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * Author: eQualitie
  * Author URI: https://equalitie.org
  * License: GPL v3
- * Text Domain: baskerville
+ * Text Domain: baskerville-ai-security
  */
 
 if (!defined('ABSPATH')) exit;

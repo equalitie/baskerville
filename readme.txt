@@ -1,4 +1,4 @@
-=== Baskerville ===
+=== Baskerville AI Security – Firewall & Bot Protection ===
 Contributors: equalitie
 Tags: security, captcha, spam protection, firewall, anti-bot
 Requires at least: 6.2
