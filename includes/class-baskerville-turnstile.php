@@ -593,7 +593,7 @@ class Baskerville_Turnstile {
 			header('Pragma: no-cache');
 			header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
 			// Debug: show what cookie value was set
-			$set_val = isset($_COOKIE['baskerville_pass']) ? $_COOKIE['baskerville_pass'] : 'NOT_SET';
+			$set_val = isset($_COOKIE['baskerville_pass']) ? sanitize_text_field( wp_unslash( $_COOKIE['baskerville_pass'] ) ) : 'NOT_SET';
 			header('X-Bsk-VerifySetVal: ' . substr($set_val, 0, 20));
 			header('X-Bsk-VerifyCodeVer: v3-server-pass');
 			// Secret prefix for consistency check
