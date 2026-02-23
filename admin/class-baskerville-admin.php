@@ -3017,18 +3017,16 @@ class Baskerville_Admin {
 				<p class="baskerville-text-muted"><?php esc_html_e('Enter any IP address to test GeoIP detection and blocking status.', 'baskerville'); ?></p>
 				<form method="post" action="">
 					<?php wp_nonce_field('baskerville_test_ip'); ?>
-					<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-						<input type="text"
-							   name="test_ip"
-							   value="<?php echo esc_attr($current_ip); ?>"
-							   placeholder="<?php esc_attr_e('Enter IP address (IPv4 or IPv6)', 'baskerville'); ?>"
-							   style="width: 300px; padding: 8px;"
-						/>
-						<button type="submit" class="button button-primary"><?php esc_html_e('Test IP', 'baskerville'); ?></button>
-						<?php if ($is_custom_ip): ?>
-							<a href="?page=baskerville&tab=geoip-test" class="button"><?php esc_html_e('Reset to My IP', 'baskerville'); ?></a>
-						<?php endif; ?>
-					</div>
+					<input type="text"
+							name="test_ip"
+							value="<?php echo esc_attr($current_ip); ?>"
+							placeholder="<?php esc_attr_e('Enter IP address (IPv4 or IPv6)', 'baskerville'); ?>"
+					/>
+					<button type="submit" class="button button-primary"><?php esc_html_e('Test IP', 'baskerville'); ?></button>
+					<?php if ($is_custom_ip): ?>
+						<a href="?page=baskerville&tab=geoip-test" class="button"><?php esc_html_e('Reset to My IP', 'baskerville'); ?></a>
+					<?php endif; ?>
+
 					<?php if ($is_custom_ip): ?>
 						<p class="baskerville-mt-10">
 							<span class="baskerville-badge baskerville-badge-info"><?php esc_html_e('Testing custom IP', 'baskerville'); ?></span>

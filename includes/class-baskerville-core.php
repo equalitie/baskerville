@@ -985,9 +985,9 @@ class Baskerville_Core {
                             const [color,icon,label] = map(result.classification?.classification);
                             scoreEl.innerHTML = `
                               <div class="baskerville-score-action"><span class="baskerville-score-value" style="color:${scoreColor};">${sc}/100</span></div>
-                              <div class="baskerville-score-action"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Action:', 'baskerville' ) ); ?></span> <span style="color:${scoreColor};font-weight:bold;">${String(result.action||'').toUpperCase()}</span></div>
-                              <div class="baskerville-score-classification" style="border-left:3px solid ${color};">
-                                <span style="color:${color};font-weight:bold;">${icon} ${label}</span>
+                              <div class="baskerville-score-action"><span class="baskerville-fp-label-green"><?php echo esc_js( esc_html__( 'Action:', 'baskerville' ) ); ?></span> <strong style="color:${scoreColor};">${String(result.action||'').toUpperCase()}</strong></div>
+                              <div class="baskerville-score-classification" style="border-left-color:${color};">
+                                <strong style="color:${color};">${icon} ${label}</strong>
                                 <div class="baskerville-score-reason">${result.classification?.reason||'<?php echo esc_js( esc_html__( 'No reason provided', 'baskerville' ) ); ?>'}</div>
                               </div>
                             `;
