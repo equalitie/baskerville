@@ -594,13 +594,14 @@ class Baskerville_Admin {
 			}
 		}
 
-		// Honeypot settings - preserve existing if not in input
+		// Honeypot settings - if AI bot control tab submitted, unchecked = false; otherwise preserve existing
+		$is_ai_tab = isset($input['ai_bot_control_tab']);
 		$sanitized['honeypot_enabled'] = isset($input['honeypot_enabled'])
 			? (bool) $input['honeypot_enabled']
-			: (isset($existing['honeypot_enabled']) ? $existing['honeypot_enabled'] : false);
+			: ($is_ai_tab ? false : (isset($existing['honeypot_enabled']) ? $existing['honeypot_enabled'] : false));
 		$sanitized['honeypot_ban'] = isset($input['honeypot_ban'])
 			? (bool) $input['honeypot_ban']
-			: (isset($existing['honeypot_ban']) ? $existing['honeypot_ban'] : false);
+			: ($is_ai_tab ? false : (isset($existing['honeypot_ban']) ? $existing['honeypot_ban'] : false));
 
 		// Burst protection enabled - preserve existing if not in input
 		$sanitized['enable_burst_protection'] = isset($input['enable_burst_protection'])
