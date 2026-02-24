@@ -119,7 +119,7 @@ class Baskerville_Installer {
 					'success' => true,
 					'message' => sprintf(
 						/* translators: %s: version string */
-						__('Deflect GeoIP database already installed (version %s)', 'baskerville'),
+						__('Deflect GeoIP database already installed (version %s)', 'baskerville-ai-security'),
 						$stats['version'] ?? 'unknown'
 					),
 				), 60);
@@ -130,7 +130,7 @@ class Baskerville_Installer {
 				'success' => false,
 				'message' => sprintf(
 					/* translators: %s: error message */
-					__('Deflect GeoIP download failed: %s (plugin will work without it)', 'baskerville'),
+					__('Deflect GeoIP download failed: %s (plugin will work without it)', 'baskerville-ai-security'),
 					$e->getMessage()
 				),
 			), 60);
@@ -140,7 +140,7 @@ class Baskerville_Installer {
 				'success' => false,
 				'message' => sprintf(
 					/* translators: %s: error message */
-					__('Deflect GeoIP error: %s (plugin will work without it)', 'baskerville'),
+					__('Deflect GeoIP error: %s (plugin will work without it)', 'baskerville-ai-security'),
 					$e->getMessage()
 				),
 			), 60);

@@ -54,7 +54,7 @@ class Baskerville_REST {
             return new WP_REST_Response([
                 'error' => 'rate_limit_exceeded',
                 /* translators: %1$d is the maximum number of requests, %2$d is the time window in seconds */
-                'message' => sprintf(esc_html__('Rate limit exceeded. Maximum %1$d requests per %2$d seconds.', 'baskerville'), $max_requests, $window_sec),
+                'message' => sprintf(esc_html__('Rate limit exceeded. Maximum %1$d requests per %2$d seconds.', 'baskerville-ai-security'), $max_requests, $window_sec),
                 'retry_after' => $window_sec
             ], 429);
         }
@@ -106,7 +106,7 @@ class Baskerville_REST {
         } catch (Exception $e) {
             // error_log('Baskerville evaluation error: ' . $e->getMessage());
             $evaluation = ['score' => 0, 'action' => 'error', 'reasons' => ['evaluation_error'], 'top_factors' => []];
-            $classification = ['classification' => 'unknown', 'reason' => esc_html__('Classification error', 'baskerville'), 'risk_score' => 0];
+            $classification = ['classification' => 'unknown', 'reason' => esc_html__('Classification error', 'baskerville-ai-security'), 'risk_score' => 0];
         }
 
         // fp cookie (HttpOnly, signed)

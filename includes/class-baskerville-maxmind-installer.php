@@ -44,8 +44,8 @@ class Baskerville_MaxMind_Installer {
 		if (!class_exists('ZipArchive') && !class_exists('PclZip')) {
 			return array(
 				'success' => false,
-				'message' => esc_html__('Neither ZipArchive nor PclZip available. Please contact your hosting provider.', 'baskerville'),
-				'errors' => array( esc_html__( 'No zip handler available', 'baskerville' ) )
+				'message' => esc_html__('Neither ZipArchive nor PclZip available. Please contact your hosting provider.', 'baskerville-ai-security'),
+				'errors' => array( esc_html__( 'No zip handler available', 'baskerville-ai-security' ) )
 			);
 		}
 
@@ -54,8 +54,8 @@ class Baskerville_MaxMind_Installer {
 			return array(
 				'success' => false,
 				/* translators: %s: plugin directory path */
-				'message' => sprintf( esc_html__('Plugin directory is not writable. Path: %1$s. Please check file permissions.', 'baskerville'), BASKERVILLE_PLUGIN_PATH ),
-				'errors' => array( sprintf( esc_html__('Directory not writable: ', 'baskerville'), BASKERVILLE_PLUGIN_PATH ) )
+				'message' => sprintf( esc_html__('Plugin directory is not writable. Path: %1$s. Please check file permissions.', 'baskerville-ai-security'), BASKERVILLE_PLUGIN_PATH ),
+				'errors' => array( sprintf( esc_html__('Directory not writable: ', 'baskerville-ai-security'), BASKERVILLE_PLUGIN_PATH ) )
 			);
 		}
 
@@ -64,8 +64,8 @@ class Baskerville_MaxMind_Installer {
 			if (!wp_mkdir_p($this->vendor_dir)) {
 				return array(
 					'success' => false,
-					'message' => esc_html__( 'Failed to create vendor directory at:', 'baskerville' ) . ' ' . $this->vendor_dir,
-					'errors' => array( esc_html__( 'mkdir failed', 'baskerville' ) )
+					'message' => esc_html__( 'Failed to create vendor directory at:', 'baskerville-ai-security' ) . ' ' . $this->vendor_dir,
+					'errors' => array( esc_html__( 'mkdir failed', 'baskerville-ai-security' ) )
 				);
 			}
 		}
@@ -74,14 +74,14 @@ class Baskerville_MaxMind_Installer {
 			// Step 1: Download and install MaxMind-DB-Reader (dependency)
 			$result = $this->download_and_extract_db_reader();
 			if (!$result['success']) {
-				$result['errors'][] = esc_html__( 'Step 1 failed: DB-Reader', 'baskerville' );
+				$result['errors'][] = esc_html__( 'Step 1 failed: DB-Reader', 'baskerville-ai-security' );
 				return $result;
 			}
 
 			// Step 2: Download and install GeoIP2
 			$result = $this->download_and_extract_geoip2();
 			if (!$result['success']) {
-				$result['errors'][] = esc_html__( 'Step 2 failed: GeoIP2', 'baskerville' );
+				$result['errors'][] = esc_html__( 'Step 2 failed: GeoIP2', 'baskerville-ai-security' );
 				return $result;
 			}
 
@@ -90,13 +90,13 @@ class Baskerville_MaxMind_Installer {
 
 			return array(
 				'success' => true,
-				'message' => esc_html__( 'MaxMind GeoIP2 library installed successfully!', 'baskerville' )
+				'message' => esc_html__( 'MaxMind GeoIP2 library installed successfully!', 'baskerville-ai-security' )
 			);
 
 		} catch (Exception $e) {
 			return array(
 				'success' => false,
-				'message' => esc_html__( 'Installation exception:', 'baskerville' ) . ' ' . $e->getMessage(),
+				'message' => esc_html__( 'Installation exception:', 'baskerville-ai-security' ) . ' ' . $e->getMessage(),
 				'errors' => array($e->getMessage()),
 				'trace' => $e->getTraceAsString()
 			);
@@ -114,7 +114,7 @@ class Baskerville_MaxMind_Installer {
 		if (is_wp_error($response)) {
 			return array(
 				'success' => false,
-				'message' => esc_html__( 'Failed to download MaxMind-DB-Reader:', 'baskerville' ) . ' ' . $response->get_error_message()
+				'message' => esc_html__( 'Failed to download MaxMind-DB-Reader:', 'baskerville-ai-security' ) . ' ' . $response->get_error_message()
 			);
 		}
 
@@ -122,7 +122,7 @@ class Baskerville_MaxMind_Installer {
 		if (empty($body)) {
 			return array(
 				'success' => false,
-				'message' => esc_html__( 'Downloaded MaxMind-DB-Reader file is empty.', 'baskerville' )
+				'message' => esc_html__( 'Downloaded MaxMind-DB-Reader file is empty.', 'baskerville-ai-security' )
 			);
 		}
 
@@ -162,7 +162,7 @@ class Baskerville_MaxMind_Installer {
 		if (is_wp_error($response)) {
 			return array(
 				'success' => false,
-				'message' => esc_html__('Failed to download GeoIP2:', 'baskerville' ) . ' ' . $response->get_error_message()
+				'message' => esc_html__('Failed to download GeoIP2:', 'baskerville-ai-security' ) . ' ' . $response->get_error_message()
 			);
 		}
 
@@ -170,7 +170,7 @@ class Baskerville_MaxMind_Installer {
 		if (empty($body)) {
 			return array(
 				'success' => false,
-				'message' => esc_html__( 'Downloaded GeoIP2 file is empty.', 'baskerville' )
+				'message' => esc_html__( 'Downloaded GeoIP2 file is empty.', 'baskerville-ai-security' )
 			);
 		}
 
@@ -232,13 +232,13 @@ class Baskerville_MaxMind_Installer {
 			}
 			return array(
 				'success' => false,
-				'message' => esc_html__('PclZip extraction failed: ', 'baskerville') . $archive->errorInfo(true)
+				'message' => esc_html__('PclZip extraction failed: ', 'baskerville-ai-security') . $archive->errorInfo(true)
 			);
 		}
 
 		return array(
 			'success' => false,
-			'message' => esc_html__('No zip extraction method available.', 'baskerville')
+			'message' => esc_html__('No zip extraction method available.', 'baskerville-ai-security')
 		);
 	}
 

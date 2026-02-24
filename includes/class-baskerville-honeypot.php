@@ -99,10 +99,10 @@ class Baskerville_Honeypot {
 		$reason = $company
 			? sprintf(
 				/* translators: %s: Company name that accessed the hidden honeypot link. */
-				esc_html__('Honeypot triggered: accessed hidden link (%s)', 'baskerville'),
+				esc_html__('Honeypot triggered: accessed hidden link (%s)', 'baskerville-ai-security'),
 				$company
 			)
-			: esc_html__('Honeypot triggered: accessed hidden link', 'baskerville');
+			: esc_html__('Honeypot triggered: accessed hidden link', 'baskerville-ai-security');
 
 		$classification = [
 			'classification' => 'ai_bot',
@@ -166,9 +166,9 @@ class Baskerville_Honeypot {
 			// Send 403 response
 			status_header(403);
 			nocache_headers();
-			echo "<!DOCTYPE html>\n<html>\n<head>\n<title>" . esc_html__( '403 Forbidden', 'baskerville' ) . "</title>\n</head>\n<body>\n";
-			echo "<h1>" . esc_html__( '403 Forbidden', 'baskerville' ) . "</h1>\n";
-			echo "<p>" . esc_html__( 'Access denied. Automated bot detected.', 'baskerville' ) . "</p>\n";
+			echo "<!DOCTYPE html>\n<html>\n<head>\n<title>" . esc_html__( '403 Forbidden', 'baskerville-ai-security' ) . "</title>\n</head>\n<body>\n";
+			echo "<h1>" . esc_html__( '403 Forbidden', 'baskerville-ai-security' ) . "</h1>\n";
+			echo "<p>" . esc_html__( 'Access denied. Automated bot detected.', 'baskerville-ai-security' ) . "</p>\n";
 			echo "</body>\n</html>";
 			exit;
 		} else {
@@ -194,23 +194,15 @@ class Baskerville_Honeypot {
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<meta name="robots" content="noindex, nofollow">
-	<title><?php esc_html_e( 'AI Training Data Repository', 'baskerville' ); ?></title>
-	<style>
-		body {
-			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-			max-width: 800px;
-			margin: 50px auto;
-			padding: 20px;
-			line-height: 1.6;
-			color: #333;
-		}
-		h1 { color: #2271b1; }
-		p { margin: 20px 0; }
-	</style>
+	<title><?php esc_html_e( 'AI Training Data Repository', 'baskerville-ai-security' ); ?></title>
+	<?php
+	wp_register_style( 'baskerville-honeypot', plugins_url( 'assets/css/honeypot.css', BASKERVILLE_PLUGIN_FILE ), array(), BASKERVILLE_VERSION );
+	wp_print_styles( 'baskerville-honeypot' );
+	?>
 </head>
 <body>
-	<h1><?php esc_html_e( 'AI Training Data Repository', 'baskerville' ); ?></h1>
-	<p><?php esc_html_e( 'This repository contains curated content for artificial intelligence training purposes, including text samples, documentation, and structured data optimized for machine learning model development.', 'baskerville' ); ?></p>
+	<h1><?php esc_html_e( 'AI Training Data Repository', 'baskerville-ai-security' ); ?></h1>
+	<p><?php esc_html_e( 'This repository contains curated content for artificial intelligence training purposes, including text samples, documentation, and structured data optimized for machine learning model development.', 'baskerville-ai-security' ); ?></p>
 </body>
 </html>
 		<?php
@@ -240,7 +232,7 @@ class Baskerville_Honeypot {
 		// Hidden link: not visible to humans, but crawlers will find it
 		echo "\n<!-- Baskerville Honeypot -->\n";
 		echo '<div style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden;" aria-hidden="true">';
-		echo '<a href="' . esc_url($url) . '" rel="nofollow" tabindex="-1">' . esc_html__('AI Training Data', 'baskerville' ) . '</a>';
+		echo '<a href="' . esc_url($url) . '" rel="nofollow" tabindex="-1">' . esc_html__('AI Training Data', 'baskerville-ai-security' ) . '</a>';
 		echo '</div>';
 		echo "\n<!-- /Baskerville Honeypot -->\n";
 	}

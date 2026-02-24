@@ -89,7 +89,7 @@ class Baskerville_AI_UA {
      */
     public function get_ai_bot_company($user_agent) {
         if (empty($user_agent)) {
-            return esc_html__('Unknown', 'baskerville');
+            return esc_html__('Unknown', 'baskerville-ai-security');
         }
 
         $ua = strtolower($user_agent);
@@ -124,7 +124,7 @@ class Baskerville_AI_UA {
             }
         }
 
-        return esc_html__('Unknown', 'baskerville');
+        return esc_html__('Unknown', 'baskerville-ai-security');
     }
 
     public function verify_crawler_ip(string $ip, string $ua): array {
@@ -199,21 +199,21 @@ class Baskerville_AI_UA {
 
         $ua_server = strtolower($svh['user_agent'] ?? '');
         if (preg_match('~(curl|wget|python-requests|go-http-client|okhttp|node-fetch|postmanruntime)~', $ua_server)) {
-            $score += 30; $reasons[] = __( 'Non-browser HTTP client', 'baskerville' );
-            $contrib[] = ['key'=>'non_browser_http', 'delta'=>30, 'why'=> __( 'Non-browser HTTP client', 'baskerville' )];
+            $score += 30; $reasons[] = __( 'Non-browser HTTP client', 'baskerville-ai-security' );
+            $contrib[] = ['key'=>'non_browser_http', 'delta'=>30, 'why'=> __( 'Non-browser HTTP client', 'baskerville-ai-security' )];
         }
         if (!$this->looks_like_browser_ua($ua_server)) {
             $score += 30;
-            $reasons[] = __( 'Non-browser-like User-Agent', 'baskerville' );
-            $contrib[] = ['key'=>'non_browser_user_agent', 'delta'=>30, 'why'=> __( 'Non-browser-like User-Agent', 'baskerville' )];
+            $reasons[] = __( 'Non-browser-like User-Agent', 'baskerville-ai-security' );
+            $contrib[] = ['key'=>'non_browser_user_agent', 'delta'=>30, 'why'=> __( 'Non-browser-like User-Agent', 'baskerville-ai-security' )];
         }
         if (empty($svh['accept_language'])) {
-            $score += 5;  $reasons[] = __( 'Missing Accept-Language', 'baskerville' );
-            $contrib[] = ['key'=>'missing_accept_language', 'delta'=>5, 'why'=> __( 'Missing Accept-Language', 'baskerville' )];
+            $score += 5;  $reasons[] = __( 'Missing Accept-Language', 'baskerville-ai-security' );
+            $contrib[] = ['key'=>'missing_accept_language', 'delta'=>5, 'why'=> __( 'Missing Accept-Language', 'baskerville-ai-security' )];
         }
         if (preg_match('~chrome/~i', $ua_server) && empty($svh['sec_ch_ua'])) {
-            $score += 5;  $reasons[] = __( 'Missing Client Hints for Chrome-like UA', 'baskerville' );
-            $contrib[] = ['key'=>'missing_hints_chrome', 'delta'=>5, 'why'=> __( 'Missing Client Hints for Chrome-like UA', 'baskerville' )];
+            $score += 5;  $reasons[] = __( 'Missing Client Hints for Chrome-like UA', 'baskerville-ai-security' );
+            $contrib[] = ['key'=>'missing_hints_chrome', 'delta'=>5, 'why'=> __( 'Missing Client Hints for Chrome-like UA', 'baskerville-ai-security' )];
         }
 
         // Check HTTP protocol version - modern browsers use HTTP/2 or HTTP/3
@@ -222,21 +222,21 @@ class Baskerville_AI_UA {
             // HTTP/1.0 or HTTP/1.1 - likely a bot/script
             // Modern browsers (Chrome, Firefox, Safari, Edge) use HTTP/2 or HTTP/3
             $score += 15;
-            $reasons[] = __( 'Using HTTP/1.x (modern browsers use HTTP/2+)', 'baskerville' );
-            $contrib[] = ['key'=>'http1_protocol', 'delta'=>15, 'why'=> __( 'Using HTTP/1.x instead of HTTP/2+', 'baskerville' )];
+            $reasons[] = __( 'Using HTTP/1.x (modern browsers use HTTP/2+)', 'baskerville-ai-security' );
+            $contrib[] = ['key'=>'http1_protocol', 'delta'=>15, 'why'=> __( 'Using HTTP/1.x instead of HTTP/2+', 'baskerville-ai-security' )];
         }
 
         if ($this->is_bot_user_agent($ua_server)) {
             $score += 25;
             if ($score < 70) $score = 70;
-            $reasons[] = __( 'Bot UA detected', 'baskerville' );
-            $contrib[] = ['key'=>'bot_ua', 'delta'=>25, 'why'=> __( 'Bot UA detected', 'baskerville' )];
+            $reasons[] = __( 'Bot UA detected', 'baskerville-ai-security' );
+            $contrib[] = ['key'=>'bot_ua', 'delta'=>25, 'why'=> __( 'Bot UA detected', 'baskerville-ai-security' )];
         }
 
         if ($this->is_ai_bot_user_agent($ua_server)) {
             $score += 10;
-            $reasons[] = __( 'AI bot UA detected', 'baskerville' );
-            $contrib[] = ['key'=>'ai_bot_ua', 'delta'=>10, 'why'=> __( 'AI bot UA detected', 'baskerville' )];
+            $reasons[] = __( 'AI bot UA detected', 'baskerville-ai-security' );
+            $contrib[] = ['key'=>'ai_bot_ua', 'delta'=>10, 'why'=> __( 'AI bot UA detected', 'baskerville-ai-security' )];
         }
 
         if ($has_js_fp) {
@@ -268,79 +268,79 @@ class Baskerville_AI_UA {
 
             $webglMode = $fp['quirks']['webgl'] ?? null;
             if ($webglExtCount === 0 && $webglMode !== null && $webglMode !== 'no-webgl') {
-                $score += 10; $reasons[] = __( 'WebGL extensions = 0', 'baskerville' );
-                $contrib[] = ['key'=>'no_web_gl', 'delta'=>10, 'why'=> __( 'WebGL extensions = 0', 'baskerville' )];
+                $score += 10; $reasons[] = __( 'WebGL extensions = 0', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'no_web_gl', 'delta'=>10, 'why'=> __( 'WebGL extensions = 0', 'baskerville-ai-security' )];
             }
 
             // 2) DPR vs UA
             if ($is_mobile_ua && $dpr <= 1.0) {
-                $score += 20; $reasons[] = __( 'Mobile UA but DPR<=1', 'baskerville' );
-                $contrib[] = ['key'=>'mobile_ua_small_dpr', 'delta'=>20, 'why'=> __( 'Mobile UA but DPR<=1', 'baskerville' )];
+                $score += 20; $reasons[] = __( 'Mobile UA but DPR<=1', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'mobile_ua_small_dpr', 'delta'=>20, 'why'=> __( 'Mobile UA but DPR<=1', 'baskerville-ai-security' )];
             }
             if ($is_windows && $dpr > 1.5) {
-                $score += 6;  $reasons[] = __( 'Windows with high DPR', 'baskerville' );
-                $contrib[] = ['key'=>'windows_high_dpr', 'delta'=>6, 'why'=> __( 'Windows with high DPR', 'baskerville' )];
+                $score += 6;  $reasons[] = __( 'Windows with high DPR', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'windows_high_dpr', 'delta'=>6, 'why'=> __( 'Windows with high DPR', 'baskerville-ai-security' )];
             }
             if ($is_mac && $dpr < 2 && preg_match('~\bMacintosh\b~i', $fp['userAgent'] ?? '')) {
-                $score += 5;  $reasons[] = __( 'Mac UA but DPR<2', 'baskerville' );
-                $contrib[] = ['key'=>'mac_ua_low_dpr', 'delta'=>5, 'why'=> __( 'Mac UA but DPR<2', 'baskerville' )];
+                $score += 5;  $reasons[] = __( 'Mac UA but DPR<2', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'mac_ua_low_dpr', 'delta'=>5, 'why'=> __( 'Mac UA but DPR<2', 'baskerville-ai-security' )];
             }
 
             // 3) Viewport vs Screen
             if ($sw > 0 && $sh > 0 && $vw > 0 && $vh > 0) {
                 if ($viewportToScreen && $viewportToScreen < 0.25) {
                     $score += 15;
-                    $reasons[] = __( 'Very small viewport relative to screen (<0.25)', 'baskerville' );
-                    $contrib[] = ['key'=>'small_viewport', 'delta'=>15, 'why'=> __( 'Very small viewport relative to screen (<0.25)', 'baskerville' )];
+                    $reasons[] = __( 'Very small viewport relative to screen (<0.25)', 'baskerville-ai-security' );
+                    $contrib[] = ['key'=>'small_viewport', 'delta'=>15, 'why'=> __( 'Very small viewport relative to screen (<0.25)', 'baskerville-ai-security' )];
                 }
                 if ($vw < 800 && !$is_mobile_ua && $dpr <= 1.1) {
                     $score += 8;
-                    $reasons[] = __( 'Desktop UA with very small viewport', 'baskerville' );
-                    $contrib[] = ['key'=>'desktop_ua_small_viewport', 'delta'=>8, 'why'=> __( 'Desktop UA with very small viewport', 'baskerville' )];
+                    $reasons[] = __( 'Desktop UA with very small viewport', 'baskerville-ai-security' );
+                    $contrib[] = ['key'=>'desktop_ua_small_viewport', 'delta'=>8, 'why'=> __( 'Desktop UA with very small viewport', 'baskerville-ai-security' )];
                 }
             } else {
-                $score += 3; $reasons[] = __( 'Missing/invalid screen or viewport', 'baskerville' );
-                $contrib[] = ['key'=>'missing_viewport', 'delta'=>3, 'why'=> __( 'Missing/invalid screen or viewport', 'baskerville' )];
+                $score += 3; $reasons[] = __( 'Missing/invalid screen or viewport', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'missing_viewport', 'delta'=>3, 'why'=> __( 'Missing/invalid screen or viewport', 'baskerville-ai-security' )];
             }
 
             // 4) Touch vs UA
             if ($is_mobile_ua && $maxTouchPoints === 0 && !$touchEvent) {
-                $score += 12; $reasons[] = __( 'Mobile UA without touch support', 'baskerville' );
-                $contrib[] = ['key'=>'mobile_ua_no_touch', 'delta'=>12, 'why'=> __( 'Mobile UA without touch support', 'baskerville' )];
+                $score += 12; $reasons[] = __( 'Mobile UA without touch support', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'mobile_ua_no_touch', 'delta'=>12, 'why'=> __( 'Mobile UA without touch support', 'baskerville-ai-security' )];
             }
             if (!$is_mobile_ua && $maxTouchPoints > 0 && $dpr <= 1.1 && $vw > 1200) {
-                $score += 4; $reasons[] = __( 'Desktop UA with touch points (mismatch)', 'baskerville' );
-                $contrib[] = ['key'=>'desktop_ua_with_touch', 'delta'=>4, 'why'=> __( 'Desktop UA with touch points (mismatch)', 'baskerville' )];
+                $score += 4; $reasons[] = __( 'Desktop UA with touch points (mismatch)', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'desktop_ua_with_touch', 'delta'=>4, 'why'=> __( 'Desktop UA with touch points (mismatch)', 'baskerville-ai-security' )];
             }
 
             // 5) Plugins
             if ($pluginsCount === 0 && $is_windows) {
-                $score += 6; $reasons[] = __( 'Windows with zero plugins', 'baskerville' );
-                $contrib[] = ['key'=>'zero_plugins', 'delta'=>6, 'why'=> __( 'Windows with zero plugins', 'baskerville' )];
+                $score += 6; $reasons[] = __( 'Windows with zero plugins', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'zero_plugins', 'delta'=>6, 'why'=> __( 'Windows with zero plugins', 'baskerville-ai-security' )];
             }
 
             // 6) PDF viewer flag (Chrome-specific)
             if ($pdfViewer === false && preg_match('~chrome/|crios/|edg/~i', $ua)) {
-                $score += 4; $reasons[] = __( 'Chrome-like UA without pdfViewer', 'baskerville' );
-                $contrib[] = ['key'=>'chrome_no_pdf', 'delta'=>4, 'why'=> __( 'Chrome-like UA without pdfViewer', 'baskerville' )];
+                $score += 4; $reasons[] = __( 'Chrome-like UA without pdfViewer', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'chrome_no_pdf', 'delta'=>4, 'why'=> __( 'Chrome-like UA without pdfViewer', 'baskerville-ai-security' )];
             }
 
             // 7) Outer/inner window ratio
             if ($outerToInner > 1.6 || $outerToInner < 1.0) {
-                $score += 5; $reasons[] = __( 'Odd outer/inner ratio', 'baskerville' );
-                $contrib[] = ['key'=>'odd_outer_inner_ratio', 'delta'=>5, 'why'=> __( 'Odd outer/inner ratio', 'baskerville' )];
+                $score += 5; $reasons[] = __( 'Odd outer/inner ratio', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'odd_outer_inner_ratio', 'delta'=>5, 'why'=> __( 'Odd outer/inner ratio', 'baskerville-ai-security' )];
             }
 
             // 8) Language check: compare navigator.language with Accept-Language
             if ($lang && $acceptLang && strpos($acceptLang, substr($lang,0,2)) === false) {
-                $score += 5; $reasons[] = __( 'Language mismatch vs Accept-Language', 'baskerville' );
-                $contrib[] = ['key'=>'language_mismatch', 'delta'=>5, 'why'=> __( 'Language mismatch vs Accept-Language', 'baskerville' )];
+                $score += 5; $reasons[] = __( 'Language mismatch vs Accept-Language', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'language_mismatch', 'delta'=>5, 'why'=> __( 'Language mismatch vs Accept-Language', 'baskerville-ai-security' )];
             }
 
             // 9) DST
             if ($is_mobile_ua && !$hasDST) {
-                $score += 3; $reasons[] = __( 'Mobile UA but no DST observed', 'baskerville' );
-                $contrib[] = ['key'=>'mobile_ua_no_dst', 'delta'=>3, 'why'=> __( 'Mobile UA but no DST observed', 'baskerville' )];
+                $score += 3; $reasons[] = __( 'Mobile UA but no DST observed', 'baskerville-ai-security' );
+                $contrib[] = ['key'=>'mobile_ua_no_dst', 'delta'=>3, 'why'=> __( 'Mobile UA but no DST observed', 'baskerville-ai-security' )];
             }
         }
 
@@ -419,7 +419,7 @@ class Baskerville_AI_UA {
             return [
                 'classification' => 'verified_bot',
                 /* translators: %s: crawler hostname or rDNS identifier */
-                'reason' => sprintf( __( 'Verified crawler (%s)', 'baskerville' ), $vc['host'] ?: 'rDNS' ),
+                'reason' => sprintf( __( 'Verified crawler (%s)', 'baskerville-ai-security' ), $vc['host'] ?: 'rDNS' ),
                 'crawler_verified' => true,
                 'risk_score' => min(10, $risk_score),
             ];
@@ -431,7 +431,7 @@ class Baskerville_AI_UA {
             return [
                 'classification' => 'ai_bot',
                 /* translators: %s: AI bot company name */
-                'reason'         => sprintf( __( 'AI bot detected by user agent (%s)', 'baskerville' ), $company ),
+                'reason'         => sprintf( __( 'AI bot detected by user agent (%s)', 'baskerville-ai-security' ), $company ),
                 'risk_score'     => $risk_score,
                 'details'        => [
                     'has_cookie' => $had_cookie,
@@ -447,7 +447,7 @@ class Baskerville_AI_UA {
         if (!$had_cookie && ($is_nonbrowser_client || (!$looks_like_browser && !$verified_crawler))) {
             return [
                 'classification' => 'bad_bot',
-                'reason'         => __( 'No prior cookie + non-browser User-Agent', 'baskerville' ),
+                'reason'         => __( 'No prior cookie + non-browser User-Agent', 'baskerville-ai-security' ),
                 'risk_score'     => max(50, $risk_score),
                 'details'        => [
                     'has_cookie' => false,
@@ -462,7 +462,7 @@ class Baskerville_AI_UA {
         if ($risk_score >= 50 && !$looks_like_browser && !$verified_crawler) {
             return [
                 'classification' => 'bad_bot',
-                'reason'         => __( 'High risk (≥50) and non-browser UA', 'baskerville' ),
+                'reason'         => __( 'High risk (≥50) and non-browser UA', 'baskerville-ai-security' ),
                 'risk_score'     => $risk_score,
                 'details'        => [
                     'has_cookie' => $had_cookie,
@@ -479,8 +479,8 @@ class Baskerville_AI_UA {
             return [
                 'classification' => 'bot',
                 'reason'         => $this->is_bot_user_agent($user_agent)
-                                        ? __( 'Bot detected by user agent', 'baskerville' )
-                                        : __( 'High risk score', 'baskerville' ),
+                                        ? __( 'Bot detected by user agent', 'baskerville-ai-security' )
+                                        : __( 'High risk score', 'baskerville-ai-security' ),
                 'risk_score'     => $risk_score,
                 'details'        => [
                     'has_cookie'               => $had_cookie,
@@ -495,7 +495,7 @@ class Baskerville_AI_UA {
         // 5) Human
         return [
             'classification' => 'human',
-            'reason'         => __( 'Appears to be human user', 'baskerville' ),
+            'reason'         => __( 'Appears to be human user', 'baskerville-ai-security' ),
             'risk_score'     => $risk_score,
             'details'        => [
                 'has_cookie'               => $had_cookie,
@@ -535,7 +535,7 @@ class Baskerville_AI_UA {
             $classification = [
                 'classification' => 'bad_bot',
                 /* translators: %1$d is the number of page hits, %2$d is the time window in seconds */
-                'reason' => sprintf(esc_html__('Excessive no-JS page hits: %1$d in %2$ds', 'baskerville'), $cnt, $window_sec),
+                'reason' => sprintf(esc_html__('Excessive no-JS page hits: %1$d in %2$ds', 'baskerville-ai-security'), $cnt, $window_sec),
                 'risk_score' => max(50, (int)($classification['risk_score'] ?? 0)),
                 'details' => [
                     'has_cookie' => (bool)$this->core->get_cookie_id(),

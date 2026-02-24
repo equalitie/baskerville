@@ -1,9 +1,9 @@
-=== Baskerville ===
+=== Baskerville AI Security ===
 Contributors: equalitie
 Tags: security, captcha, spam protection, firewall, anti-bot
 Requires at least: 6.2
 Tested up to: 6.9
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 Requires PHP: 7.4
 License: GPL v3
 
@@ -117,6 +117,13 @@ Statistics are automatically deleted after the retention period you configure (d
 * Consider adding disclosure to your site's privacy policy
 
 == Changelog ==
+
+= 1.0.1 =
+* Added support for the Deflect GeoIP database.
+* Made all hardcoded text fully translatable.
+* Renamed the plugin to Baskerville AI Security.
+* Moved all inline scripts and styles to proper wp_enqueue_script() / wp_enqueue_style() usage.
+* Updated Chart.js to v4.5.1.
 
 = 1.0.0 =
 Initial release.
