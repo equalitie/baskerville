@@ -14,7 +14,7 @@ class Baskerville_Admin {
 		$this->aiua = $aiua;
 
 		add_action('admin_menu', array($this, 'add_admin_menu'));
-		add_action('admin_head', array($this, 'admin_menu_icon_style'));
+		add_action('admin_enqueue_scripts', array($this, 'admin_menu_icon_style'));
 		add_action('admin_init', array($this, 'register_settings'));
 		add_action('admin_notices', array($this, 'show_activation_notices'));
 		add_action('wp_ajax_baskerville_install_maxmind', array($this, 'ajax_install_maxmind'));
@@ -39,31 +39,146 @@ class Baskerville_Admin {
 		wp_enqueue_script('select2', BASKERVILLE_PLUGIN_URL . 'assets/js/select2.min.js', array('jquery'), '4.1.0', false );
 
 		// Enqueue Chart.js (local file)
-		wp_enqueue_script('chartjs', BASKERVILLE_PLUGIN_URL . 'assets/js/chart.min.js', array(), '4.4.0', true);
+		wp_enqueue_script('chartjs', BASKERVILLE_PLUGIN_URL . 'assets/js/chart.min.js', array(), '4.5.1', true);
 
-		// Pass nonce and i18n strings to admin.js
-		wp_localize_script('select2', 'baskervilleAdmin', array(
-			'importLogsNonce' => wp_create_nonce('baskerville_import_logs'),
+		// Enqueue admin.js
+		wp_enqueue_script('baskerville-admin', BASKERVILLE_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'select2', 'chartjs'), BASKERVILLE_VERSION, true);
+
+		// Enqueue Live Feed JS only on the plugin settings page
+		if ( $hook === 'toplevel_page_baskerville-settings' ) {
+			wp_enqueue_script( 'baskerville-live-feed', BASKERVILLE_PLUGIN_URL . 'assets/js/live-feed.js', array( 'jquery', 'baskerville-admin' ), BASKERVILLE_VERSION, true );
+		}
+
+		// Pass nonces and i18n strings to admin.js
+		wp_localize_script('baskerville-admin', 'baskervilleAdmin', array(
+			'importLogsNonce'      => wp_create_nonce('baskerville_import_logs'),
+			'installMaxmindNonce'  => wp_create_nonce('baskerville_install_maxmind'),
+			'updateDeflectNonce'   => wp_create_nonce('baskerville_update_deflect_geoip'),
+			'clearGeoipCacheNonce' => wp_create_nonce('baskerville_clear_geoip_cache'),
+			'ipLookupNonce'        => wp_create_nonce('baskerville_ip_lookup'),
+			'benchmarkNonce'       => wp_create_nonce('baskerville_benchmark'),
 			'i18n' => array(
-				'importing'     => esc_html__( 'Importing...', 'baskerville-ai-security' ),
-				'importFailed'  => esc_html__( 'Import failed', 'baskerville-ai-security' ),
-				'importLogsNow' => esc_html__( 'Import Logs Now', 'baskerville-ai-security' ),
-				'ajaxError'     => esc_html__( 'AJAX error occurred', 'baskerville-ai-security' ),
+				// Import logs
+				'importing'     => __( 'Importing...', 'baskerville-ai-security' ),
+				'importFailed'  => __( 'Import failed', 'baskerville-ai-security' ),
+				'importLogsNow' => __( 'Import Logs Now', 'baskerville-ai-security' ),
+				'ajaxError'     => __( 'AJAX error occurred', 'baskerville-ai-security' ),
+				// Select2
+				'searchCompanies' => __( 'Search and select companies...', 'baskerville-ai-security' ),
+				'searchCountries' => __( 'Search and select countries...', 'baskerville-ai-security' ),
+				// Country charts
+				'totalRequests'        => __( 'Total Requests', 'baskerville-ai-security' ),
+				'trafficByCountryLast' => __( 'Traffic by Country — last', 'baskerville-ai-security' ),
+				'requests'             => __( 'Requests', 'baskerville-ai-security' ),
+				'banned403'            => __( '403 Blocked', 'baskerville-ai-security' ),
+				'bansByCountryLast'    => __( '403 Bans by Country — last', 'baskerville-ai-security' ),
+				'blockedRequests'      => __( 'Blocked Requests', 'baskerville-ai-security' ),
+				// Live Feed
+				'noRecentEvents'       => __( 'No recent events', 'baskerville-ai-security' ),
+				'turnstileFailed'      => __( 'TURNSTILE FAILED', 'baskerville-ai-security' ),
+				'challengeFailed'      => __( 'CHALLENGE FAILED', 'baskerville-ai-security' ),
+				'banned'               => __( 'BANNED', 'baskerville-ai-security' ),
+				'detected'             => __( 'DETECTED', 'baskerville-ai-security' ),
+				'unknownBot'           => __( 'Unknown Bot', 'baskerville-ai-security' ),
+				'turnstile'            => __( 'TURNSTILE', 'baskerville-ai-security' ),
+				'ua'                   => __( 'UA:', 'baskerville-ai-security' ),
+				'honeypot'             => __( 'HONEYPOT', 'baskerville-ai-security' ),
+				'userAgent'            => __( 'USER-AGENT', 'baskerville-ai-security' ),
+				'failedTurnstile'      => __( 'Failed Cloudflare Turnstile challenge', 'baskerville-ai-security' ),
+				'noReason'             => __( 'No reason', 'baskerville-ai-security' ),
+				'score'                => __( 'score', 'baskerville-ai-security' ),
+				'banReason'            => __( 'Ban reason', 'baskerville-ai-security' ),
+				'noData'               => __( 'No data', 'baskerville-ai-security' ),
+				'attempts'             => __( 'attempts', 'baskerville-ai-security' ),
+				// AI Bots chart
+				'timeUtc'              => __( 'Time (UTC)', 'baskerville-ai-security' ),
+				'hits'                 => __( 'Hits', 'baskerville-ai-security' ),
+				'aiBotHitsLast'        => __( 'AI Bot Hits by Company - Last', 'baskerville-ai-security' ),
+				// MaxMind installer
+				'installing'           => __( 'Installing...', 'baskerville-ai-security' ),
+				'downloadingLib'       => __( 'Downloading and installing library...', 'baskerville-ai-security' ),
+				'retryInstall'         => __( 'Retry Installation', 'baskerville-ai-security' ),
+				'installFailed'        => __( 'Installation failed. Please try again.', 'baskerville-ai-security' ),
+				'installMaxmind'       => __( 'Install MaxMind Library', 'baskerville-ai-security' ),
+				// Deflect GeoIP
+				'downloading'          => __( 'Downloading...', 'baskerville-ai-security' ),
+				'checkingUpdates'      => __( 'Checking for updates and downloading database...', 'baskerville-ai-security' ),
+				'checkForUpdates'      => __( 'Check for Updates', 'baskerville-ai-security' ),
+				'retry'                => __( 'Retry', 'baskerville-ai-security' ),
+				'requestFailed'        => __( 'Request failed. Please try again.', 'baskerville-ai-security' ),
+				// GeoIP cache
+				'clearing'             => __( 'Clearing...', 'baskerville-ai-security' ),
+				'clearingCache'        => __( 'Clearing cache...', 'baskerville-ai-security' ),
+				'clearGeoipCache'      => __( 'Clear GeoIP Cache', 'baskerville-ai-security' ),
+				'clearCacheFailed'     => __( 'Failed to clear cache. Please try again.', 'baskerville-ai-security' ),
+				// Turnstile test
+				'turnstileWorking'     => __( 'Turnstile widget is working!', 'baskerville-ai-security' ),
+				'tokenReceived'        => __( 'Token received (first 20 chars):', 'baskerville-ai-security' ),
+				'turnstileError'       => __( 'Turnstile error:', 'baskerville-ai-security' ),
+				// Analytics charts
+				'humans'               => __( 'Humans', 'baskerville-ai-security' ),
+				'automated'            => __( 'Automated', 'baskerville-ai-security' ),
+				'time'                 => __( 'Time', 'baskerville-ai-security' ),
+				'visits'               => __( 'Visits', 'baskerville-ai-security' ),
+				'humansVsAutoLast'     => __( 'Humans vs Automated — last', 'baskerville-ai-security' ),
+				'total'                => __( 'Total:', 'baskerville-ai-security' ),
+				'humansLabel'          => __( 'Humans:', 'baskerville-ai-security' ),
+				'automatedLabel'       => __( 'Automated:', 'baskerville-ai-security' ),
+				'trafficDistLast'      => __( 'Traffic Distribution — last', 'baskerville-ai-security' ),
+				'badBots'              => __( 'Bad Bots', 'baskerville-ai-security' ),
+				'aiBots'               => __( 'AI Bots', 'baskerville-ai-security' ),
+				'otherBots'            => __( 'Other Bots', 'baskerville-ai-security' ),
+				'verifiedCrawlers'     => __( 'Verified Crawlers', 'baskerville-ai-security' ),
+				'count'                => __( 'Count', 'baskerville-ai-security' ),
+				'botTypesLast'         => __( 'Bot Types — last', 'baskerville-ai-security' ),
+				'totalBots'            => __( 'Total bots:', 'baskerville-ai-security' ),
+				'botTypesDistLast'     => __( 'Bot Types Distribution — last', 'baskerville-ai-security' ),
+				'passedHumans'         => __( 'Passed (Humans)', 'baskerville-ai-security' ),
+				'failedBots'           => __( 'Failed (Bots)', 'baskerville-ai-security' ),
+				'challenges'           => __( 'Challenges', 'baskerville-ai-security' ),
+				'turnstileChallenges'  => __( 'Turnstile Challenges', 'baskerville-ai-security' ),
+				'redirects'            => __( 'Redirects:', 'baskerville-ai-security' ),
+				'precision'            => __( 'Precision:', 'baskerville-ai-security' ),
+				'challenged'           => __( 'Challenged:', 'baskerville-ai-security' ),
+				'passed'               => __( 'Passed:', 'baskerville-ai-security' ),
+				'failed'               => __( 'Failed:', 'baskerville-ai-security' ),
+				'noTurnstileData'      => __( 'No Turnstile data available. Enable Turnstile challenge for borderline scores to see data here.', 'baskerville-ai-security' ),
+				'noChallengesRecorded' => __( 'No challenges recorded', 'baskerville-ai-security' ),
+				'noDataPeriod'         => __( 'No data available for the selected period', 'baskerville-ai-security' ),
+				'noDataAvailable'      => __( 'No data available', 'baskerville-ai-security' ),
+				// IP Lookup
+				'enterIpAddress'       => __( 'Please enter an IP address', 'baskerville-ai-security' ),
+				'searching'            => __( 'Searching...', 'baskerville-ai-security' ),
+				'loading'              => __( 'Loading...', 'baskerville-ai-security' ),
+				'search'               => __( 'Search', 'baskerville-ai-security' ),
+				'ipLabel'              => __( 'IP:', 'baskerville-ai-security' ),
+				'statusLabel'          => __( 'Status:', 'baskerville-ai-security' ),
+				'currentlyBanned'      => __( 'Currently BANNED', 'baskerville-ai-security' ),
+				'notBanned'            => __( 'Not currently banned', 'baskerville-ai-security' ),
+				'countryLabel'         => __( 'Country:', 'baskerville-ai-security' ),
+				'totalEvents'          => __( 'Total events:', 'baskerville-ai-security' ),
+				'blockEvents'          => __( 'Block events:', 'baskerville-ai-security' ),
+				'recentEvents'         => __( 'Recent Events (last 100)', 'baskerville-ai-security' ),
+				'timeHeader'           => __( 'Time', 'baskerville-ai-security' ),
+				'classification'       => __( 'Classification', 'baskerville-ai-security' ),
+				'scoreHeader'          => __( 'Score', 'baskerville-ai-security' ),
+				'blockReasonHeader'    => __( 'Block Reason', 'baskerville-ai-security' ),
+				'userAgentHeader'      => __( 'User Agent', 'baskerville-ai-security' ),
+				'noEventsFound'        => __( 'No events found for this IP address.', 'baskerville-ai-security' ),
+				'errorSearchingIp'     => __( 'Error searching for IP', 'baskerville-ai-security' ),
+				// Benchmark
+				'running'              => __( 'Running...', 'baskerville-ai-security' ),
+				'benchmarkError'       => __( 'Error', 'baskerville-ai-security' ),
+				'benchmarkAjaxError'   => __( 'AJAX error', 'baskerville-ai-security' ),
 			),
 		));
 	}
 
 	/**
-	 * Output custom CSS for menu icon size
+	 * Enqueue custom CSS for menu icon size
 	 */
 	public function admin_menu_icon_style() {
-		?>
-		<style>
-			#adminmenu .toplevel_page_baskerville-settings div.wp-menu-image.svg {
-				background-size: 24px auto;
-			}
-		</style>
-		<?php
+		wp_add_inline_style( 'wp-admin', '#adminmenu .toplevel_page_baskerville-settings div.wp-menu-image.svg { background-size: 24px auto; }' );
 	}
 
 	/**
@@ -760,46 +875,6 @@ class Baskerville_Admin {
 			<?php esc_html_e('Choose whether to allow all countries, block specific countries, or allow only specific countries.', 'baskerville-ai-security'); ?>
 		</p>
 
-		<script>
-		jQuery(document).ready(function($) {
-			// Initialize Select2 for country selects
-			$('.baskerville-country-select').select2({
-				placeholder: '<?php esc_html_e('Search and select countries...', 'baskerville-ai-security'); ?>',
-				allowClear: true,
-				width: '100%'
-			});
-
-			function updateGeoIPFields() {
-				var selectedMode = $('input[name="baskerville_settings[geoip_mode]"]:checked').val();
-
-				var $blacklistField = $('#baskerville_blacklist_countries');
-				var $whitelistField = $('#baskerville_whitelist_countries');
-				var $blacklistContainer = $blacklistField.closest('div');
-				var $whitelistContainer = $whitelistField.closest('div');
-
-				// Reset all fields
-				$blacklistField.prop('disabled', true);
-				$whitelistField.prop('disabled', true);
-				$blacklistContainer.css('opacity', '0.5');
-				$whitelistContainer.css('opacity', '0.5');
-
-				// Enable appropriate field based on mode
-				if (selectedMode === 'blacklist') {
-					$blacklistField.prop('disabled', false);
-					$blacklistContainer.css('opacity', '1');
-				} else if (selectedMode === 'whitelist') {
-					$whitelistField.prop('disabled', false);
-					$whitelistContainer.css('opacity', '1');
-				}
-			}
-
-			// Update on radio button change
-			$('.baskerville-geoip-mode-radio').on('change', updateGeoIPFields);
-
-			// Update on page load
-			updateGeoIPFields();
-		});
-		</script>
 		<?php
 	}
 
@@ -1049,38 +1124,6 @@ class Baskerville_Admin {
 			<?php esc_html_e('Choose whether to allow all AI bots, block all AI bots, block specific companies, or allow only specific companies.', 'baskerville-ai-security'); ?>
 		</p>
 
-		<script>
-		jQuery(document).ready(function($) {
-			function updateAIBotFields() {
-				var selectedMode = $('input[name="baskerville_settings[ai_bot_blocking_mode]"]:checked').val();
-
-				var $blacklistField = $('#baskerville_blacklist_ai_companies');
-				var $whitelistField = $('#baskerville_whitelist_ai_companies');
-				var $blacklistContainer = $blacklistField.closest('div');
-				var $whitelistContainer = $whitelistField.closest('div');
-
-				// Reset all fields
-				$blacklistField.prop('disabled', true);
-				$whitelistField.prop('disabled', true);
-				$blacklistContainer.css('opacity', '0.5');
-				$whitelistContainer.css('opacity', '0.5');
-
-				// Enable appropriate field based on mode
-				// In 'block_all' mode, both fields remain disabled
-				if (selectedMode === 'blacklist') {
-					$blacklistField.prop('disabled', false);
-					$blacklistContainer.css('opacity', '1');
-				} else if (selectedMode === 'whitelist') {
-					$whitelistField.prop('disabled', false);
-					$whitelistContainer.css('opacity', '1');
-				}
-				// allow_all and block_all modes keep both fields disabled
-			}
-
-			$('.baskerville-aibot-mode-radio').on('change', updateAIBotFields);
-			updateAIBotFields();
-		});
-		</script>
 		<?php
 	}
 
@@ -1116,15 +1159,6 @@ class Baskerville_Admin {
 			</p>
 		</div>
 
-		<script>
-		jQuery(document).ready(function($) {
-			$('.baskerville-aibot-select').select2({
-				placeholder: '<?php esc_html_e('Search and select companies...', 'baskerville-ai-security'); ?>',
-				allowClear: true,
-				width: '100%'
-			});
-		});
-		</script>
 		<?php
 	}
 
@@ -2093,97 +2127,15 @@ class Baskerville_Admin {
 			<?php endif; ?>
 		</div>
 
-		<?php if (!empty($country_stats)): ?>
-		<script>
-		(function waitForChart() {
-			if (typeof Chart === 'undefined') {
-				setTimeout(waitForChart, 100);
-				return;
-			}
-
-			const countryStats = <?php echo wp_json_encode($country_stats); ?>;
-			const hours = <?php echo absint($hours); ?>;
-
-			// Prepare data - limit to top 15 countries
-			const topCountries = countryStats.slice(0, 15);
-			const labels = topCountries.map(c => c.name + ' (' + c.code + ')');
-			const totalData = topCountries.map(c => c.total);
-			const blockedData = topCountries.map(c => c.blocked);
-
-			// Color palette (same as Human vs Automated)
-			const colors = [
-				'#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#F44336',
-				'#00BCD4', '#FFEB3B', '#795548', '#607D8B', '#E91E63',
-				'#3F51B5', '#8BC34A', '#FF5722', '#009688', '#FFC107'
-			];
-
-			// 1) Total Traffic by Country
-			const trafficCtx = document.getElementById('baskervilleCountryTrafficChart').getContext('2d');
-			new Chart(trafficCtx, {
-				type: 'bar',
-				data: {
-					labels,
-					datasets: [{
-						label: '<?php echo esc_js( esc_html__( 'Total Requests', 'baskerville-ai-security' ) ); ?>',
-						data: totalData,
-						backgroundColor: colors
-					}]
-				},
-				options: {
-					responsive: true,
-					maintainAspectRatio: true,
-					indexAxis: 'y',
-					plugins: {
-						title: {
-							display: true,
-							text: '<?php echo esc_js( esc_html__( 'Traffic by Country — last', 'baskerville-ai-security' ) ); ?> ' + hours + 'h',
-							font: { size: 16, weight: 'bold' }
-						},
-						legend: { display: false }
-					},
-					scales: {
-						x: {
-							beginAtZero: true,
-							title: { display: true, text: '<?php echo esc_js( esc_html__( 'Requests', 'baskerville-ai-security' ) ); ?>' }
-						}
-					}
-				}
-			});
-
-			// 2) 403 Bans by Country
-			const bansCtx = document.getElementById('baskervilleCountryBansChart').getContext('2d');
-			new Chart(bansCtx, {
-				type: 'bar',
-				data: {
-					labels,
-					datasets: [{
-						label: '<?php echo esc_js( esc_html__( '403 Blocked', 'baskerville-ai-security' ) ); ?>',
-						data: blockedData,
-						backgroundColor: '#d32f2f'
-					}]
-				},
-				options: {
-					responsive: true,
-					maintainAspectRatio: true,
-					indexAxis: 'y',
-					plugins: {
-						title: {
-							display: true,
-							text: '<?php echo esc_js( esc_html__( '403 Bans by Country — last', 'baskerville-ai-security' ) ); ?> ' + hours + 'h',
-							font: { size: 16, weight: 'bold' }
-						},
-						legend: { display: false }
-					},
-					scales: {
-						x: {
-							beginAtZero: true,
-							title: { display: true, text: '<?php echo esc_js( esc_html__( 'Blocked Requests', 'baskerville-ai-security' ) ); ?>' }
-						}
-					}
-				}
-			});
-		})();
-		</script>
+		<?php if ( ! empty( $country_stats ) ) : ?>
+		<?php
+		wp_add_inline_script(
+			'baskerville-admin',
+			'window.baskervilleCountryData = ' . wp_json_encode( $country_stats ) . ';'
+			. 'window.baskervilleCountryHours = ' . absint( $hours ) . ';',
+			'before'
+		);
+		?>
 		<?php endif; ?>
 		<?php
 	}
@@ -2262,269 +2214,6 @@ class Baskerville_Admin {
 			</div>
 		</div>
 
-		<script>
-		jQuery(document).ready(function($) {
-			let lastEventId = null;
-
-			function updateLiveFeed() {
-				$.ajax({
-					url: ajaxurl,
-					type: 'POST',
-					data: { action: 'baskerville_get_live_feed' },
-					success: function(response) {
-						if (response.success && response.data) {
-							// Debug: check first event timestamp
-							if (response.data.length > 0) {
-								console.log('First event created_at:', response.data[0].created_at);
-								console.log('Current time:', new Date());
-								console.log('Event time parsed:', new Date(response.data[0].created_at));
-							}
-							renderLiveFeed(response.data);
-						}
-					}
-				});
-			}
-
-			function updateLiveStats() {
-				$.ajax({
-					url: ajaxurl,
-					type: 'POST',
-					data: { action: 'baskerville_get_live_stats' },
-					success: function(response) {
-						if (response.success && response.data) {
-							$('#blocks-today').text(response.data.blocks_today.toLocaleString());
-							$('#blocks-hour').text(response.data.blocks_hour.toLocaleString());
-
-							if (response.data.top_countries && response.data.top_countries.length > 0) {
-								$('#top-country').text(response.data.top_countries[0].country_name || response.data.top_countries[0].country_code || 'N/A');
-							}
-
-							renderTopAttackers(response.data.top_ips);
-						}
-					}
-				});
-			}
-
-			function renderLiveFeed(events) {
-				const container = $('#live-feed-items');
-				container.empty();
-
-				if (!events || events.length === 0) {
-					container.html('<div class="baskerville-no-data"><?php echo esc_js( esc_html__( 'No recent events', 'baskerville-ai-security' ) ); ?></div>');
-					return;
-				}
-
-				events.forEach(function(event) {
-					const icon = getEventIcon(event.classification, event.event_type);
-					const color = getEventColor(event.classification, event.event_type);
-					const timeAgo = getTimeAgo(event.created_at);
-
-					// Special handling for Turnstile failed challenge
-					const isTurnstileFail = event.event_type === 'ts_fail';
-					const displayLabel = isTurnstileFail ? '<?php echo esc_js( __( 'TURNSTILE FAILED', 'baskerville-ai-security' ) ); ?>' : event.classification.toUpperCase().replace('_', ' ');
-
-					let banBadge = '';
-					if (isTurnstileFail) {
-						banBadge = '<span class="baskerville-badge baskerville-badge-challenge-failed"><?php echo esc_js( __( 'CHALLENGE FAILED', 'baskerville-ai-security' ) ); ?></span>';
-					} else if (event.is_banned) {
-						banBadge = '<span class="baskerville-badge baskerville-badge-banned"><?php echo esc_js( __( 'BANNED', 'baskerville-ai-security' ) ); ?></span>';
-					} else {
-						banBadge = '<span class="baskerville-badge baskerville-badge-detected"><?php echo esc_js( __( 'DETECTED', 'baskerville-ai-security' ) ); ?></span>';
-					}
-
-					// Extract company name from reason or block_reason for AI bots
-					let companyBadge = '';
-					if (event.classification === 'ai_bot') {
-						// Try to extract company name from reason (format: "AI bot detected by user agent (CompanyName)" or "Honeypot triggered: accessed hidden link (CompanyName)")
-						let companyName = null;
-						const reasonMatch = event.reason && event.reason.match(/\(([^)]+)\)$/);
-						if (reasonMatch) {
-							companyName = reasonMatch[1];
-						}
-						// Also check block_reason for blocked bots (format: "ai-bot-block-all:CompanyName")
-						if (!companyName && event.block_reason) {
-							const blockMatch = event.block_reason.match(/:([^:]+)$/);
-							if (blockMatch) {
-								companyName = blockMatch[1];
-							}
-						}
-						if (companyName) {
-							companyBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-company">' + companyName + '</span>';
-						} else if (event.event_type === 'honeypot') {
-							// For honeypot without identified company, show "Unknown Bot"
-							companyBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-unknown"><?php echo esc_js( __( 'Unknown Bot', 'baskerville-ai-security' ) ); ?></span>';
-						}
-					}
-
-					// Detection method badge and User-Agent info
-					let detectionBadge = '';
-					let userAgentInfo = '';
-
-					// Check if detection was based on User-Agent
-					const isUserAgentBased = event.reason && (
-						event.reason.toLowerCase().includes('user agent') ||
-						event.reason.toLowerCase().includes('user-agent')
-					);
-
-					if (isTurnstileFail) {
-						detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-turnstile">🛡️ <?php echo esc_js( __( 'TURNSTILE', 'baskerville-ai-security' ) ); ?></span>';
-						// Show User-Agent for turnstile failures
-						if (event.ua) {
-							const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-							userAgentInfo = '<br><span class="baskerville-feed-ua"><?php echo esc_js( __( 'UA:', 'baskerville-ai-security' ) ); ?> ' + truncatedUA + '</span>';
-						}
-					} else if (event.classification === 'ai_bot') {
-						if (event.event_type === 'honeypot') {
-							detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-honeypot">🍯 <?php echo esc_js( __( 'HONEYPOT', 'baskerville-ai-security' ) ); ?></span>';
-							// Show User-Agent for honeypot too
-							if (event.ua) {
-								const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-								userAgentInfo = '<br><span class="baskerville-feed-ua"><?php echo esc_js( __( 'UA:', 'baskerville-ai-security' ) ); ?> ' + truncatedUA + '</span>';
-							}
-						} else {
-							detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-useragent"><?php echo esc_js( __( 'USER-AGENT', 'baskerville-ai-security' ) ); ?></span>';
-							// Show User-Agent for UA-based detection
-							if (event.ua) {
-								const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-								userAgentInfo = '<br><span class="baskerville-feed-ua"><?php echo esc_js( __( 'UA:', 'baskerville-ai-security' ) ); ?> ' + truncatedUA + '</span>';
-							}
-						}
-					} else {
-						// Show User-Agent for other bot types if UA-based detection
-						if (isUserAgentBased && event.ua) {
-							const truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-							userAgentInfo = '<br><span class="baskerville-feed-ua"><?php echo esc_js( __( 'UA:', 'baskerville-ai-security' ) ); ?> ' + truncatedUA + '</span>';
-						}
-					}
-
-					const item = $('<div class="live-feed-item"></div>');
-					const countryName = event.country_code ? getCountryName(event.country_code) : '';
-					const reasonText = isTurnstileFail ? '<?php echo esc_js( __( 'Failed Cloudflare Turnstile challenge', 'baskerville-ai-security' ) ); ?>' : (event.reason || '<?php echo esc_js( __( 'No reason', 'baskerville-ai-security' ) ); ?>');
-					item.html(
-						'<span class="feed-icon">' + icon + '</span> ' +
-						'<strong style="color: ' + color + ';">' + displayLabel + '</strong>' +
-						detectionBadge + companyBadge + ' ' +
-						event.ip + ' ' +
-						(countryName ? '<span class="baskerville-feed-country">' + countryName + '</span> ' : '') +
-						banBadge +
-						'<span class="baskerville-feed-time">' + timeAgo + '</span><br>' +
-						'<span class="baskerville-feed-score">' +
-						reasonText +
-						(event.score ? ' (<?php echo esc_js( __( 'score', 'baskerville-ai-security' ) ); ?>: ' + event.score + ')' : '') +
-						(event.block_reason ? ' | <?php echo esc_js( __( 'Ban reason', 'baskerville-ai-security' ) ); ?>: ' + event.block_reason : '') +
-						'</span>' +
-						userAgentInfo
-					);
-					container.append(item);
-				});
-			}
-
-			function renderTopAttackers(ips) {
-				const container = $('#top-attackers-list');
-				container.empty();
-
-				if (!ips || ips.length === 0) {
-					container.html('<div class="baskerville-no-data"><?php echo esc_js( esc_html__( 'No data', 'baskerville-ai-security' ) ); ?></div>');
-					return;
-				}
-
-				ips.forEach(function(item, index) {
-					const badge = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1) + '.';
-					container.append(
-						'<div class="baskerville-attacker-item">' +
-						'<strong>' + badge + '</strong> ' +
-						item.ip + ' ' +
-						(item.country_code ? '<span class="baskerville-feed-country">' + item.country_code + '</span>' : '') +
-						'<br><span class="baskerville-attacker-count">' + item.count + ' <?php echo esc_js( __( 'attempts', 'baskerville-ai-security' ) ); ?></span>' +
-						'</div>'
-					);
-				});
-			}
-
-			function getEventIcon(classification, eventType) {
-				if (eventType === 'ts_fail') return '🛡️';
-				if (eventType === 'honeypot') return '🍯';
-				if (classification === 'ai_bot') return '🤖';
-				if (classification === 'bad_bot') return '🔴';
-				if (classification === 'bot') return '🟡';
-				return '⚠️';
-			}
-
-			function getEventColor(classification, eventType) {
-				if (eventType === 'ts_fail') return '#dc2626';
-				if (classification === 'ai_bot') return '#9333ea';
-				if (classification === 'bad_bot') return '#dc2626';
-				if (classification === 'bot') return '#f59e0b';
-				return '#6b7280';
-			}
-
-			function getTimeAgo(timestamp) {
-				const now = new Date();
-				const eventTime = new Date(timestamp);
-				const seconds = Math.floor((now - eventTime) / 1000);
-
-				if (seconds < 60) return seconds + 's ago';
-				if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
-				if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
-				return Math.floor(seconds / 86400) + 'd ago';
-			}
-
-			function getCountryName(code) {
-				const countries = {
-					'AF': 'Afghanistan', 'AL': 'Albania', 'DZ': 'Algeria', 'AS': 'American Samoa', 'AD': 'Andorra',
-					'AO': 'Angola', 'AI': 'Anguilla', 'AQ': 'Antarctica', 'AG': 'Antigua and Barbuda', 'AR': 'Argentina',
-					'AM': 'Armenia', 'AW': 'Aruba', 'AU': 'Australia', 'AT': 'Austria', 'AZ': 'Azerbaijan',
-					'BS': 'Bahamas', 'BH': 'Bahrain', 'BD': 'Bangladesh', 'BB': 'Barbados', 'BY': 'Belarus',
-					'BE': 'Belgium', 'BZ': 'Belize', 'BJ': 'Benin', 'BM': 'Bermuda', 'BT': 'Bhutan',
-					'BO': 'Bolivia', 'BA': 'Bosnia and Herzegovina', 'BW': 'Botswana', 'BR': 'Brazil', 'BN': 'Brunei',
-					'BG': 'Bulgaria', 'BF': 'Burkina Faso', 'BI': 'Burundi', 'KH': 'Cambodia', 'CM': 'Cameroon',
-					'CA': 'Canada', 'CV': 'Cape Verde', 'KY': 'Cayman Islands', 'CF': 'Central African Republic', 'TD': 'Chad',
-					'CL': 'Chile', 'CN': 'China', 'CO': 'Colombia', 'KM': 'Comoros', 'CG': 'Congo',
-					'CD': 'Congo (DRC)', 'CK': 'Cook Islands', 'CR': 'Costa Rica', 'CI': 'Ivory Coast', 'HR': 'Croatia',
-					'CU': 'Cuba', 'CY': 'Cyprus', 'CZ': 'Czech Republic', 'DK': 'Denmark', 'DJ': 'Djibouti',
-					'DM': 'Dominica', 'DO': 'Dominican Republic', 'EC': 'Ecuador', 'EG': 'Egypt', 'SV': 'El Salvador',
-					'GQ': 'Equatorial Guinea', 'ER': 'Eritrea', 'EE': 'Estonia', 'ET': 'Ethiopia', 'FJ': 'Fiji',
-					'FI': 'Finland', 'FR': 'France', 'GA': 'Gabon', 'GM': 'Gambia', 'GE': 'Georgia',
-					'DE': 'Germany', 'GH': 'Ghana', 'GI': 'Gibraltar', 'GR': 'Greece', 'GL': 'Greenland',
-					'GD': 'Grenada', 'GU': 'Guam', 'GT': 'Guatemala', 'GN': 'Guinea', 'GW': 'Guinea-Bissau',
-					'GY': 'Guyana', 'HT': 'Haiti', 'HN': 'Honduras', 'HK': 'Hong Kong', 'HU': 'Hungary',
-					'IS': 'Iceland', 'IN': 'India', 'ID': 'Indonesia', 'IR': 'Iran', 'IQ': 'Iraq',
-					'IE': 'Ireland', 'IL': 'Israel', 'IT': 'Italy', 'JM': 'Jamaica', 'JP': 'Japan',
-					'JO': 'Jordan', 'KZ': 'Kazakhstan', 'KE': 'Kenya', 'KI': 'Kiribati', 'KP': 'North Korea',
-					'KR': 'South Korea', 'KW': 'Kuwait', 'KG': 'Kyrgyzstan', 'LA': 'Laos', 'LV': 'Latvia',
-					'LB': 'Lebanon', 'LS': 'Lesotho', 'LR': 'Liberia', 'LY': 'Libya', 'LI': 'Liechtenstein',
-					'LT': 'Lithuania', 'LU': 'Luxembourg', 'MO': 'Macau', 'MK': 'North Macedonia', 'MG': 'Madagascar',
-					'MW': 'Malawi', 'MY': 'Malaysia', 'MV': 'Maldives', 'ML': 'Mali', 'MT': 'Malta',
-					'MH': 'Marshall Islands', 'MR': 'Mauritania', 'MU': 'Mauritius', 'MX': 'Mexico', 'FM': 'Micronesia',
-					'MD': 'Moldova', 'MC': 'Monaco', 'MN': 'Mongolia', 'ME': 'Montenegro', 'MA': 'Morocco',
-					'MZ': 'Mozambique', 'MM': 'Myanmar', 'NA': 'Namibia', 'NR': 'Nauru', 'NP': 'Nepal',
-					'NL': 'Netherlands', 'NZ': 'New Zealand', 'NI': 'Nicaragua', 'NE': 'Niger', 'NG': 'Nigeria',
-					'NO': 'Norway', 'OM': 'Oman', 'PK': 'Pakistan', 'PW': 'Palau', 'PS': 'Palestine',
-					'PA': 'Panama', 'PG': 'Papua New Guinea', 'PY': 'Paraguay', 'PE': 'Peru', 'PH': 'Philippines',
-					'PL': 'Poland', 'PT': 'Portugal', 'PR': 'Puerto Rico', 'QA': 'Qatar', 'RO': 'Romania',
-					'RU': 'Russia', 'RW': 'Rwanda', 'WS': 'Samoa', 'SM': 'San Marino', 'SA': 'Saudi Arabia',
-					'SN': 'Senegal', 'RS': 'Serbia', 'SC': 'Seychelles', 'SL': 'Sierra Leone', 'SG': 'Singapore',
-					'SK': 'Slovakia', 'SI': 'Slovenia', 'SB': 'Solomon Islands', 'SO': 'Somalia', 'ZA': 'South Africa',
-					'SS': 'South Sudan', 'ES': 'Spain', 'LK': 'Sri Lanka', 'SD': 'Sudan', 'SR': 'Suriname',
-					'SZ': 'Eswatini', 'SE': 'Sweden', 'CH': 'Switzerland', 'SY': 'Syria', 'TW': 'Taiwan',
-					'TJ': 'Tajikistan', 'TZ': 'Tanzania', 'TH': 'Thailand', 'TL': 'Timor-Leste', 'TG': 'Togo',
-					'TO': 'Tonga', 'TT': 'Trinidad and Tobago', 'TN': 'Tunisia', 'TR': 'Turkey', 'TM': 'Turkmenistan',
-					'TV': 'Tuvalu', 'UG': 'Uganda', 'UA': 'Ukraine', 'AE': 'UAE', 'GB': 'United Kingdom',
-					'US': 'United States', 'UY': 'Uruguay', 'UZ': 'Uzbekistan', 'VU': 'Vanuatu', 'VA': 'Vatican City',
-					'VE': 'Venezuela', 'VN': 'Vietnam', 'YE': 'Yemen', 'ZM': 'Zambia', 'ZW': 'Zimbabwe'
-				};
-				return countries[code] || code;
-			}
-
-			// Initial load
-			updateLiveFeed();
-			updateLiveStats();
-
-			// Auto-refresh every 10 seconds
-			setInterval(updateLiveFeed, 10000);
-			setInterval(updateLiveStats, 10000);
-		});
-		</script>
 
 		<div class="baskerville-traffic-stats">
 			<!-- Period Filter Buttons -->
@@ -2801,127 +2490,9 @@ class Baskerville_Admin {
 				<canvas id="aiBotsChart"></canvas>
 			</div>
 
-			<script>
-			(function() {
-				// Wait for Chart.js to load
-				function initChart() {
-					if (typeof Chart === 'undefined') {
-						setTimeout(initChart, 100);
-						return;
-					}
-
-					const data = <?php echo wp_json_encode($data); ?>;
-
-					// Prepare labels (time slots)
-					const labels = data.time_slots.map(slot => {
-						const date = new Date(slot.replace(' ', 'T') + 'Z');
-						const hours = String(date.getUTCHours()).padStart(2, '0');
-						const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-						return hours + ':' + minutes;
-					});
-
-					// Company colors
-					const companyColors = {
-						'OpenAI': '#10a37f',
-						'Anthropic': '#d4a574',
-						'Google': '#4285f4',
-						'Meta': '#0668e1',
-						'ByteDance': '#fe2c55',
-						'Amazon': '#ff9900',
-						'Baidu': '#2932e1',
-						'Perplexity': '#6366f1',
-						'Cohere': '#7c3aed',
-						'Common Crawl': '#9ca3af',
-						'Huawei': '#e91e63',
-						'Unknown': '#6b7280',
-						'Generic': '#9ca3af',
-					};
-
-					// Prepare datasets
-					const datasets = [];
-					for (const [company, counts] of Object.entries(data.companies)) {
-						datasets.push({
-							label: company,
-							data: counts,
-							backgroundColor: companyColors[company] || '#9ca3af',
-							borderColor: companyColors[company] || '#9ca3af',
-							borderWidth: 1
-						});
-					}
-
-					// Create chart
-					const ctx = document.getElementById('aiBotsChart').getContext('2d');
-					new Chart(ctx, {
-						type: 'bar',
-						data: {
-							labels: labels,
-							datasets: datasets
-						},
-						options: {
-							responsive: true,
-							maintainAspectRatio: true,
-							interaction: {
-								mode: 'index',
-								intersect: false
-							},
-							scales: {
-								x: {
-									stacked: true,
-									title: {
-										display: true,
-										text: '<?php echo esc_js( __( 'Time (UTC)', 'baskerville-ai-security' ) ); ?>'
-									},
-									ticks: {
-										maxRotation: 45,
-										minRotation: 45
-									}
-								},
-								y: {
-									stacked: true,
-									beginAtZero: true,
-									title: {
-										display: true,
-										text: '<?php echo esc_js( __( 'Hits', 'baskerville-ai-security' ) ); ?>'
-									}
-								}
-							},
-							plugins: {
-								title: {
-									display: true,
-									text: '<?php echo esc_js( __( 'AI Bot Hits by Company - Last', 'baskerville-ai-security' ) ); ?> ' + data.hours + 'h',
-									font: {
-										size: 16,
-										weight: 'bold'
-									}
-								},
-								legend: {
-									display: true,
-									position: 'bottom'
-								},
-								tooltip: {
-									callbacks: {
-										footer: function(items) {
-											let total = 0;
-											items.forEach(item => {
-												total += item.parsed.y;
-											});
-											return 'Total: ' + total;
-										}
-									}
-								}
-							}
-						}
-					});
-				}
-
-				// Start initialization
-				if (document.readyState === 'loading') {
-					document.addEventListener('DOMContentLoaded', initChart);
-				} else {
-					initChart();
-				}
-			})();
-			</script>
+			<?php
+			wp_add_inline_script('baskerville-admin', 'window.baskervilleAIBotData = ' . wp_json_encode($data) . ';', 'before');
+			?>
 
 			<?php endif; ?>
 
@@ -2955,7 +2526,12 @@ class Baskerville_Admin {
 		}
 
 		if (!class_exists('Baskerville_Deflect_GeoIP')) {
-			require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+			$class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+			if (file_exists($class_file)) {
+				require_once $class_file;
+			} else {
+				wp_send_json_error(array('message' => esc_html__('Deflect GeoIP module not available.', 'baskerville-ai-security')));
+			}
 		}
 
 		$deflect = new Baskerville_Deflect_GeoIP();
@@ -3383,50 +2959,6 @@ class Baskerville_Admin {
 							</div>
 						</div>
 
-						<script>
-						jQuery(document).ready(function($) {
-							$('#baskerville-install-maxmind').on('click', function(e) {
-								e.preventDefault();
-								var $btn = $(this);
-								var $status = $('#baskerville-install-status');
-
-								$btn.prop('disabled', true).text('<?php esc_html_e('Installing...', 'baskerville-ai-security'); ?>');
-								$status.html('<span class="baskerville-status-pending">⏳ <?php esc_html_e('Downloading and installing library...', 'baskerville-ai-security'); ?></span>');
-
-								$.ajax({
-									url: ajaxurl,
-									type: 'POST',
-									data: {
-										action: 'baskerville_install_maxmind',
-										nonce: '<?php echo esc_js(wp_create_nonce('baskerville_install_maxmind')); ?>'
-									},
-									success: function(response) {
-										if (response.success) {
-											$status.html('<span class="baskerville-status-success">✓ ' + response.data.message + '</span>');
-											setTimeout(function() {
-												location.reload();
-											}, 2000);
-										} else {
-											var errorMsg = response.data.message || 'Installation failed';
-											var errorHtml = '<span class="baskerville-status-error">✗ ' + errorMsg + '</span>';
-
-											// Show detailed errors if available
-											if (response.data.errors && response.data.errors.length > 0) {
-												errorHtml += '<br><small class="baskerville-status-error-detail">Details: ' + response.data.errors.join(', ') + '</small>';
-											}
-
-											$status.html(errorHtml);
-											$btn.prop('disabled', false).text('<?php esc_html_e('Retry Installation', 'baskerville-ai-security'); ?>');
-										}
-									},
-									error: function() {
-										$status.html('<span class="baskerville-status-error">✗ <?php esc_html_e('Installation failed. Please try again.', 'baskerville-ai-security'); ?></span>');
-										$btn.prop('disabled', false).text('<?php esc_html_e('Install MaxMind Library', 'baskerville-ai-security'); ?>');
-									}
-								});
-							});
-						});
-						</script>
 					<?php elseif ($results['maxmind_debug']['file_size'] == 0): ?>
 						<div class="baskerville-alert baskerville-alert-warning baskerville-alert-lg baskerville-alert-mt">
 							<strong>⚠️ <?php esc_html_e('Database file is empty (0 bytes)!', 'baskerville-ai-security'); ?></strong><br>
@@ -3484,51 +3016,6 @@ class Baskerville_Admin {
 						<span id="baskerville-deflect-status" class="baskerville-ml-10"></span>
 					</div>
 
-					<script>
-					jQuery(document).ready(function($) {
-						$('#baskerville-update-deflect-geoip').on('click', function(e) {
-							e.preventDefault();
-							var $btn = $(this);
-							var $status = $('#baskerville-deflect-status');
-
-							$btn.prop('disabled', true).text('<?php esc_html_e('Downloading...', 'baskerville-ai-security'); ?>');
-							$status.html('<span class="baskerville-status-pending">⏳ <?php esc_html_e('Checking for updates and downloading database...', 'baskerville-ai-security'); ?></span>');
-
-							$.ajax({
-								url: ajaxurl,
-								type: 'POST',
-								data: {
-									action: 'baskerville_update_deflect_geoip',
-									nonce: '<?php echo esc_js(wp_create_nonce('baskerville_update_deflect_geoip')); ?>',
-									force: 'true'
-								},
-								success: function(response) {
-									if (response.success) {
-										var msg = response.data.message;
-										if (response.data.stats) {
-											msg += ' (IPv4: ' + response.data.stats.ipv4_count + ', IPv6: ' + response.data.stats.ipv6_count + ')';
-										}
-										$status.html('<span class="baskerville-status-success">✓ ' + msg + '</span>');
-										if (response.data.updated) {
-											setTimeout(function() {
-												location.reload();
-											}, 2000);
-										} else {
-											$btn.prop('disabled', false).text('<?php esc_html_e('Check for Updates', 'baskerville-ai-security'); ?>');
-										}
-									} else {
-										$status.html('<span class="baskerville-status-error">✗ ' + response.data.message + '</span>');
-										$btn.prop('disabled', false).text('<?php esc_html_e('Retry', 'baskerville-ai-security'); ?>');
-									}
-								},
-								error: function() {
-									$status.html('<span class="baskerville-status-error">✗ <?php esc_html_e('Request failed. Please try again.', 'baskerville-ai-security'); ?></span>');
-									$btn.prop('disabled', false).text('<?php esc_html_e('Retry', 'baskerville-ai-security'); ?>');
-								}
-							});
-						});
-					});
-					</script>
 
 					<div class="baskerville-alert baskerville-alert-info baskerville-mt-15">
 						<strong><?php esc_html_e('About Deflect GeoIP:', 'baskerville-ai-security'); ?></strong><br>
@@ -3584,44 +3071,6 @@ class Baskerville_Admin {
 					<span id="baskerville-clear-cache-status" class="baskerville-ml-10"></span>
 				</div>
 
-				<script>
-				jQuery(document).ready(function($) {
-					$('#baskerville-clear-geoip-cache').on('click', function(e) {
-						e.preventDefault();
-						var $btn = $(this);
-						var $status = $('#baskerville-clear-cache-status');
-
-						$btn.prop('disabled', true).text('<?php esc_html_e('Clearing...', 'baskerville-ai-security'); ?>');
-						$status.html('<span class="baskerville-status-pending">⏳ <?php esc_html_e('Clearing cache...', 'baskerville-ai-security'); ?></span>');
-
-						$.ajax({
-							url: ajaxurl,
-							type: 'POST',
-							data: {
-								action: 'baskerville_clear_geoip_cache',
-								nonce: '<?php echo esc_js(wp_create_nonce('baskerville_clear_geoip_cache')); ?>'
-							},
-							success: function(response) {
-								if (response.success) {
-									$status.html('<span class="baskerville-status-success">✓ ' + response.data.message + '</span>');
-									$btn.text('🗑️ <?php esc_html_e('Clear GeoIP Cache', 'baskerville-ai-security'); ?>');
-									setTimeout(function() {
-										location.reload();
-									}, 1500);
-								} else {
-									var errorMsg = response.data.message || 'Failed to clear cache';
-									$status.html('<span class="baskerville-status-error">✗ ' + errorMsg + '</span>');
-									$btn.prop('disabled', false).text('🗑️ <?php esc_html_e('Clear GeoIP Cache', 'baskerville-ai-security'); ?>');
-								}
-							},
-							error: function() {
-								$status.html('<span class="baskerville-status-error">✗ <?php esc_html_e('Failed to clear cache. Please try again.', 'baskerville-ai-security'); ?></span>');
-								$btn.prop('disabled', false).text('🗑️ <?php esc_html_e('Clear GeoIP Cache', 'baskerville-ai-security'); ?>');
-							}
-						});
-					});
-				});
-				</script>
 			<?php endif; ?>
 		</div>
 		<?php
@@ -4452,21 +3901,21 @@ class Baskerville_Admin {
 
 				<div id="turnstile-status" class="baskerville-test-status"></div>
 
-				<?php // phpcs:ignore PluginCheck.CodeAnalysis.Offloading.OffloadedContent, WordPress.WP.EnqueuedResources.NonEnqueuedScript -- Cloudflare Turnstile API must be loaded from Cloudflare servers ?>
-				<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-				<script>
-				function onTurnstileSuccess(token) {
-					var statusDiv = document.getElementById('turnstile-status');
-					statusDiv.className = 'baskerville-test-status success';
-					statusDiv.innerHTML = '<strong class="baskerville-test-success-text">✓ <?php echo esc_js(__('Turnstile widget is working!', 'baskerville-ai-security')); ?></strong><br><small><?php echo esc_js(__('Token received (first 20 chars):', 'baskerville-ai-security')); ?> ' + token.substring(0, 20) + '...</small>';
-				}
+				<?php
+				wp_enqueue_script( 'cloudflare-turnstile', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), '1.0', false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 
-				function onTurnstileError(error) {
-					var statusDiv = document.getElementById('turnstile-status');
-					statusDiv.className = 'baskerville-test-status error';
-					statusDiv.innerHTML = '<strong class="baskerville-test-error-text">✗ <?php echo esc_js(__('Turnstile error:', 'baskerville-ai-security')); ?></strong> ' + error;
-				}
-				</script>
+				$turnstile_js = 'function onTurnstileSuccess(token) {'
+					. 'var statusDiv = document.getElementById("turnstile-status");'
+					. 'statusDiv.className = "baskerville-test-status success";'
+					. 'statusDiv.innerHTML = "<strong class=\"baskerville-test-success-text\">" + baskervilleAdmin.i18n.turnstileWorking + "</strong><br><small>" + baskervilleAdmin.i18n.tokenReceived + " " + token.substring(0, 20) + "...</small>";'
+					. '}'
+					. 'function onTurnstileError(error) {'
+					. 'var statusDiv = document.getElementById("turnstile-status");'
+					. 'statusDiv.className = "baskerville-test-status error";'
+					. 'statusDiv.innerHTML = "<strong class=\"baskerville-test-error-text\">" + baskervilleAdmin.i18n.turnstileError + "</strong> " + error;'
+					. '}';
+				wp_add_inline_script('baskerville-admin', $turnstile_js, 'before');
+				?>
 			<?php endif; ?>
 		</div>
 		<?php
@@ -4620,297 +4069,13 @@ class Baskerville_Admin {
 				</div>
 			</div>
 
-			<?php if (is_array($timeseries)): ?>
-			<script>
-	// Wait for Chart.js to load
-	(function waitForChart() {
-		if (typeof Chart === 'undefined') {
-			setTimeout(waitForChart, 100);
-			return;
-		}
-
-		const timeseries = <?php echo wp_json_encode($timeseries); ?>;
-		const hours = <?php echo absint($hours); ?>;
-
-		// Check if we have data
-		if (!timeseries || timeseries.length === 0) {
-			document.getElementById('baskervilleHumAutoBar').parentElement.innerHTML = '<p class="baskerville-no-data"><?php echo esc_html__('No data available for the selected period', 'baskerville-ai-security'); ?></p>';
-			document.getElementById('baskervilleHumAutoPie').parentElement.innerHTML = '<p class="baskerville-no-data"><?php echo esc_html__('No data available', 'baskerville-ai-security'); ?></p>';
-			return;
-		}
-
-		// Format time for labels
-		function fmtHHMM(timeStr) {
-			const d = new Date(timeStr + 'Z');
-			const hh = String(d.getHours()).padStart(2, '0');
-			const mm = String(d.getMinutes()).padStart(2, '0');
-			return hh + ':' + mm;
-		}
-
-		// Prepare data
-		const labels = timeseries.map(i => fmtHHMM(i.time));
-		const humans = timeseries.map(i => i.human_count || 0);
-		const automated = timeseries.map(i =>
-			(i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.bot_count||0) + (i.verified_bot_count||0)
-		);
-
-		// Totals for pie chart
-		const totalHumans = humans.reduce((a,b) => a+b, 0);
-		const totalAutomated = automated.reduce((a,b) => a+b, 0);
-
-		// 1) Stacked Bar: Humans vs Automated
-		const barCtx = document.getElementById('baskervilleHumAutoBar').getContext('2d');
-		new Chart(barCtx, {
-			type: 'bar',
-			data: {
-				labels,
-				datasets: [
-					{
-						label: '<?php echo esc_js( __( 'Humans', 'baskerville-ai-security' ) ); ?>',
-						data: humans,
-						stack: 'visits',
-						backgroundColor: '#4CAF50'
-					},
-					{
-						label: '<?php echo esc_js( __( 'Automated', 'baskerville-ai-security' ) ); ?>',
-						data: automated,
-						stack: 'visits',
-						backgroundColor: '#FF9800'
-					}
-				]
-			},
-			options: {
-				responsive: true,
-				maintainAspectRatio: true,
-				interaction: { mode: 'index', intersect: false },
-				scales: {
-					x: { stacked: true, title: { display: true, text: '<?php echo esc_js( __( 'Time', 'baskerville-ai-security' ) ); ?>' } },
-					y: { stacked: true, beginAtZero: true, title: { display: true, text: '<?php echo esc_js( __( 'Visits', 'baskerville-ai-security' ) ); ?>' } }
-				},
-				plugins: {
-					title: { display: true, text: '<?php echo esc_js( __( 'Humans vs Automated — last', 'baskerville-ai-security' ) ); ?> ' + hours + 'h' },
-					tooltip: {
-						callbacks: {
-							afterBody(items) {
-								const idx = items[0].dataIndex;
-								const total = (humans[idx]||0) + (automated[idx]||0);
-								const hp = total ? Math.round((humans[idx]*100)/total) : 0;
-								const ap = total ? Math.round((automated[idx]*100)/total) : 0;
-								return [`<?php echo esc_js( __( 'Total:', 'baskerville-ai-security' ) ); ?> ${total}`, `<?php echo esc_js( __( 'Humans:', 'baskerville-ai-security' ) ); ?> ${humans[idx]} (${hp}%)`, `<?php echo esc_js( __( 'Automated:', 'baskerville-ai-security' ) ); ?> ${automated[idx]} (${ap}%)`];
-							}
-						}
-					}
-				}
-			}
-		});
-
-		// 2) Pie: Totals Humans vs Automated
-		const pieCtx = document.getElementById('baskervilleHumAutoPie').getContext('2d');
-		new Chart(pieCtx, {
-			type: 'pie',
-			data: {
-				labels: ['<?php echo esc_js( __( 'Humans', 'baskerville-ai-security' ) ); ?>', '<?php echo esc_js( __( 'Automated', 'baskerville-ai-security' ) ); ?>'],
-				datasets: [{
-					data: [totalHumans, totalAutomated],
-					backgroundColor: ['#4CAF50', '#FF9800']
-				}]
-			},
-			options: {
-				responsive: true,
-				maintainAspectRatio: true,
-				plugins: {
-					title: { display: true, text: '<?php echo esc_js( __( 'Traffic Distribution — last', 'baskerville-ai-security' ) ); ?> ' + hours + 'h' },
-					legend: { position: 'bottom' },
-					tooltip: {
-						callbacks: {
-							label(ctx) {
-								const v = ctx.parsed || 0;
-								const sum = totalHumans + totalAutomated || 1;
-								const pct = Math.round((v*100)/sum);
-								return ` ${ctx.label}: ${v} (${pct}%)`;
-							}
-						}
-					}
-				}
-			}
-		});
-
-		// Prepare bot types data
-		const badBots = timeseries.map(i => i.bad_bot_count || 0);
-		const aiBots = timeseries.map(i => i.ai_bot_count || 0);
-		const bots = timeseries.map(i => i.bot_count || 0);
-		const verifiedBots = timeseries.map(i => i.verified_bot_count || 0);
-
-		// Totals for bot types pie chart
-		const totalBadBots = badBots.reduce((a,b) => a+b, 0);
-		const totalAiBots = aiBots.reduce((a,b) => a+b, 0);
-		const totalBots = bots.reduce((a,b) => a+b, 0);
-		const totalVerifiedBots = verifiedBots.reduce((a,b) => a+b, 0);
-
-		// 3) Stacked Bar: Bot Types over time
-		const botTypesBarCtx = document.getElementById('baskervilleBotTypesBar').getContext('2d');
-		new Chart(botTypesBarCtx, {
-			type: 'bar',
-			data: {
-				labels,
-				datasets: [
-					{
-						label: '<?php echo esc_js( __( 'Bad Bots', 'baskerville-ai-security' ) ); ?>',
-						data: badBots,
-						stack: 'bots',
-						backgroundColor: '#F44336'
-					},
-					{
-						label: '<?php echo esc_js( __( 'AI Bots', 'baskerville-ai-security' ) ); ?>',
-						data: aiBots,
-						stack: 'bots',
-						backgroundColor: '#9C27B0'
-					},
-					{
-						label: '<?php echo esc_js( __( 'Other Bots', 'baskerville-ai-security' ) ); ?>',
-						data: bots,
-						stack: 'bots',
-						backgroundColor: '#FF9800'
-					},
-					{
-						label: '<?php echo esc_js( __( 'Verified Crawlers', 'baskerville-ai-security' ) ); ?>',
-						data: verifiedBots,
-						stack: 'bots',
-						backgroundColor: '#2196F3'
-					}
-				]
-			},
-			options: {
-				responsive: true,
-				maintainAspectRatio: true,
-				interaction: { mode: 'index', intersect: false },
-				scales: {
-					x: { stacked: true, title: { display: true, text: '<?php echo esc_js( __( 'Time', 'baskerville-ai-security' ) ); ?>' } },
-					y: { stacked: true, beginAtZero: true, title: { display: true, text: '<?php echo esc_js( __( 'Count', 'baskerville-ai-security' ) ); ?>' } }
-				},
-				plugins: {
-					title: { display: true, text: '<?php echo esc_js( __( 'Bot Types — last', 'baskerville-ai-security' ) ); ?> ' + hours + 'h' },
-					tooltip: {
-						callbacks: {
-							afterBody(items) {
-								const idx = items[0].dataIndex;
-								const total = (badBots[idx]||0) + (aiBots[idx]||0) + (bots[idx]||0) + (verifiedBots[idx]||0);
-								return [`<?php echo esc_js( __( 'Total bots:', 'baskerville-ai-security' ) ); ?> ${total}`];
-							}
-						}
-					}
-				}
-			}
-		});
-
-		// 4) Pie: Bot Types Distribution
-		const botTypesPieCtx = document.getElementById('baskervilleBotTypesPie').getContext('2d');
-		new Chart(botTypesPieCtx, {
-			type: 'pie',
-			data: {
-				labels: ['<?php echo esc_js( __( 'Bad Bots', 'baskerville-ai-security' ) ); ?>', '<?php echo esc_js( __( 'AI Bots', 'baskerville-ai-security' ) ); ?>', '<?php echo esc_js( __( 'Other Bots', 'baskerville-ai-security' ) ); ?>', '<?php echo esc_js( __( 'Verified Crawlers', 'baskerville-ai-security' ) ); ?>'],
-				datasets: [{
-					data: [totalBadBots, totalAiBots, totalBots, totalVerifiedBots],
-					backgroundColor: ['#F44336', '#9C27B0', '#FF9800', '#2196F3']
-				}]
-			},
-			options: {
-				responsive: true,
-				maintainAspectRatio: true,
-				plugins: {
-					title: { display: true, text: '<?php echo esc_js( __( 'Bot Types Distribution — last', 'baskerville-ai-security' ) ); ?> ' + hours + 'h' },
-					legend: { position: 'bottom' },
-					tooltip: {
-						callbacks: {
-							label(ctx) {
-								const v = ctx.parsed || 0;
-								const sum = totalBadBots + totalAiBots + totalBots + totalVerifiedBots || 1;
-								const pct = Math.round((v*100)/sum);
-								return ` ${ctx.label}: ${v} (${pct}%)`;
-							}
-						}
-					}
-				}
-			}
-		});
-
-		// 5) Turnstile Precision Chart
-		const turnstileData = <?php echo wp_json_encode($turnstile_data); ?>;
-
-		if (turnstileData && turnstileData.timeseries && turnstileData.timeseries.length > 0) {
-			const tsTimeseries = turnstileData.timeseries;
-			const tsLabels = tsTimeseries.map(i => fmtHHMM(i.time));
-			const tsRedirects = tsTimeseries.map(i => i.redirect_count || 0);
-			const tsPasses = tsTimeseries.map(i => i.pass_count || 0);
-			// Failed = redirects - passed (people who didn't complete the challenge)
-			const tsFails = tsTimeseries.map(i => Math.max(0, (i.redirect_count || 0) - (i.pass_count || 0)));
-			const tsPrecision = tsTimeseries.map(i => i.precision || 0);
-
-			// Bar chart: Passes vs Fails over time
-			const turnstileBarCtx = document.getElementById('baskervilleTurnstileBar').getContext('2d');
-			new Chart(turnstileBarCtx, {
-				type: 'bar',
-				data: {
-					labels: tsLabels,
-					datasets: [
-						{
-							label: '<?php echo esc_js(__('Passed (Humans)', 'baskerville-ai-security')); ?>',
-							data: tsPasses,
-							stack: 'challenges',
-							backgroundColor: '#4CAF50'
-						},
-						{
-							label: '<?php echo esc_js(__('Failed (Bots)', 'baskerville-ai-security')); ?>',
-							data: tsFails,
-							stack: 'challenges',
-							backgroundColor: '#E91E63'
-						}
-					]
-				},
-				options: {
-					responsive: true,
-					maintainAspectRatio: true,
-					interaction: { mode: 'index', intersect: false },
-					scales: {
-						x: { stacked: true, title: { display: true, text: '<?php echo esc_js(__('Time', 'baskerville-ai-security')); ?>' } },
-						y: { stacked: true, beginAtZero: true, title: { display: true, text: '<?php echo esc_js(__('Challenges', 'baskerville-ai-security')); ?>' } }
-					},
-					plugins: {
-						title: { display: true, text: '<?php echo esc_js(__('Turnstile Challenges', 'baskerville-ai-security')); ?> — last ' + hours + 'h' },
-						tooltip: {
-							callbacks: {
-								afterBody(items) {
-									const idx = items[0].dataIndex;
-									const redirects = tsRedirects[idx] || 0;
-									const passes = tsPasses[idx] || 0;
-									// Precision = % who did NOT pass
-									const precision = redirects > 0 ? Math.round(((redirects - passes) * 100) / redirects) : 0;
-									return ['<?php echo esc_js(__('Redirects:', 'baskerville-ai-security')); ?> ' + redirects, '<?php echo esc_js(__('Precision:', 'baskerville-ai-security')); ?> ' + precision + '%'];
-								}
-							}
-						}
-					}
-				}
-			});
-
-			// Display total precision value
-			document.getElementById('turnstilePrecisionValue').textContent = turnstileData.total_precision + '%';
-
-			// Display stats - Failed = redirects - passed
-			const totalFailed = Math.max(0, turnstileData.total_redirects - turnstileData.total_passes);
-			document.getElementById('turnstileStats').innerHTML =
-				'<strong><?php echo esc_js(__('Challenged:', 'baskerville-ai-security')); ?></strong> ' + turnstileData.total_redirects + '<br>' +
-				'<strong><?php echo esc_js(__('Passed:', 'baskerville-ai-security')); ?></strong> ' + turnstileData.total_passes + '<br>' +
-				'<strong><?php echo esc_js(__('Failed:', 'baskerville-ai-security')); ?></strong> ' + totalFailed;
-		} else {
-			// No turnstile data
-			document.getElementById('baskervilleTurnstileBar').parentElement.innerHTML = '<p class="baskerville-no-data"><?php echo esc_js(__('No Turnstile data available. Enable Turnstile challenge for borderline scores to see data here.', 'baskerville-ai-security')); ?></p>';
-			document.getElementById('turnstilePrecisionValue').textContent = '—';
-			document.getElementById('turnstileStats').innerHTML = '<em><?php echo esc_js(__('No challenges recorded', 'baskerville-ai-security')); ?></em>';
-		}
-	})();
-	</script>
-	<?php endif; ?>
+			<?php if (is_array($timeseries)):
+				wp_add_inline_script('baskerville-admin', 'window.baskervilleAnalyticsData = ' . wp_json_encode(array(
+					'timeseries' => $timeseries,
+					'turnstile'  => $turnstile_data,
+					'hours'      => absint($hours),
+				)) . ';', 'before');
+			endif; ?>
 	<?php
 		} catch (Exception $e) {
 			/* translators: %s is the error message */
@@ -4941,111 +4106,6 @@ class Baskerville_Admin {
 			</div>
 		</div>
 
-		<script>
-		jQuery(document).ready(function($) {
-			$('#baskerville-ip-lookup-btn').on('click', function() {
-				const ip = $('#baskerville-ip-lookup').val().trim();
-				if (!ip) {
-					alert('<?php echo esc_js(__('Please enter an IP address', 'baskerville-ai-security')); ?>');
-					return;
-				}
-
-				const $btn = $(this);
-				const $results = $('#baskerville-ip-results');
-
-				$btn.prop('disabled', true).text('<?php echo esc_js(__('Searching...', 'baskerville-ai-security')); ?>');
-				$results.html('<p class="baskerville-loading"><span class="dashicons dashicons-update baskerville-spinner"></span> <?php echo esc_js(__('Loading...', 'baskerville-ai-security')); ?></p>').show();
-
-				$.ajax({
-					url: ajaxurl,
-					type: 'POST',
-					data: {
-						action: 'baskerville_ip_lookup',
-						ip: ip,
-						_wpnonce: '<?php echo esc_js(wp_create_nonce('baskerville_ip_lookup')); ?>'
-					},
-					success: function(response) {
-						$btn.prop('disabled', false).text('<?php echo esc_js(__('Search', 'baskerville-ai-security')); ?>');
-
-						if (response.success) {
-							const data = response.data;
-							let html = '';
-
-							// Summary
-							html += '<div class="baskerville-ip-result-box ' + (data.is_banned ? 'banned' : 'allowed') + '">';
-							html += '<h3>' + (data.is_banned ? '🚫' : '✅') + ' <?php echo esc_js(__('IP:', 'baskerville-ai-security')); ?> ' + $('<div>').text(ip).html() + '</h3>';
-							html += '<p><strong><?php echo esc_js(__('Status:', 'baskerville-ai-security')); ?></strong> ' + (data.is_banned ? '<?php echo esc_js(__('Currently BANNED', 'baskerville-ai-security')); ?>' : '<?php echo esc_js(__('Not currently banned', 'baskerville-ai-security')); ?>') + '</p>';
-							if (data.country) {
-								html += '<p><strong><?php echo esc_js(__('Country:', 'baskerville-ai-security')); ?></strong> ' + $('<div>').text(data.country).html() + '</p>';
-							}
-							if (data.total_events > 0) {
-								html += '<p><strong><?php echo esc_js(__('Total events:', 'baskerville-ai-security')); ?></strong> ' + data.total_events + '</p>';
-								html += '<p><strong><?php echo esc_js(__('Block events:', 'baskerville-ai-security')); ?></strong> ' + data.block_events + '</p>';
-							}
-							html += '</div>';
-
-							// Events table
-							if (data.events && data.events.length > 0) {
-								html += '<h3><?php echo esc_js(__('Recent Events (last 100)', 'baskerville-ai-security')); ?></h3>';
-								html += '<div class="baskerville-events-scroll">';
-								html += '<table class="baskerville-events-table">';
-								html += '<thead><tr>';
-								html += '<th><?php echo esc_js(__('Time', 'baskerville-ai-security')); ?></th>';
-								html += '<th><?php echo esc_js(__('Classification', 'baskerville-ai-security')); ?></th>';
-								html += '<th><?php echo esc_js(__('Score', 'baskerville-ai-security')); ?></th>';
-								html += '<th><?php echo esc_js(__('Block Reason', 'baskerville-ai-security')); ?></th>';
-								html += '<th><?php echo esc_js(__('User Agent', 'baskerville-ai-security')); ?></th>';
-								html += '</tr></thead><tbody>';
-
-								data.events.forEach(function(event) {
-									const hasBlock = event.block_reason && event.block_reason !== '';
-									const rowClass = hasBlock ? 'class="baskerville-row-blocked"' : '';
-									html += '<tr ' + rowClass + '>';
-									html += '<td class="baskerville-nowrap">' + $('<div>').text(event.timestamp).html() + '</td>';
-									html += '<td><span class="baskerville-badge" style="background: ' + getClassColor(event.classification) + ';">' + $('<div>').text(event.classification || 'unknown').html() + '</span></td>';
-									html += '<td class="baskerville-score-cell ' + (event.score >= 50 ? 'high' : 'low') + '">' + (event.score || 0) + '</td>';
-									html += '<td class="' + (hasBlock ? 'baskerville-block-reason' : 'baskerville-text-muted') + '">' + $('<div>').text(event.block_reason || '-').html() + '</td>';
-									html += '<td class="ua-cell" title="' + $('<div>').text(event.user_agent || '').html() + '">' + $('<div>').text((event.user_agent || '').substring(0, 50) + (event.user_agent && event.user_agent.length > 50 ? '...' : '')).html() + '</td>';
-									html += '</tr>';
-								});
-
-								html += '</tbody></table></div>';
-							} else {
-								html += '<p class="baskerville-text-muted baskerville-italic"><?php echo esc_js(__('No events found for this IP address.', 'baskerville-ai-security')); ?></p>';
-							}
-
-							$results.html(html);
-						} else {
-							$results.html('<div class="notice notice-error"><p>' + (response.data || '<?php echo esc_js(__('Error searching for IP', 'baskerville-ai-security')); ?>') + '</p></div>');
-						}
-					},
-					error: function() {
-						$btn.prop('disabled', false).text('<?php echo esc_js(__('Search', 'baskerville-ai-security')); ?>');
-						$results.html('<div class="notice notice-error"><p><?php echo esc_js(__('Request failed. Please try again.', 'baskerville-ai-security')); ?></p></div>');
-					}
-				});
-			});
-
-			// Allow Enter key to trigger search
-			$('#baskerville-ip-lookup').on('keypress', function(e) {
-				if (e.which === 13) {
-					$('#baskerville-ip-lookup-btn').click();
-				}
-			});
-
-			function getClassColor(classification) {
-				const colors = {
-					'bad_bot': '#f44336',
-					'ai_bot': '#9c27b0',
-					'bot': '#ff9800',
-					'verified_bot': '#2196f3',
-					'human': '#4caf50',
-					'unknown': '#9e9e9e'
-				};
-				return colors[classification] || '#9e9e9e';
-			}
-		});
-		</script>
 		<?php
 	}
 
@@ -5374,41 +4434,6 @@ done
 			</div>
 		</div>
 
-		<script type="text/javascript">
-		jQuery(document).ready(function($) {
-			$('.benchmark-btn').on('click', function() {
-				var $btn = $(this);
-				var test = $btn.data('test');
-				var $result = $('.benchmark-result[data-test="' + test + '"]');
-
-				$btn.prop('disabled', true);
-				$result.removeClass('success error').addClass('loading').text('<?php esc_html_e('Running...', 'baskerville-ai-security'); ?>');
-
-				$.ajax({
-					url: ajaxurl,
-					type: 'POST',
-					data: {
-						action: 'baskerville_run_benchmark',
-						nonce: '<?php echo esc_js(wp_create_nonce('baskerville_benchmark')); ?>',
-						test: test
-					},
-					success: function(response) {
-						if (response.success) {
-							$result.removeClass('loading').addClass('success').html(response.data.message);
-						} else {
-							$result.removeClass('loading').addClass('error').text(response.data.message || '<?php esc_html_e('Error', 'baskerville-ai-security'); ?>');
-						}
-					},
-					error: function() {
-						$result.removeClass('loading').addClass('error').text('<?php esc_html_e('AJAX error', 'baskerville-ai-security'); ?>');
-					},
-					complete: function() {
-						$btn.prop('disabled', false);
-					}
-				});
-			});
-		});
-		</script>
 		<?php
 	}
 

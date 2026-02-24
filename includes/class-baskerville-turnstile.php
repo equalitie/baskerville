@@ -405,76 +405,9 @@ class Baskerville_Turnstile {
 			<?php
 			wp_register_script( 'cloudflare-turnstile-challenge', 'https://challenges.cloudflare.com/turnstile/v0/api.js', array(), '1.0', false ); // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Cloudflare Turnstile API must be loaded from Cloudflare servers
 			wp_print_scripts( 'cloudflare-turnstile-challenge' );
+			wp_register_style( 'baskerville-challenge', plugins_url( 'assets/css/challenge.css', BASKERVILLE_PLUGIN_FILE ), array(), BASKERVILLE_VERSION );
+			wp_print_styles( 'baskerville-challenge' );
 			?>
-			<style>
-				* { box-sizing: border-box; margin: 0; padding: 0; }
-				body {
-					font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-					background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-					min-height: 100vh;
-					display: flex;
-					align-items: center;
-					justify-content: center;
-					padding: 20px;
-				}
-				.challenge-container {
-					background: white;
-					border-radius: 12px;
-					box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-					padding: 40px;
-					max-width: 420px;
-					width: 100%;
-					text-align: center;
-				}
-				.challenge-icon {
-					width: 64px;
-					height: 64px;
-					background: #f0f0f0;
-					border-radius: 50%;
-					display: flex;
-					align-items: center;
-					justify-content: center;
-					margin: 0 auto 20px;
-					font-size: 32px;
-				}
-				h1 {
-					color: #333;
-					font-size: 24px;
-					margin-bottom: 10px;
-				}
-				p {
-					color: #666;
-					font-size: 14px;
-					line-height: 1.6;
-					margin-bottom: 25px;
-				}
-				.turnstile-wrapper {
-					display: flex;
-					justify-content: center;
-					margin: 20px 0;
-				}
-				.site-name {
-					color: #999;
-					font-size: 12px;
-					margin-top: 20px;
-				}
-				.error-message {
-					background: #fee;
-					border: 1px solid #fcc;
-					color: #c00;
-					padding: 10px;
-					border-radius: 6px;
-					margin-bottom: 15px;
-					display: none;
-				}
-				.loading {
-					color: #999;
-					font-size: 14px;
-				}
-				.cf-turnstile iframe {
-					width: 100% !important;
-				}
-			</style>
 		</head>
 		<body>
 			<div class="challenge-container">
@@ -501,38 +434,39 @@ class Baskerville_Turnstile {
 				<p class="site-name"><?php echo esc_html($site_name); ?></p>
 			</div>
 
-			<script>
-				var RETURN_URL = <?php echo wp_json_encode(esc_url($return_url)); ?>;
-				function onTurnstileSuccess(token) {
-					var form = document.getElementById('challenge-form');
-					if (!form) return;
-					// fetch() instead of form.submit() - CDN edge won't
-					// intercept XHR with managed challenge (only page nav)
-					var formData = new FormData(form);
-					fetch(form.action, {
-						method: 'POST',
-						body: formData,
-						credentials: 'same-origin',
-						headers: { 'X-Requested-With': 'XMLHttpRequest' }
-					})
-					.then(function(res) {
-						if (res.ok) {
-							window.location.replace(RETURN_URL);
-						} else {
-							document.getElementById('error-message').textContent = 'Verification failed.';
-							document.getElementById('error-message').style.display = 'block';
-						}
-					})
-					.catch(function() { form.submit(); });
-				}
-
-				function onTurnstileError(error) {
-					console.error('Turnstile error:', error);
-					var errorDiv = document.getElementById('error-message');
-					errorDiv.textContent = '<?php echo esc_js(__('Verification failed. Please refresh and try again.', 'baskerville-ai-security')); ?>';
-					errorDiv.style.display = 'block';
-				}
-			</script>
+			<?php
+			$challenge_js = 'var RETURN_URL = ' . wp_json_encode( esc_url( $return_url ) ) . ';'
+				. 'var ERROR_MSG = ' . wp_json_encode( __( 'Verification failed. Please refresh and try again.', 'baskerville-ai-security' ) ) . ';'
+				. 'function onTurnstileSuccess(token) {'
+				. '  var form = document.getElementById("challenge-form");'
+				. '  if (!form) return;'
+				. '  var formData = new FormData(form);'
+				. '  fetch(form.action, {'
+				. '    method: "POST",'
+				. '    body: formData,'
+				. '    credentials: "same-origin",'
+				. '    headers: { "X-Requested-With": "XMLHttpRequest" }'
+				. '  })'
+				. '  .then(function(res) {'
+				. '    if (res.ok) {'
+				. '      window.location.replace(RETURN_URL);'
+				. '    } else {'
+				. '      document.getElementById("error-message").textContent = "Verification failed.";'
+				. '      document.getElementById("error-message").style.display = "block";'
+				. '    }'
+				. '  })'
+				. '  .catch(function() { form.submit(); });'
+				. '}'
+				. 'function onTurnstileError(error) {'
+				. '  console.error("Turnstile error:", error);'
+				. '  var errorDiv = document.getElementById("error-message");'
+				. '  errorDiv.textContent = ERROR_MSG;'
+				. '  errorDiv.style.display = "block";'
+				. '}';
+			wp_register_script( 'baskerville-challenge-handler', false, array( 'cloudflare-turnstile-challenge' ), BASKERVILLE_VERSION, true );
+			wp_add_inline_script( 'baskerville-challenge-handler', $challenge_js );
+			wp_print_scripts( 'baskerville-challenge-handler' );
+			?>
 		</body>
 		</html>
 		<?php
@@ -608,10 +542,22 @@ class Baskerville_Turnstile {
 		}
 
 		$safe_url = esc_url($return_url);
-		echo '<!DOCTYPE html><html><head><meta charset="utf-8">';
-		echo '<meta http-equiv="refresh" content="0;url=' . esc_attr($safe_url) . '">';
-		echo '</head><body><script>window.location.replace(' . wp_json_encode($safe_url) . ');</script>';
-		echo '</body></html>';
+		?>
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<meta charset="utf-8">
+			<meta http-equiv="refresh" content="0;url=<?php echo esc_attr( $safe_url ); ?>">
+		</head>
+		<body>
+			<?php
+			wp_register_script( 'baskerville-redirect', false, array(), BASKERVILLE_VERSION, false );
+			wp_add_inline_script( 'baskerville-redirect', 'window.location.replace(' . wp_json_encode( $safe_url ) . ');' );
+			wp_print_scripts( 'baskerville-redirect' );
+			?>
+		</body>
+		</html>
+		<?php
 		exit;
 	}
 

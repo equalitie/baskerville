@@ -195,18 +195,10 @@ class Baskerville_Honeypot {
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<meta name="robots" content="noindex, nofollow">
 	<title><?php esc_html_e( 'AI Training Data Repository', 'baskerville-ai-security' ); ?></title>
-	<style>
-		body {
-			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-			max-width: 800px;
-			margin: 50px auto;
-			padding: 20px;
-			line-height: 1.6;
-			color: #333;
-		}
-		h1 { color: #2271b1; }
-		p { margin: 20px 0; }
-	</style>
+	<?php
+	wp_register_style( 'baskerville-honeypot', plugins_url( 'assets/css/honeypot.css', BASKERVILLE_PLUGIN_FILE ), array(), BASKERVILLE_VERSION );
+	wp_print_styles( 'baskerville-honeypot' );
+	?>
 </head>
 <body>
 	<h1><?php esc_html_e( 'AI Training Data Repository', 'baskerville-ai-security' ); ?></h1>

@@ -45,18 +45,10 @@ class Baskerville_Core {
             array(),
             BASKERVILLE_VERSION
         );
-
-        wp_enqueue_script(
-            'baskerville-admin-script',
-            BASKERVILLE_PLUGIN_URL . 'assets/js/admin.js',
-            array('jquery'),
-            BASKERVILLE_VERSION,
-            true
-        );
     }
 
     public function init() {
-        add_action('wp_footer', [$this, 'add_fingerprinting_script']);
+        add_action('wp_enqueue_scripts', [$this, 'add_fingerprinting_script']);
     }
 
     /* ==== helpers: base64url & ip-key ==== */
@@ -772,8 +764,12 @@ class Baskerville_Core {
     public function add_fingerprinting_script() {
         $rest_url = esc_url_raw( rest_url('baskerville/v1/fp') );
         $wp_nonce = wp_create_nonce('wp_rest');
+
+        $handle = 'baskerville-fp';
+        wp_register_script( $handle, false, array(), BASKERVILLE_VERSION, array( 'in_footer' => true ) );
+
+        ob_start();
         ?>
-        <script>
         (function () {
           const REST_URL = '<?php echo esc_js($rest_url); ?>';
           const WP_NONCE = '<?php echo esc_js($wp_nonce); ?>';
@@ -993,6 +989,7 @@ class Baskerville_Core {
                             `;
                           }
                         }
+                        markFpSent();
                       } else {
                         const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
                         navigator.sendBeacon?.(REST_URL, blob);
@@ -1014,7 +1011,10 @@ class Baskerville_Core {
             }
           })();
         })();
-        </script>
         <?php
+        $js = ob_get_clean();
+
+        wp_add_inline_script( $handle, $js );
+        wp_enqueue_script( $handle );
     }
 }
