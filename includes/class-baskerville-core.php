@@ -734,10 +734,12 @@ class Baskerville_Core {
     }
 
     public function handle_widget_toggle() {
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
         if (!isset($_GET['baskerville_debug'])) return;
 
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
+        // Only allow administrators with a valid nonce to toggle debug widgets
+        if (!current_user_can('manage_options')) return;
+        if (!isset($_GET['_bsk_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_bsk_nonce'])), 'baskerville_debug_toggle')) return;
+
         $v = strtolower(sanitize_text_field(wp_unslash($_GET['baskerville_debug'])));
         $enable  = in_array($v, ['1','on','true','yes'], true);
         $disable = in_array($v, ['0','off','false','no','clear'], true);
@@ -762,10 +764,8 @@ class Baskerville_Core {
             unset($_COOKIE['baskerville_show_widgets']);
         }
 
-        // Hint to cache not to cache this output
+        // Prevent caching of this specific response only when debug toggle is active
         if (!headers_sent()) {
-            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Known cache-bypass constant used by caching plugins.
-            if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
             nocache_headers();
         }
     }
