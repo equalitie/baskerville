@@ -3,7 +3,7 @@ Contributors: equalitie
 Tags: security, captcha, spam protection, firewall, anti-bot
 Requires at least: 6.2
 Tested up to: 6.9
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 Requires PHP: 7.4
 License: GPL v3
 
@@ -125,6 +125,18 @@ Statistics are automatically deleted after the retention period you configure (d
 * Consider adding disclosure to your site's privacy policy
 
 == Changelog ==
+
+= 1.0.2 =
+* Replaced hardcoded Ajax/REST paths with wp_doing_ajax(), REST_REQUEST and rest_get_url_prefix().
+* Replaced direct require_once of class-pclzip.php with WordPress unzip_file() API.
+* Replaced WP_CONTENT_DIR usage with wp_upload_dir() for GeoIP database paths.
+* Changed REST /fp permission_callback to __return_true (intentionally public endpoint).
+* Made nonce validation mandatory in REST fingerprint handler (fail-early on missing nonce).
+* Added nonce and current_user_can('manage_options') checks to debug widget toggle.
+* Removed DONOTCACHEPAGE global constant definition.
+* Removed unsanitized $_COOKIE processing from debug headers; now checks only specific plugin cookies.
+* Documented MaxMind GitHub library downloads in readme External Services section.
+* Removed external URL from test User-Agent strings.
 
 = 1.0.1 =
 * Added support for the Deflect GeoIP database.
