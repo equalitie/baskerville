@@ -357,13 +357,15 @@ class Baskerville_Turnstile {
 			$bid = isset($_COOKIE['baskerville_id']) ? sanitize_text_field(wp_unslash($_COOKIE['baskerville_id'])) : 'none';
 			header('X-Bsk-BId: ' . substr($bid, 0, 30));
 
-			// Show ALL cookie names (CDN may strip baskerville_pass before it reaches origin)
-			$cookie_names = array_keys($_COOKIE);
-			header('X-Bsk-AllCookies: ' . implode(',', $cookie_names));
-
-			// Show secret prefix for consistency check
-			$secret = get_option('baskerville_cookie_secret', 'default_secret');
-			header('X-Bsk-SecretPfx: ' . substr($secret, 0, 6));
+			// Check presence of specific plugin cookies (CDN may strip baskerville_pass before it reaches origin)
+			$bsk_cookies = array('baskerville_pass', 'baskerville_id', 'baskerville_show_widgets');
+			$found = array();
+			foreach ($bsk_cookies as $name) {
+				if (isset($_COOKIE[$name])) {
+					$found[] = $name;
+				}
+			}
+			header('X-Bsk-PluginCookies: ' . implode(',', $found));
 		}
 		nocache_headers();
 
