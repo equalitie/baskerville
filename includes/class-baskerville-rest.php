@@ -80,7 +80,7 @@ class Baskerville_REST {
             return $rate_limit_response;
         }
         $nonce = $request->get_header('x-wp-nonce');
-        if ($nonce && !wp_verify_nonce($nonce, 'wp_rest')) {
+        if (!$nonce || !wp_verify_nonce($nonce, 'wp_rest')) {
             return new WP_REST_Response(['error' => 'invalid_nonce'], 403);
         }
 
