@@ -2882,9 +2882,9 @@ class Baskerville_Admin {
 							</td>
 						</tr>
 						<tr>
-							<td><?php esc_html_e( 'WP_CONTENT_DIR:', 'baskerville-ai-security' ); ?></td>
+							<td><?php esc_html_e( 'Uploads Base Dir:', 'baskerville-ai-security' ); ?></td>
 							<td>
-								<code><?php echo esc_html($results['maxmind_debug']['wp_content_dir']); ?></code>
+								<code><?php echo esc_html($results['maxmind_debug']['uploads_basedir']); ?></code>
 							</td>
 						</tr>
 						<tr>
