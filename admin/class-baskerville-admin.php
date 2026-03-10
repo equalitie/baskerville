@@ -1227,7 +1227,7 @@ class Baskerville_Admin {
 		}
 
 		// Check MaxMind first
-		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
 		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
 		if (file_exists($db_path) && file_exists($autoload_path)) {
 			return 'MaxMind GeoLite2';
@@ -1270,7 +1270,7 @@ class Baskerville_Admin {
 		}
 
 		// Check MaxMind first (priority over Deflect)
-		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
 		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
 
 		if (file_exists($db_path) && file_exists($autoload_path)) {
@@ -2882,9 +2882,9 @@ class Baskerville_Admin {
 							</td>
 						</tr>
 						<tr>
-							<td><?php esc_html_e( 'WP_CONTENT_DIR:', 'baskerville-ai-security' ); ?></td>
+							<td><?php esc_html_e( 'Uploads Base Dir:', 'baskerville-ai-security' ); ?></td>
 							<td>
-								<code><?php echo esc_html($results['maxmind_debug']['wp_content_dir']); ?></code>
+								<code><?php echo esc_html($results['maxmind_debug']['uploads_basedir']); ?></code>
 							</td>
 						</tr>
 						<tr>
@@ -4751,7 +4751,7 @@ done
 			'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
 			'curl/7.68.0',
 			'python-requests/2.28.0',
-			'Googlebot/2.1 (+http://www.google.com/bot.html)',
+			'Googlebot/2.1',
 			'facebookexternalhit/1.1',
 		);
 

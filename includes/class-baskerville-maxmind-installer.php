@@ -33,20 +33,9 @@ class Baskerville_MaxMind_Installer {
 	public function install() {
 		$errors = array();
 
-		// Check if ZipArchive or PclZip is available
-		if (!class_exists('ZipArchive') && !class_exists('PclZip')) {
-			// Try to load PclZip from WordPress
-			if (file_exists(ABSPATH . 'wp-admin/includes/class-pclzip.php')) {
-				require_once ABSPATH . 'wp-admin/includes/class-pclzip.php';
-			}
-		}
-
-		if (!class_exists('ZipArchive') && !class_exists('PclZip')) {
-			return array(
-				'success' => false,
-				'message' => esc_html__('Neither ZipArchive nor PclZip available. Please contact your hosting provider.', 'baskerville-ai-security'),
-				'errors' => array( esc_html__( 'No zip handler available', 'baskerville-ai-security' ) )
-			);
+		// Load WordPress filesystem API for unzip_file()
+		if (!function_exists('unzip_file')) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
 		}
 
 		// Check if we can write to plugin directory
@@ -200,46 +189,24 @@ class Baskerville_MaxMind_Installer {
 	}
 
 	/**
-	 * Extract zip file using ZipArchive or PclZip
+	 * Extract zip file using WordPress unzip_file() API
 	 */
 	private function extract_zip($zip_file, $extract_to) {
 		if (!is_dir($extract_to)) {
 			wp_mkdir_p($extract_to);
 		}
 
-		// Try ZipArchive first
-		if (class_exists('ZipArchive')) {
-			$zip = new ZipArchive();
-			if ($zip->open($zip_file) === true) {
-				$zip->extractTo($extract_to);
-				$zip->close();
-				return array('success' => true);
-			}
-		}
+		WP_Filesystem();
+		$result = unzip_file($zip_file, $extract_to);
 
-		// Fallback to PclZip (included with WordPress)
-		if (!class_exists('PclZip')) {
-			if (file_exists(ABSPATH . 'wp-admin/includes/class-pclzip.php')) {
-				require_once ABSPATH . 'wp-admin/includes/class-pclzip.php';
-			}
-		}
-
-		if (class_exists('PclZip')) {
-			$archive = new PclZip($zip_file);
-			$result = $archive->extract(PCLZIP_OPT_PATH, $extract_to);
-			if ($result !== 0) {
-				return array('success' => true);
-			}
+		if (is_wp_error($result)) {
 			return array(
 				'success' => false,
-				'message' => esc_html__('PclZip extraction failed: ', 'baskerville-ai-security') . $archive->errorInfo(true)
+				'message' => esc_html__('Zip extraction failed: ', 'baskerville-ai-security') . $result->get_error_message()
 			);
 		}
 
-		return array(
-			'success' => false,
-			'message' => esc_html__('No zip extraction method available.', 'baskerville-ai-security')
-		);
+		return array('success' => true);
 	}
 
 	/**
@@ -300,11 +267,9 @@ class Baskerville_MaxMind_Installer {
 		}
 
 		global $wp_filesystem;
-		if (!function_exists('WP_Filesystem')) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
+		if (empty($wp_filesystem)) {
+			WP_Filesystem();
 		}
-
-		WP_Filesystem();
 
 		$wp_filesystem->rmdir($dir, true);
 	}
