@@ -1227,7 +1227,7 @@ class Baskerville_Admin {
 		}
 
 		// Check MaxMind first
-		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
 		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
 		if (file_exists($db_path) && file_exists($autoload_path)) {
 			return 'MaxMind GeoLite2';
@@ -1270,7 +1270,7 @@ class Baskerville_Admin {
 		}
 
 		// Check MaxMind first (priority over Deflect)
-		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
 		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
 
 		if (file_exists($db_path) && file_exists($autoload_path)) {

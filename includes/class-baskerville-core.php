@@ -589,7 +589,7 @@ class Baskerville_Core {
      * @return string|null
      */
     private function lookup_country_maxmind($ip) {
-        $db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+        $db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
         if (!file_exists($db_path)) return null;
 
         if (!class_exists('GeoIp2\Database\Reader')) {
@@ -695,12 +695,13 @@ class Baskerville_Core {
         }
 
         // Test MaxMind directly with detailed diagnostics
-        $db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+        $upload_dir = wp_upload_dir();
+        $db_path = $upload_dir['basedir'] . '/geoip/GeoLite2-Country.mmdb';
         $results['maxmind_debug']['expected_path'] = $db_path;
         $results['maxmind_debug']['file_exists'] = file_exists($db_path);
         $results['maxmind_debug']['is_readable'] = is_readable($db_path);
         $results['maxmind_debug']['file_size'] = file_exists($db_path) ? filesize($db_path) : 0;
-        $results['maxmind_debug']['wp_content_dir'] = WP_CONTENT_DIR;
+        $results['maxmind_debug']['uploads_basedir'] = $upload_dir['basedir'];
 
         // Check if vendor autoload exists
         $autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
