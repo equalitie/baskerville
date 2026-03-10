@@ -21,7 +21,7 @@ class Baskerville_REST {
         register_rest_route('baskerville/v1', '/fp', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [$this, 'handle_fp'],
-            'permission_callback' => function () { return true; }, // public endpoint; nonce checked inside
+            'permission_callback' => '__return_true', // Intentionally public: collects browser fingerprints from all visitors
         ]);
     }
 
