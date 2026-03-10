@@ -418,7 +418,6 @@ class Baskerville_Core {
         // Trackback detection: trackback.php or wp-trackback.php
         if (strpos($uri, 'trackback') !== false) return false;
 
-        if (strpos($uri, '/wp-json/') === 0) return false;
         $accept = sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? ''));
         if ($accept && !preg_match('~text/html|application/xhtml\+xml|\*/\*~i', $accept)) return false;
         $method = sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? 'GET'));
@@ -449,15 +448,24 @@ class Baskerville_Core {
             }
         }
 
+        // Check WordPress-specific API indicators
+        if (wp_doing_ajax()) {
+            return true;
+        }
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            return true;
+        }
+
         // Check URL patterns
         $uri = strtolower(sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '')));
 
+        $rest_prefix = '/' . strtolower(rest_get_url_prefix()) . '/';
         $api_paths = [
             '/api/', '/v1/', '/v2/', '/v3/', '/rest/', '/graphql/', '/gql/',
             '/auth/', '/oauth/', '/token/', '/webhook/', '/webhooks/',
             '/callback/', '/payment/', '/checkout/', '/orders/',
             '/system/', '/monitoring/', '/health/', '/status/',
-            '/wp-json/', '/wp-admin/admin-ajax.php'
+            $rest_prefix,
         ];
 
         foreach ($api_paths as $path) {
