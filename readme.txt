@@ -84,11 +84,19 @@ Turnstile is only loaded when you enable it in plugin settings and provide your 
 
 When you use the one-click GeoIP database installer, the plugin downloads the GeoLite2-Country database from MaxMind:
 
-* Download URL: https://download.maxmind.com/
-* Data sent: Your MaxMind license key (required for download)
+* Database download URL: https://download.maxmind.com/
+* Data sent: Your MaxMind license key (required for database download)
 * Purpose: Determine visitor country for geo-blocking features
 * Privacy Policy: https://www.maxmind.com/en/privacy-policy
 * Terms of Service: https://www.maxmind.com/en/geolite2/eula
+
+The installer also downloads the MaxMind PHP libraries from GitHub:
+
+* GeoIP2 PHP API: https://github.com/maxmind/GeoIP2-php/archive/refs/tags/v2.13.0.zip
+* MaxMind DB Reader: https://github.com/maxmind/MaxMind-DB-Reader-php/archive/refs/tags/v1.11.1.zip
+* These are open-source libraries used to read the local GeoIP database. No visitor data is sent to GitHub.
+* GitHub Terms of Service: https://docs.github.com/en/site-policy/github-terms/github-terms-of-service
+* GitHub Privacy Statement: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
 
 The database is stored locally on your server. No visitor data is sent to MaxMind during lookups.
 

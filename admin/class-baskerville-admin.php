@@ -4751,7 +4751,7 @@ done
 			'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
 			'curl/7.68.0',
 			'python-requests/2.28.0',
-			'Googlebot/2.1 (+http://www.google.com/bot.html)',
+			'Googlebot/2.1',
 			'facebookexternalhit/1.1',
 		);
 
