@@ -408,6 +408,9 @@ class Baskerville_Core {
         if (defined('REST_REQUEST') && REST_REQUEST) return false;
         if (wp_doing_ajax()) return false;
 
+        $method = sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+        if (!in_array($method, ['GET','HEAD'], true)) return false;
+
         // Check for feed and trackback using REQUEST_URI (works before query parsing)
         $uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
 
@@ -418,10 +421,20 @@ class Baskerville_Core {
         // Trackback detection: trackback.php or wp-trackback.php
         if (strpos($uri, 'trackback') !== false) return false;
 
+        // Static assets: sub-resource requests (JS, CSS, images, fonts) should NOT
+        // count as page views. Without this, a single page load can increment burst
+        // counters 20+ times when CDN cache is cold (all sub-resources hit origin).
+        $path = wp_parse_url($uri, PHP_URL_PATH) ?: '';
+        if (preg_match('~\.(?:css|js|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|otf|map|webmanifest)$~i', $path)) {
+            return false;
+        }
+        // WordPress asset directories — even without extension (e.g. versioned bundles)
+        if (preg_match('~^/wp-(?:content|includes)/~', $path)) {
+            return false;
+        }
+
         $accept = sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? ''));
         if ($accept && !preg_match('~text/html|application/xhtml\+xml|\*/\*~i', $accept)) return false;
-        $method = sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? 'GET'));
-        if (!in_array($method, ['GET','HEAD'], true)) return false;
         return true;
     }
 
