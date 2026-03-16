@@ -204,6 +204,11 @@ class Baskerville_Firewall
 			return;
 		}
 
+		// Skip firewall for /eq402 test page — it has its own access control (paywall 402)
+		if (strpos($request_uri, '/eq402') === 0 || strpos($request_uri, 'baskerville_eq402') !== false) {
+			return;
+		}
+
 		// Check if this is an API request (REST, GraphQL, webhooks, etc.)
 		$is_api = $this->core->is_api_request();
 		if ($is_api) {

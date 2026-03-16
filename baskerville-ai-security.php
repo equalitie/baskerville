@@ -31,6 +31,11 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-honeypot.php'
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-storage.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-grant.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-verifier.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-paywall.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-rest.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
 // Add custom cron intervals
@@ -74,6 +79,23 @@ add_action('plugins_loaded', function () {
 	// REST API
 	$rest = new Baskerville_REST($core, $stats, $aiua);
 	add_action('rest_api_init', [$rest, 'register_routes']);
+
+	// Pay-per-crawl (x402)
+	$pay_storage = new Baskerville_Pay_Storage($core);
+	$pay_grant   = new Baskerville_Pay_Grant($core);
+	$paywall     = new Baskerville_Paywall($core, $pay_storage, $pay_grant, $stats, $aiua);
+	add_action('template_redirect', [$paywall, 'check_paywall'], 1);
+	$paywall->init_eq402();
+
+	$pay_rest = new Baskerville_Pay_REST($core, $pay_storage, $pay_grant);
+	add_action('rest_api_init', [$pay_rest, 'register_routes']);
+
+	// Cleanup expired pay challenges (daily cron)
+	add_action('baskerville_cleanup_pay_challenges', function () use ($pay_storage) {
+		$options = get_option('baskerville_settings', []);
+		$ttl = (int) ($options['pay_challenge_ttl'] ?? 3600);
+		$pay_storage->cleanup_expired($ttl);
+	});
 
 	// Honeypot for AI bot detection
 	$honeypot = new Baskerville_Honeypot($core, $stats, $aiua);
