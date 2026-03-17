@@ -287,6 +287,15 @@ class Baskerville_Admin {
 
 		add_submenu_page(
 			'baskerville-settings',
+			esc_html__('Pay-Per-Crawl', 'baskerville-ai-security'),
+			esc_html__('Pay-Per-Crawl', 'baskerville-ai-security'),
+			'manage_options',
+			'baskerville-pay-per-crawl',
+			array($this, 'admin_page_pay_per_crawl')
+		);
+
+		add_submenu_page(
+			'baskerville-settings',
 			esc_html__('Analytics', 'baskerville-ai-security'),
 			esc_html__('Analytics', 'baskerville-ai-security'),
 			'manage_options',
@@ -332,6 +341,11 @@ class Baskerville_Admin {
 
 	public function admin_page_turnstile() {
 		$_GET['tab'] = 'turnstile';
+		$this->admin_page();
+	}
+
+	public function admin_page_pay_per_crawl() {
+		$_GET['tab'] = 'pay-per-crawl';
 		$this->admin_page();
 	}
 
@@ -767,6 +781,120 @@ class Baskerville_Admin {
 			$sanitized['turnstile_borderline_max'] = max(0, min(100, (int) $input['turnstile_borderline_max']));
 		} else {
 			$sanitized['turnstile_borderline_max'] = isset($existing['turnstile_borderline_max']) ? $existing['turnstile_borderline_max'] : 70;
+		}
+
+		// Pay-per-crawl settings
+		$is_pay_tab = isset($input['pay_per_crawl_tab']);
+		$sanitized['pay_enabled'] = isset($input['pay_enabled'])
+			? (bool) $input['pay_enabled']
+			: ($is_pay_tab ? false : (isset($existing['pay_enabled']) ? $existing['pay_enabled'] : false));
+
+		if (isset($input['pay_mode'])) {
+			$mode = sanitize_text_field($input['pay_mode']);
+			$sanitized['pay_mode'] = in_array($mode, ['off', 'test', 'observe', 'enforce'], true) ? $mode : 'off';
+		} elseif (isset($existing['pay_mode'])) {
+			$sanitized['pay_mode'] = $existing['pay_mode'];
+		}
+
+		if (isset($input['pay_ai_threshold'])) {
+			$sanitized['pay_ai_threshold'] = max(0, min(100, (int) $input['pay_ai_threshold']));
+		} elseif (isset($existing['pay_ai_threshold'])) {
+			$sanitized['pay_ai_threshold'] = $existing['pay_ai_threshold'];
+		}
+
+		if (isset($input['pay_protected_paths'])) {
+			$sanitized['pay_protected_paths'] = sanitize_textarea_field($input['pay_protected_paths']);
+		} elseif (isset($existing['pay_protected_paths'])) {
+			$sanitized['pay_protected_paths'] = $existing['pay_protected_paths'];
+		}
+
+		if (isset($input['pay_wallet_address'])) {
+			$wallet = sanitize_text_field($input['pay_wallet_address']);
+			// Basic 0x address validation
+			if ($wallet && !preg_match('/^0x[0-9a-fA-F]{40}$/', $wallet)) {
+				$wallet = '';
+			}
+			$sanitized['pay_wallet_address'] = $wallet;
+		} elseif (isset($existing['pay_wallet_address'])) {
+			$sanitized['pay_wallet_address'] = $existing['pay_wallet_address'];
+		}
+
+		if (isset($input['pay_price'])) {
+			$price = sanitize_text_field($input['pay_price']);
+			if (!is_numeric($price) || (float) $price < 0) {
+				$price = '0.10';
+			}
+			$sanitized['pay_price'] = $price;
+		} elseif (isset($existing['pay_price'])) {
+			$sanitized['pay_price'] = $existing['pay_price'];
+		}
+
+		if (isset($input['pay_currency'])) {
+			$sanitized['pay_currency'] = sanitize_text_field($input['pay_currency']);
+		} elseif (isset($existing['pay_currency'])) {
+			$sanitized['pay_currency'] = $existing['pay_currency'];
+		}
+
+		if (isset($input['pay_network'])) {
+			$sanitized['pay_network'] = sanitize_text_field($input['pay_network']);
+		} elseif (isset($existing['pay_network'])) {
+			$sanitized['pay_network'] = $existing['pay_network'];
+		}
+
+		if (isset($input['pay_asset_type'])) {
+			$type = sanitize_text_field($input['pay_asset_type']);
+			$sanitized['pay_asset_type'] = in_array($type, ['native', 'erc20'], true) ? $type : 'erc20';
+		} elseif (isset($existing['pay_asset_type'])) {
+			$sanitized['pay_asset_type'] = $existing['pay_asset_type'];
+		}
+
+		if (isset($input['pay_token_contract'])) {
+			$sanitized['pay_token_contract'] = sanitize_text_field($input['pay_token_contract']);
+		} elseif (isset($existing['pay_token_contract'])) {
+			$sanitized['pay_token_contract'] = $existing['pay_token_contract'];
+		}
+
+		if (isset($input['pay_token_decimals'])) {
+			$sanitized['pay_token_decimals'] = max(0, min(18, (int) $input['pay_token_decimals']));
+		} elseif (isset($existing['pay_token_decimals'])) {
+			$sanitized['pay_token_decimals'] = $existing['pay_token_decimals'];
+		}
+
+		if (isset($input['pay_verifier_type'])) {
+			$vtype = sanitize_text_field($input['pay_verifier_type']);
+			$sanitized['pay_verifier_type'] = in_array($vtype, ['stub', 'polling'], true) ? $vtype : 'stub';
+		} elseif (isset($existing['pay_verifier_type'])) {
+			$sanitized['pay_verifier_type'] = $existing['pay_verifier_type'];
+		}
+
+		if (isset($input['pay_provider'])) {
+			$sanitized['pay_provider'] = sanitize_text_field($input['pay_provider']);
+		} elseif (isset($existing['pay_provider'])) {
+			$sanitized['pay_provider'] = $existing['pay_provider'];
+		}
+
+		if (isset($input['pay_api_key'])) {
+			$sanitized['pay_api_key'] = sanitize_text_field($input['pay_api_key']);
+		} elseif (isset($existing['pay_api_key'])) {
+			$sanitized['pay_api_key'] = $existing['pay_api_key'];
+		}
+
+		if (isset($input['pay_min_confirmations'])) {
+			$sanitized['pay_min_confirmations'] = max(1, min(100, (int) $input['pay_min_confirmations']));
+		} elseif (isset($existing['pay_min_confirmations'])) {
+			$sanitized['pay_min_confirmations'] = $existing['pay_min_confirmations'];
+		}
+
+		if (isset($input['pay_challenge_ttl'])) {
+			$sanitized['pay_challenge_ttl'] = max(300, min(86400, (int) $input['pay_challenge_ttl']));
+		} elseif (isset($existing['pay_challenge_ttl'])) {
+			$sanitized['pay_challenge_ttl'] = $existing['pay_challenge_ttl'];
+		}
+
+		if (isset($input['pay_grant_ttl'])) {
+			$sanitized['pay_grant_ttl'] = max(60, min(86400, (int) $input['pay_grant_ttl']));
+		} elseif (isset($existing['pay_grant_ttl'])) {
+			$sanitized['pay_grant_ttl'] = $existing['pay_grant_ttl'];
 		}
 
 		// Flush rewrite rules when settings are saved (for honeypot route)
@@ -3133,6 +3261,7 @@ class Baskerville_Admin {
 			$burst_protection_enabled = isset($options['burst_protection_enabled']) ? $options['burst_protection_enabled'] : true;
 			$api_rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
 			$turnstile_enabled = isset($options['turnstile_enabled']) ? $options['turnstile_enabled'] : false;
+			$pay_enabled = !empty($options['pay_enabled']);
 			?>
 			<h2 class="nav-tab-wrapper">
 				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-settings')); ?>"
@@ -3162,6 +3291,10 @@ class Baskerville_Admin {
 				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-turnstile')); ?>"
 				   class="nav-tab <?php echo $turnstile_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'turnstile' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Turnstile', 'baskerville-ai-security'); ?>
+				</a>
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-pay-per-crawl')); ?>"
+				   class="nav-tab <?php echo $pay_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'pay-per-crawl' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('Pay-Per-Crawl', 'baskerville-ai-security'); ?>
 				</a>
 				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-analytics')); ?>"
 				   class="nav-tab <?php echo $current_tab === 'analytics' ? 'nav-tab-active' : ''; ?>">
@@ -3566,6 +3699,16 @@ class Baskerville_Admin {
 						</form>
 						<?php
 						$this->render_turnstile_tab();
+						?>
+						<form method="post" action="options.php">
+						<?php
+						break;
+
+					case 'pay-per-crawl':
+						?>
+						</form>
+						<?php
+						$this->render_pay_per_crawl_tab();
 						?>
 						<form method="post" action="options.php">
 						<?php
@@ -4903,6 +5046,212 @@ done
 			<?php esc_html_e('When enabled, IPs accessing the honeypot will be banned for 24 hours.', 'baskerville-ai-security'); ?><br>
 			<?php esc_html_e('When disabled, the visit is still logged as AI bot.', 'baskerville-ai-security'); ?>
 		</p>
+		<?php
+	}
+
+	private function render_pay_per_crawl_tab(): void {
+		$options = get_option('baskerville_settings', []);
+		$pay_enabled       = !empty($options['pay_enabled']);
+		$pay_mode          = $options['pay_mode'] ?? 'off';
+		$pay_ai_threshold  = (int) ($options['pay_ai_threshold'] ?? 70);
+		$pay_paths         = $options['pay_protected_paths'] ?? '/*';
+		$pay_wallet        = $options['pay_wallet_address'] ?? '';
+		$pay_price         = $options['pay_price'] ?? '0.10';
+		$pay_currency      = $options['pay_currency'] ?? 'USDC';
+		$pay_network       = $options['pay_network'] ?? 'polygon';
+		$pay_asset_type    = $options['pay_asset_type'] ?? 'erc20';
+		$pay_token_contract = $options['pay_token_contract'] ?? '';
+		$pay_token_decimals = (int) ($options['pay_token_decimals'] ?? 6);
+		$pay_verifier_type = $options['pay_verifier_type'] ?? 'stub';
+		$pay_provider      = $options['pay_provider'] ?? '';
+		$pay_api_key       = $options['pay_api_key'] ?? '';
+		$pay_min_conf      = (int) ($options['pay_min_confirmations'] ?? 5);
+		$pay_challenge_ttl = (int) ($options['pay_challenge_ttl'] ?? 3600);
+		$pay_grant_ttl     = (int) ($options['pay_grant_ttl'] ?? 900);
+		$master_enabled    = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+		?>
+		<form method="post" action="options.php">
+		<?php settings_fields('baskerville_settings_group'); ?>
+		<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="<?php echo $master_enabled ? '1' : '0'; ?>">
+		<input type="hidden" name="baskerville_settings[pay_per_crawl_tab]" value="1">
+
+		<table class="form-table" role="presentation">
+			<tr>
+				<td colspan="2">
+					<div class="baskerville-toggle-label">
+						<span class="baskerville-toggle-text">
+							<?php esc_html_e('Pay-Per-Crawl', 'baskerville-ai-security'); ?>
+						</span>
+						<input type="hidden" name="baskerville_settings[pay_enabled]" value="0">
+						<label class="baskerville-toggle-switch">
+							<input type="checkbox" name="baskerville_settings[pay_enabled]" value="1" <?php checked($pay_enabled, true); ?> />
+							<span class="baskerville-toggle-slider-regular"></span>
+						</label>
+						<span class="baskerville-toggle-text">
+							<?php echo $pay_enabled ? esc_html__('ON', 'baskerville-ai-security') : esc_html__('OFF', 'baskerville-ai-security'); ?>
+						</span>
+					</div>
+				</td>
+			</tr>
+		</table>
+
+		<h3><?php esc_html_e('Policy', 'baskerville-ai-security'); ?></h3>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php esc_html_e('Mode', 'baskerville-ai-security'); ?></th>
+				<td>
+					<fieldset>
+						<label class="baskerville-label-block">
+							<input type="radio" name="baskerville_settings[pay_mode]" value="off" <?php checked($pay_mode, 'off'); ?>>
+							<?php esc_html_e('Off', 'baskerville-ai-security'); ?>
+						</label>
+						<label class="baskerville-label-block">
+							<input type="radio" name="baskerville_settings[pay_mode]" value="test" <?php checked($pay_mode, 'test'); ?>>
+							<?php esc_html_e('Test (/eq402 only, no production impact)', 'baskerville-ai-security'); ?>
+						</label>
+						<label class="baskerville-label-block">
+							<input type="radio" name="baskerville_settings[pay_mode]" value="observe" <?php checked($pay_mode, 'observe'); ?>>
+							<?php esc_html_e('Observe (log only, add header)', 'baskerville-ai-security'); ?>
+						</label>
+						<label class="baskerville-label-block">
+							<input type="radio" name="baskerville_settings[pay_mode]" value="enforce" <?php checked($pay_mode, 'enforce'); ?>>
+							<?php esc_html_e('Enforce (return 402)', 'baskerville-ai-security'); ?>
+						</label>
+					</fieldset>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('AI Score Threshold', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="number" name="baskerville_settings[pay_ai_threshold]" value="<?php echo esc_attr($pay_ai_threshold); ?>" min="0" max="100" class="baskerville-input-md">
+					<p class="description"><?php esc_html_e('Requests with ai_score >= this value will require payment (0-100).', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Protected Paths', 'baskerville-ai-security'); ?></th>
+				<td>
+					<textarea name="baskerville_settings[pay_protected_paths]" rows="4" cols="50" class="large-text code"><?php echo esc_textarea($pay_paths); ?></textarea>
+					<p class="description"><?php esc_html_e('One glob pattern per line (e.g. /* or /articles/*). fnmatch() syntax.', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+		</table>
+
+		<h3><?php esc_html_e('Payment', 'baskerville-ai-security'); ?></h3>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php esc_html_e('Wallet Address', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="text" name="baskerville_settings[pay_wallet_address]" value="<?php echo esc_attr($pay_wallet); ?>" class="regular-text code" placeholder="0x...">
+					<p class="description"><?php esc_html_e('Publisher wallet that receives payments (0x-prefixed, 40 hex chars).', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Price', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="text" name="baskerville_settings[pay_price]" value="<?php echo esc_attr($pay_price); ?>" class="baskerville-input-md" placeholder="0.10">
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Currency', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="text" name="baskerville_settings[pay_currency]" value="<?php echo esc_attr($pay_currency); ?>" class="baskerville-input-md" placeholder="USDC">
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Network', 'baskerville-ai-security'); ?></th>
+				<td>
+					<select name="baskerville_settings[pay_network]">
+						<option value="polygon" <?php selected($pay_network, 'polygon'); ?>>Polygon</option>
+						<option value="polygon-amoy" <?php selected($pay_network, 'polygon-amoy'); ?>>Polygon Amoy (Testnet)</option>
+						<option value="ethereum" <?php selected($pay_network, 'ethereum'); ?>>Ethereum</option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Asset Type', 'baskerville-ai-security'); ?></th>
+				<td>
+					<select name="baskerville_settings[pay_asset_type]">
+						<option value="erc20" <?php selected($pay_asset_type, 'erc20'); ?>>ERC-20 Token</option>
+						<option value="native" <?php selected($pay_asset_type, 'native'); ?>>Native (MATIC/ETH)</option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Token Contract', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="text" name="baskerville_settings[pay_token_contract]" value="<?php echo esc_attr($pay_token_contract); ?>" class="regular-text code" placeholder="0x...">
+					<p class="description"><?php esc_html_e('ERC-20 token contract address (only for erc20 asset type).', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Token Decimals', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="number" name="baskerville_settings[pay_token_decimals]" value="<?php echo esc_attr($pay_token_decimals); ?>" min="0" max="18" class="baskerville-input-md">
+					<p class="description"><?php esc_html_e('Token decimal places (e.g. 6 for USDC, 18 for most ERC-20).', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+		</table>
+
+		<h3><?php esc_html_e('Verifier', 'baskerville-ai-security'); ?></h3>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php esc_html_e('Verifier Type', 'baskerville-ai-security'); ?></th>
+				<td>
+					<select name="baskerville_settings[pay_verifier_type]">
+						<option value="stub" <?php selected($pay_verifier_type, 'stub'); ?>><?php esc_html_e('Stub (demo, accepts demo_ tx hashes)', 'baskerville-ai-security'); ?></option>
+						<option value="polling" <?php selected($pay_verifier_type, 'polling'); ?>><?php esc_html_e('Polling (real RPC verification)', 'baskerville-ai-security'); ?></option>
+					</select>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('RPC Provider', 'baskerville-ai-security'); ?></th>
+				<td>
+					<select name="baskerville_settings[pay_provider]">
+						<option value="" <?php selected($pay_provider, ''); ?>><?php esc_html_e('Default (public RPC)', 'baskerville-ai-security'); ?></option>
+						<option value="alchemy" <?php selected($pay_provider, 'alchemy'); ?>>Alchemy</option>
+						<option value="infura" <?php selected($pay_provider, 'infura'); ?>>Infura</option>
+						<option value="ankr" <?php selected($pay_provider, 'ankr'); ?>>Ankr</option>
+					</select>
+					<p class="description"><?php esc_html_e('Only used when verifier type is "polling".', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('API Key', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="text" name="baskerville_settings[pay_api_key]" value="<?php echo esc_attr($pay_api_key); ?>" class="regular-text code">
+					<p class="description"><?php esc_html_e('API key for the selected RPC provider (optional for public RPCs).', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Min Confirmations', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="number" name="baskerville_settings[pay_min_confirmations]" value="<?php echo esc_attr($pay_min_conf); ?>" min="1" max="100" class="baskerville-input-md">
+				</td>
+			</tr>
+		</table>
+
+		<h3><?php esc_html_e('Timing', 'baskerville-ai-security'); ?></h3>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th scope="row"><?php esc_html_e('Challenge TTL', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="number" name="baskerville_settings[pay_challenge_ttl]" value="<?php echo esc_attr($pay_challenge_ttl); ?>" min="300" max="86400" class="baskerville-input-md">
+					<span><?php esc_html_e('seconds', 'baskerville-ai-security'); ?></span>
+					<p class="description"><?php esc_html_e('How long a payment challenge remains valid (300-86400).', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+			<tr>
+				<th scope="row"><?php esc_html_e('Grant TTL', 'baskerville-ai-security'); ?></th>
+				<td>
+					<input type="number" name="baskerville_settings[pay_grant_ttl]" value="<?php echo esc_attr($pay_grant_ttl); ?>" min="60" max="86400" class="baskerville-input-md">
+					<span><?php esc_html_e('seconds', 'baskerville-ai-security'); ?></span>
+					<p class="description"><?php esc_html_e('How long an access grant is valid after payment (60-86400).', 'baskerville-ai-security'); ?></p>
+				</td>
+			</tr>
+		</table>
+
+		<?php submit_button(); ?>
+		</form>
 		<?php
 	}
 
