@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: wpsec
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: server
+    spec:
+      #avoid the pod that shouldn't be assigned anything
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - worker-node-6a9f33
+      
+      volumes:
+      - name: wpsec-kafka-certs
+        secret:
+          secretName: wpsec-kafka-certs
+
+      containers:
+      - name: server
+        image: mbr618/wpsec-server:v0.1.0
+        command: ["./server"]
+        args: []
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8089
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8089
+          initialDelaySeconds: 10
+          timeoutSeconds: 10
+          periodSeconds: 30 
+          successThreshold: 1
+          failureThreshold: 3
+
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8089
+          initialDelaySeconds: 60
+          timeoutSeconds: 5
+          periodSeconds: 20
+          failureThreshold: 5
+
+        env:
+
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: STRIPE_SECRET_KEY
+
+        - name: SERVER_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: SERVER_ADDRESS
+
+        - name: PRODUCER_TOPIC_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: PRODUCER_TOPIC_NAME
+
+        - name: SKIP_INSECURE_VERIFY
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: SKIP_INSECURE_VERIFY
+
+        - name: ALLOWED_ORIGINS_COMMA_SEPARATED_VALUES
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: ALLOWED_ORIGINS_COMMA_SEPARATED_VALUES
+
+        - name: CA_CERT_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: CA_CERT_PATH
+
+        - name: CERT_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: CERT_PATH
+
+        - name: KEY_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: server-config
+              key: KEY_PATH
+
+
+        volumeMounts:
+        - name: wpsec-kafka-certs 
+          mountPath: "/etc/kafka/certs"
+          readOnly: true

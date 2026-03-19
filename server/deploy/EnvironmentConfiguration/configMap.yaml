@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: server-config
+  namespace: wpsec
+data:
+  STRIPE_SECRET_KEY: "TODO"
+
+  SERVER_ADDRESS: ":8089"
+  #PRODUCER_TOPIC_NAME: "clearinghouse_logs"
+  PRODUCER_TOPIC_NAME: "clearinghouse_logs_plugin"
+  SKIP_INSECURE_VERIFY: "true"
+  ALLOWED_ORIGINS_COMMA_SEPARATED_VALUES: "http://localhost:3000,http://localhost:8082,http://localhost:8085,http://localhost:8080,https://worker.baskerville.ai,https://baskerville.ai,https://site.baskerville.cc,https://deflect.baskerville.cc,https://proxy.baskerville.cc,https://worker.baskerville.cc,https://baskerville.cc"
+  CA_CERT_PATH: "/etc/kafka/certs/ca.crt"
+  CERT_PATH: "/etc/kafka/certs/tls.crt"
+  KEY_PATH: "/etc/kafka/certs/tls.key"
+  

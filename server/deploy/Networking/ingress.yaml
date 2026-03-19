@@ -1,0 +1,38 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: server-ingress
+  namespace: wpsec
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    cert-manager.io/issuer: "server-letsencrypt"  #Let's Encrypt HTTPS
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Port $server_port;
+spec:
+  ingressClassName: nginx
+  tls:  #enable HTTPS
+  - hosts:
+    - greything.com
+    secretName: server-tls-secret 
+  rules:
+  - host: greything.com
+    http:
+      paths:
+      - path: /wpsec(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: server-service  #the Service resource fronting the server
+            port:
+              number: 8089 #the port server is listening on
+
+#note: the reason we rewrite-target: /$2 and assign the paths: path key as //wpsec(/|$)(.*) is that 
+#when a request is made to https://greything.com/wpsec, it will be rewritten to /, essentially stripping 
+#the //wpsec prefix before forwarding the request to our server-service. 
+
+#The (/|$)(.*) part captures everything after "//wpsec" and forwards it as captured by $2 (since $1 would be either "/" or the end of the line, and $2 is 
+#everything after //wpsec). 
