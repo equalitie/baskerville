@@ -1,0 +1,14 @@
+.DS_Store
+wpsec-waf-plugin.zip
+
+#certs for kafka topic antons pred pipeline
+configs/certs/
+# k8s secrets
+*secret*.yaml
+*secret*.yml
+secrets.yaml
+secrets.yml
+deploy/**/certs-secret.yaml
+deploy/**/*secret*.yaml
+deploy/**/*secret*.yml
+deploy/**/*secret*.yml
