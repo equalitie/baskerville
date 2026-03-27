@@ -512,47 +512,49 @@ class Baskerville_Core {
 
     /**
      * Get country code for IP address
-     * Priority: 1) NGINX GeoIP, 2) Cloudflare, 3) MaxMind, 4) Deflect GeoIP
+     * Priority: 1) NGINX GeoIP headers, 2) Cloudflare, 3) Deflect CDN, 4) MaxMind (cached), 5) Deflect GeoIP DB (cached)
+     * Header-based sources are checked BEFORE cache — they are per-request and always current.
+     * Cache is only used for expensive database lookups.
      * @param string $ip
      * @return string|null Two-letter country code (e.g., 'US', 'RU') or null if unknown
      */
     public function get_country_by_ip($ip) {
         if (empty($ip)) return null;
 
-        // Check cache first (7 days TTL)
+        // 1. Check request-level headers first — these are always authoritative and need no caching.
+        // NGINX GeoIP variables
+        if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
+        }
+        if (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
+        }
+        if (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
+        }
+        // Cloudflare
+        if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
+        }
+        // Deflect CDN (X-Deflect-Country-Code header)
+        if (!empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])));
+        }
+
+        // 2. No header available — fall back to database lookup with 7-day cache.
         $cache_key = "country:{$ip}";
         $cached = $this->fc_get($cache_key);
         if ($cached !== null) {
             return $cached === 'XX' ? null : $cached;
         }
 
-        $country = null;
+        $country = $this->lookup_country_maxmind($ip);
 
-        // 1. Check NGINX GeoIP variables (fastest)
-        if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
-        }
-        elseif (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
-        }
-        elseif (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
-        }
-        // 2. Check Cloudflare header
-        elseif (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
-        }
-        // 3. Try MaxMind local database first
-        else {
-            $country = $this->lookup_country_maxmind($ip);
-
-            // 4. Fallback to Deflect GeoIP (free, no registration required)
-            if ($country === null) {
-                $country = $this->lookup_country_deflect($ip);
-            }
+        if ($country === null) {
+            $country = $this->lookup_country_deflect($ip);
         }
 
-        // Normalize and validate
+        // Validate
         if ($country && strlen($country) === 2 && ctype_alpha($country)) {
             $country = strtoupper($country);
         } else {
@@ -641,6 +643,7 @@ class Baskerville_Core {
             'nginx_geoip_legacy' => null,
             'nginx_custom_header' => null,
             'cloudflare' => null,
+            'deflect_cdn' => null,
             'deflect' => null,
             'deflect_debug' => array(),
             'maxmind' => null,
@@ -666,12 +669,18 @@ class Baskerville_Core {
             if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
                 $results['cloudflare'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
             }
+
+            // Check Deflect CDN header
+            if (!empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) {
+                $results['deflect_cdn'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])));
+            }
         } else {
             // For non-current IPs, note that server-side sources only work for current IP
             $results['nginx_geoip2'] = 'N/A (only for current IP)';
             $results['nginx_geoip_legacy'] = 'N/A (only for current IP)';
             $results['nginx_custom_header'] = 'N/A (only for current IP)';
             $results['cloudflare'] = 'N/A (only for current IP)';
+            $results['deflect_cdn'] = 'N/A (only for current IP)';
         }
 
         // Test Deflect GeoIP
