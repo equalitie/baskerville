@@ -69,7 +69,7 @@ class Baskerville_Deflect_GeoIP {
 		if (!$force && (time() - $last_check) < 3600) {
 			return array(
 				'success' => true,
-				'message' => __('Update check skipped (recently checked)', 'baskerville'),
+				'message' => __('Update check skipped (recently checked)', 'baskerville-ai-security'),
 				'updated' => false,
 			);
 		}
@@ -83,7 +83,7 @@ class Baskerville_Deflect_GeoIP {
 				'success' => false,
 				'message' => sprintf(
 					/* translators: %s: error message */
-					__('Failed to check for updates: %s', 'baskerville'),
+					__('Failed to check for updates: %s', 'baskerville-ai-security'),
 					$response->get_error_message()
 				),
 			);
@@ -95,7 +95,7 @@ class Baskerville_Deflect_GeoIP {
 		if (!$latest || empty($latest['version']) || empty($latest['artifacts'][0])) {
 			return array(
 				'success' => false,
-				'message' => __('Invalid response from update server', 'baskerville'),
+				'message' => __('Invalid response from update server', 'baskerville-ai-security'),
 			);
 		}
 
@@ -113,7 +113,7 @@ class Baskerville_Deflect_GeoIP {
 				'success' => true,
 				'message' => sprintf(
 					/* translators: %s: version string */
-					__('Already up to date (version %s)', 'baskerville'),
+					__('Already up to date (version %s)', 'baskerville-ai-security'),
 					$version
 				),
 				'updated' => false,
@@ -129,7 +129,7 @@ class Baskerville_Deflect_GeoIP {
 				'success' => false,
 				'message' => sprintf(
 					/* translators: %s: error message */
-					__('Failed to download database: %s', 'baskerville'),
+					__('Failed to download database: %s', 'baskerville-ai-security'),
 					$response->get_error_message()
 				),
 			);
@@ -141,7 +141,7 @@ class Baskerville_Deflect_GeoIP {
 		if ($sha256 && hash('sha256', $gz_data) !== $sha256) {
 			return array(
 				'success' => false,
-				'message' => __('SHA256 checksum mismatch - download may be corrupted', 'baskerville'),
+				'message' => __('SHA256 checksum mismatch - download may be corrupted', 'baskerville-ai-security'),
 			);
 		}
 
@@ -150,7 +150,7 @@ class Baskerville_Deflect_GeoIP {
 		if ($csv_data === false) {
 			return array(
 				'success' => false,
-				'message' => __('Failed to decompress database', 'baskerville'),
+				'message' => __('Failed to decompress database', 'baskerville-ai-security'),
 			);
 		}
 
@@ -172,7 +172,7 @@ class Baskerville_Deflect_GeoIP {
 			'success' => true,
 			'message' => sprintf(
 				/* translators: %s: version string */
-				__('Database updated to version %s', 'baskerville'),
+				__('Database updated to version %s', 'baskerville-ai-security'),
 				$version
 			),
 			'updated' => true,
@@ -234,7 +234,7 @@ class Baskerville_Deflect_GeoIP {
 					'success' => false,
 					'message' => sprintf(
 						/* translators: %s: directory path */
-						__('Failed to create directory: %s', 'baskerville'),
+						__('Failed to create directory: %s', 'baskerville-ai-security'),
 						$db_dir
 					),
 				);
@@ -247,7 +247,7 @@ class Baskerville_Deflect_GeoIP {
 				'success' => false,
 				'message' => sprintf(
 					/* translators: %s: directory path */
-					__('Directory not writable: %s. Please check permissions (chmod 755).', 'baskerville'),
+					__('Directory not writable: %s. Please check permissions (chmod 755).', 'baskerville-ai-security'),
 					$db_dir
 				),
 			);
@@ -265,6 +265,7 @@ class Baskerville_Deflect_GeoIP {
 			),
 		);
 
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export -- var_export used to generate a PHP data file, not for debugging.
 		$php_content = "<?php\n// Deflect GeoIP Database - Auto-generated\n// Version: {$version}\n// DO NOT EDIT\nreturn " . var_export($data, true) . ";\n";
 
 		// Try to write using WordPress filesystem
@@ -282,8 +283,8 @@ class Baskerville_Deflect_GeoIP {
 				return array(
 					'success' => false,
 					'message' => sprintf(
-						/* translators: %s: file path */
-						__('Failed to save database to: %s. Error: %s', 'baskerville'),
+						/* translators: %1$s: file path, %2$s: error message */
+						__('Failed to save database to: %1$s. Error: %2$s', 'baskerville-ai-security'),
 						$db_path,
 						$error_info['message'] ?? 'Unknown error'
 					),
@@ -300,7 +301,7 @@ class Baskerville_Deflect_GeoIP {
 						'success' => false,
 						'message' => sprintf(
 							/* translators: %s: file path */
-							__('Failed to save database to: %s. Check file permissions.', 'baskerville'),
+							__('Failed to save database to: %s. Check file permissions.', 'baskerville-ai-security'),
 							$db_path
 						),
 					);
@@ -312,7 +313,7 @@ class Baskerville_Deflect_GeoIP {
 			'success' => true,
 			'message' => sprintf(
 				/* translators: 1: IPv4 count, 2: IPv6 count */
-				__('Parsed %1$d IPv4 and %2$d IPv6 prefixes', 'baskerville'),
+				__('Parsed %1$d IPv4 and %2$d IPv6 prefixes', 'baskerville-ai-security'),
 				count($ipv4_sorted),
 				count($ipv6_sorted)
 			),
