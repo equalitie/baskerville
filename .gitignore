@@ -12,3 +12,6 @@ deploy/**/certs-secret.yaml
 deploy/**/*secret*.yaml
 deploy/**/*secret*.yml
 deploy/**/*secret*.yml
+captcha/*
+assets/*
+server/*
