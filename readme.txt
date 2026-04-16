@@ -7,7 +7,7 @@ Stable tag: 1.0.3
 Requires PHP: 7.4
 License: GPL v3
 
-Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
+Advanced WordPress security plugin with AI bot detection, GeoIP access control, and CAPTCHA challenge support (Baskerville Gatekeeper or Cloudflare Turnstile).
 
 == Description ==
 
@@ -17,18 +17,19 @@ Baskerville is a comprehensive WordPress security plugin that protects your site
 
 * **AI Bot Detection** - Intelligent classification of bots vs. humans with configurable score thresholds
 * **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist modes)
-* **Cloudflare Turnstile** - CAPTCHA challenge for borderline bot scores with precision analytics
+* **Baskerville Gatekeeper** - Our own state-space puzzle CAPTCHA (optional, requires no API keys)
+* **Cloudflare Turnstile** - Cloudflare's CAPTCHA as an alternative challenge option
 * **Browser Fingerprinting** - Advanced client-side fingerprinting (Canvas, WebGL, Audio)
 * **Honeypot Detection** - Hidden links to catch AI crawlers
-* **Real-Time Analytics** - Live feed, traffic statistics, and Turnstile precision metrics
+* **Real-Time Analytics** - Live feed, traffic statistics, and challenge precision metrics
 * **Under Attack Mode** - Emergency mode to challenge all visitors during attacks
 * **IP Whitelist** - Bypass firewall for trusted IPs
-* **Form Protection** - Protect login, registration, and comment forms with Turnstile
+* **Form Protection** - Protect login, registration, and comment forms
 
 **Bot Score System:**
 
 * 0-39: Likely human (allowed)
-* 40-70: Borderline (optional Turnstile challenge)
+* 40-70: Borderline (optional challenge — Gatekeeper or Turnstile)
 * 71-100: Likely bot (blocked)
 
 **Performance:**
@@ -43,7 +44,9 @@ Baskerville is a comprehensive WordPress security plugin that protects your site
 2. Activate the plugin through the 'Plugins' menu
 3. Go to Settings > Baskerville to configure
 4. Install MaxMind GeoLite2 database for GeoIP features (one-click installer in Settings)
-5. (Optional) Configure Cloudflare Turnstile keys for CAPTCHA challenges
+5. (Optional) Go to Settings > Baskerville > Challenge to enable a CAPTCHA provider:
+   * **Baskerville Gatekeeper** — no API keys needed, uses captcha.openports.dev
+   * **Cloudflare Turnstile** — requires a free Cloudflare account and API keys
 
 == Frequently Asked Questions ==
 
@@ -51,13 +54,21 @@ Baskerville is a comprehensive WordPress security plugin that protects your site
 
 Go to Settings > Baskerville > GeoIP, install the MaxMind database, then configure your country whitelist or blacklist.
 
-= How does Turnstile work? =
+= What is Baskerville Gatekeeper? =
 
-Visitors with borderline bot scores (default 40-70) are shown a Cloudflare Turnstile challenge. If they pass, they're allowed through. This catches bots while minimizing friction for real users.
+Baskerville Gatekeeper is our own CAPTCHA system based on a state-space puzzle. It requires no API keys or third-party account. When enabled, it contacts captcha.openports.dev to generate and verify challenges. The challenge is shown inline on the original page — no redirect required.
+
+= How does Cloudflare Turnstile work? =
+
+Visitors with borderline bot scores (default 40-70) are shown a Cloudflare Turnstile challenge. If they pass, they're allowed through. Requires a free Cloudflare account and API keys configured in Settings > Baskerville > Challenge.
+
+= Which challenge provider should I choose? =
+
+Both providers catch borderline bots effectively. Choose Baskerville Gatekeeper if you do not want to create a Cloudflare account. Choose Cloudflare Turnstile if you prefer a well-known provider or already use Cloudflare. Both are disabled by default — no external services are contacted until you enable a provider.
 
 = What is Under Attack Mode? =
 
-Emergency mode that shows Turnstile challenge to ALL visitors. Use this when your site is under active attack.
+Emergency mode that shows a challenge to ALL visitors. Use this when your site is under active attack.
 
 = Will this slow down my site? =
 
@@ -65,7 +76,20 @@ With page caching enabled, overhead is near zero. Without caching, expect ~30-50
 
 == External Services ==
 
-This plugin connects to the following third-party services:
+This plugin does **not** contact any external services by default. External connections are only made when you explicitly enable a challenge provider in Settings > Baskerville > Challenge.
+
+= Baskerville Gatekeeper =
+
+When Baskerville Gatekeeper is selected as the challenge provider, the plugin communicates with the Gatekeeper service to generate and verify puzzle challenges:
+
+* Service URL: https://captcha.openports.dev
+* Endpoints used: /captcha/generate, /captcha/verify, /captcha/refresh, /token/verify
+* Data sent: visitor IP address, user agent, request URI, challenge solution cookies
+* Purpose: Generate unique state-space puzzle challenges and verify visitor solutions
+* Privacy Policy: https://openports.dev/privacy
+* Terms of Service: https://openports.dev/terms
+
+This service is operated by eQualitie (https://equalitie.org). It is contacted only when a visitor is determined to require a challenge (borderline bot score or Under Attack Mode). The service is never contacted during normal browsing by visitors who are not being challenged.
 
 = Cloudflare Turnstile =
 
@@ -78,7 +102,7 @@ When Turnstile is enabled, the plugin loads JavaScript from Cloudflare's servers
 * Privacy Policy: https://www.cloudflare.com/privacypolicy/
 * Terms of Service: https://www.cloudflare.com/website-terms/
 
-Turnstile is only loaded when you enable it in plugin settings and provide your Cloudflare API keys.
+Turnstile is only loaded when you select it as the challenge provider in Settings > Baskerville > Challenge and provide your Cloudflare API keys.
 
 = MaxMind GeoIP Database =
 
@@ -120,11 +144,22 @@ Statistics are automatically deleted after the retention period you configure (d
 = GDPR Compliance =
 
 * All data is stored locally on your server
-* No visitor data is shared with third parties (except Cloudflare when Turnstile verification occurs)
+* No visitor data is shared with third parties unless you enable a challenge provider:
+  * Baskerville Gatekeeper shares IP, user agent, and request URI with captcha.openports.dev (eQualitie)
+  * Cloudflare Turnstile shares IP and challenge token with Cloudflare
 * Data retention is configurable
-* Consider adding disclosure to your site's privacy policy
+* Consider adding disclosure to your site's privacy policy if you enable a challenge provider
 
 == Changelog ==
+
+= 1.0.4 =
+* Added Baskerville Gatekeeper as a built-in CAPTCHA option (state-space puzzle, no API keys required, powered by captcha.openports.dev).
+* Added Challenge provider selector in Settings > Baskerville > Challenge (Gatekeeper, Cloudflare Turnstile, or Disabled).
+* Challenge provider is disabled by default — no external services contacted unless explicitly enabled.
+* Documented Baskerville Gatekeeper external service in readme per WordPress.org guidelines.
+
+= 1.0.3 =
+* See previous changelog entries.
 
 = 1.0.2 =
 * Replaced hardcoded Ajax/REST paths with wp_doing_ajax(), REST_REQUEST and rest_get_url_prefix().

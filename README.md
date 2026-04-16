@@ -1,13 +1,14 @@
 # Baskerville WordPress Plugin
 
-A WordPress security plugin with GeoIP-based access control, AI-powered bot detection, Cloudflare Turnstile integration, and advanced fingerprinting.
+A WordPress security plugin with GeoIP-based access control, AI-powered bot detection, CAPTCHA challenge support, and advanced fingerprinting.
 
 ## Features
 
 - 🛡️ **AI-Powered Bot Detection** - Classification of bots vs. humans with configurable thresholds
 - 🌍 **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist)
 - 🔍 **Browser Fingerprinting** - Advanced client-side fingerprinting with Canvas, WebGL, Audio
-- ☁️ **Cloudflare Turnstile** - CAPTCHA challenge for borderline bot scores with precision analytics
+- 🧩 **Baskerville Gatekeeper** - Built-in state-space puzzle CAPTCHA (no API keys, powered by captcha.openports.dev)
+- ☁️ **Cloudflare Turnstile** - Alternative CAPTCHA via Cloudflare (requires API keys)
 - 🍯 **Honeypot Detection** - Hidden links to catch AI crawlers
 - 📊 **Traffic Analytics** - Real-time statistics, live feed, and Turnstile precision metrics
 - ⚡ **Performance Optimized** - Minimal overhead (~1ms with page cache, ~30-50ms without)
@@ -72,28 +73,39 @@ zip -r9 baskerville.zip baskerville/ \
 - Development environments
 - Monitoring services
 
-### Cloudflare Turnstile
+### Challenge Provider
 
-Turnstile provides a CAPTCHA-like challenge for visitors with borderline bot scores, allowing legitimate users to prove they're human instead of being blocked outright.
+Go to **Settings → Baskerville → Challenge** to select and configure the challenge system shown to borderline visitors.
 
-1. Go to **Settings → Baskerville → Turnstile**
-2. Get your Site Key and Secret Key from [Cloudflare Dashboard](https://dash.cloudflare.com/?to=/:account/turnstile)
-3. Enter the keys and enable Turnstile
-4. Configure the borderline score range (default: 40-70)
+**Providers**:
+- **Baskerville Gatekeeper** — built-in state-space puzzle CAPTCHA, no API keys needed
+- **Cloudflare Turnstile** — Cloudflare's CAPTCHA widget, requires API keys
+- **Disabled** (default) — no challenge shown; borderline visitors are blocked outright
 
-**Settings**:
-- **Bot Score Challenge** - Show Turnstile to visitors with scores in the borderline range
-- **Score Range** - Define min/max bot score for challenge (e.g., 40-70)
-- **Under Attack Mode** - Emergency mode that challenges ALL visitors (use during attacks)
-- **Form Protection** - Protect login, registration, and comment forms
+Both providers share the same trigger settings:
+- **Bot Score Challenge** - Challenge visitors with scores in the borderline range
+- **Score Range** - Define min/max bot score for challenge (default: 40-70)
+- **Under Attack Mode** - Emergency mode that challenges ALL visitors
 
 **Score interpretation**:
 - 0-39: Likely human (allowed)
-- 40-70: Borderline (show Turnstile challenge)
+- 40-70: Borderline (optional challenge)
 - 71-100: Likely bot (blocked)
 
+#### Baskerville Gatekeeper
+
+A puzzle-based CAPTCHA that uses a state-space search problem as the challenge. No third-party account required. Challenges are served **inline** at the original URL (no redirect to a separate page).
+
+When enabled, the plugin contacts `captcha.openports.dev` (operated by eQualitie) to generate and verify challenges.
+
+#### Cloudflare Turnstile
+
+1. Get your Site Key and Secret Key from [Cloudflare Dashboard](https://dash.cloudflare.com/?to=/:account/turnstile)
+2. Select **Cloudflare Turnstile** as the provider and enter your keys
+3. Configure the borderline score range (default: 40-70)
+
 **Precision Analytics**:
-The Analytics tab shows Turnstile effectiveness:
+The Analytics tab shows challenge effectiveness:
 - **Redirects** - Number of challenges shown
 - **Passed** - Visitors who completed the challenge
 - **Failed** - Visitors who failed or abandoned (likely bots)
@@ -270,6 +282,7 @@ baskerville/
 │   ├── class-baskerville-ai-ua.php      # AI bot detection & classification
 │   ├── class-baskerville-stats.php      # Analytics & database logging
 │   ├── class-baskerville-rest.php       # REST API for fingerprinting
+│   ├── class-baskerville-gatekeeper.php # Baskerville Gatekeeper CAPTCHA integration
 │   ├── class-baskerville-turnstile.php  # Cloudflare Turnstile integration
 │   └── class-baskerville-honeypot.php   # Honeypot for AI crawler detection
 ├── assets/

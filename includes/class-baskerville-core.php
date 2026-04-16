@@ -39,11 +39,13 @@ class Baskerville_Core {
     }
 
     public function enqueue_admin_scripts() {
+        $css_file = BASKERVILLE_PLUGIN_PATH . 'assets/css/admin.css';
+        $css_ver  = BASKERVILLE_DEBUG ? filemtime($css_file) : BASKERVILLE_VERSION;
         wp_enqueue_style(
             'baskerville-admin-style',
             BASKERVILLE_PLUGIN_URL . 'assets/css/admin.css',
             array(),
-            BASKERVILLE_VERSION
+            $css_ver
         );
     }
 
@@ -380,6 +382,58 @@ class Baskerville_Core {
                             $cleared++;
                         }
                     }
+                }
+            }
+        }
+
+        return $cleared;
+    }
+
+    /**
+     * Clear all IP ban entries AND challenge-fail counters from the cache.
+     * Called by the "Clear All Bans" admin button to give a full clean slate.
+     * @return int Number of entries cleared
+     */
+    public function fc_clear_bans(): int {
+        $cleared = 0;
+
+        if ($this->fc_has_apcu()) {
+            // Clear ban entries (ban:{ip})
+            $iterator = new \APCUIterator('/^baskerville:ban:/');
+            foreach ($iterator as $entry) {
+                if (apcu_delete($entry['key'])) {
+                    $cleared++;
+                }
+            }
+            // Also clear challenge-fail counters (gk_fail:{ip}) so the
+            // threshold resets alongside the ban — prevents leftover counters
+            // from triggering an instant ban on the next failure.
+            $iterator = new \APCUIterator('/^baskerville:gk_fail:/');
+            foreach ($iterator as $entry) {
+                if (apcu_delete($entry['key'])) {
+                    $cleared++;
+                }
+            }
+        } else {
+            $dir = $this->fc_dir();
+            if (!is_dir($dir)) return 0;
+
+            $files = @glob($dir . '/*.cache');
+            if (!$files) return 0;
+
+            foreach ($files as $file) {
+                $raw = @file_get_contents($file);
+                if ($raw === false) continue;
+                $data = @unserialize($raw);
+                if (!is_array($data)) continue;
+                $v = $data['v'] ?? null;
+                // Ban entries: array with 'reason' and 'until' keys
+                $is_ban = is_array($v) && isset($v['reason'], $v['until']);
+                // Fail counters: plain integers stored by fc_inc_in_window
+                $is_fail_counter = is_int($v);
+                if ($is_ban || $is_fail_counter) {
+                    wp_delete_file($file);
+                    $cleared++;
                 }
             }
         }

@@ -4,6 +4,14 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+if (!function_exists('wpsec_log')) {
+    function wpsec_log($message) {
+        if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+            error_log('[Baskerville Gatekeeper] ' . $message);
+        }
+    }
+}
+
 //--------------------------------------------------
 //--------------------------------------------------
 //constants
@@ -63,8 +71,7 @@ define('CAPTCHA_GENERATION_ENDPOINT', 'https://captcha.openports.dev/captcha/gen
 function wpsec_should_challenge() {
     wpsec_log('[gatekeeper] checking challenge decision');
 
-    //TODO
-    $should_challenge = true;
+    $should_challenge = !empty($GLOBALS['baskerville_gatekeeper_challenge']);
 
     wpsec_log('[gatekeeper] challenge decision=' . ($should_challenge ? 'challenge' : 'allow'));
     return $should_challenge;
@@ -82,7 +89,9 @@ function wpsec_should_challenge() {
 function wpsec_send_plain_response($status_code, $message) {
     status_header((int) $status_code);
     header('Content-Type: text/plain; charset=utf-8');
-    header('Cache-Control: no-store, no-cache');
+    header('Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    header('Surrogate-Control: no-store');
+    header('CDN-Cache-Control: no-store');
     echo (string) $message;
     exit;
 }
@@ -104,6 +113,30 @@ function wpsec_is_asset_like_request() {
     }
 
     return false;
+}
+
+/**
+ * Clear only the per-attempt solution cookies (__wpsec_sol_hash_ and __wpsec_cc_*).
+ * Unlike wpsec_clear_challenge_cookies(), this intentionally keeps __wpsec_challenge_
+ * so the visitor can retry the same puzzle after a failed verification attempt.
+ */
+function wpsec_clear_solution_cookies() {
+    foreach ($_COOKIE as $name => $value) {
+        if (
+            $name === USER_SOLUTION_HASH_COOKIE_NAME ||
+            strpos($name, USER_SOLUTION_CLICK_CHAIN_COOKIE_PREFIX) === 0
+        ) {
+            setcookie($name, '', [
+                'expires'  => time() - 3600,
+                'path'     => '/',
+                'domain'   => '',
+                'secure'   => is_ssl(),
+                'httponly' => false,
+                'samesite' => 'Lax',
+            ]);
+            unset($_COOKIE[$name]);
+        }
+    }
 }
 
 /*
@@ -366,6 +399,19 @@ function wpsec_build_cookie_header_for_captcha_challenge_verification() {
 function wpsec_verify_captcha_solution_via_upstream_cookies() {
     wpsec_log('[gatekeeper] starting verification flow');
 
+    // Per-IP rate limit: protect upstream /captcha/verify from brute-force.
+    // Fail with 429 — the caller already handles and relays this status.
+    $ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) );
+    if (
+        $ip !== '' &&
+        isset( $GLOBALS['baskerville_challenge'] ) &&
+        $GLOBALS['baskerville_challenge'] instanceof Baskerville_Gatekeeper &&
+        $GLOBALS['baskerville_challenge']->upstream_rate_limited( $ip, 'verify' )
+    ) {
+        wpsec_log( '[gatekeeper] upstream verify rate limit exceeded, returning 429' );
+        return [ 'status_code' => 429, 'message' => 'rate limited', 'error' => 'rate_limited', 'retry_after' => 60 ];
+    }
+
     $original_url = (is_ssl() ? 'https://' : 'http://')
         . ($_SERVER['HTTP_HOST'] ?? '')
         . ($_SERVER['REQUEST_URI'] ?? '');
@@ -374,7 +420,7 @@ function wpsec_verify_captcha_solution_via_upstream_cookies() {
 
     wpsec_log('[gatekeeper] forwarding verification cookie header=' . $cookie_header);
 
-    $response = wp_remote_get(CAPTCH_SOLUTION_VERIFICATION_ENDPOINT, [
+    $response = wp_remote_get(CAPTCHA_SOLUTION_VERIFICATION_ENDPOINT, [
         'timeout'     => 10,
         'redirection' => 3,
         'headers'     => [
@@ -391,6 +437,7 @@ function wpsec_verify_captcha_solution_via_upstream_cookies() {
 
     if (is_wp_error($response)) {
         wpsec_log('[gatekeeper] verification request failed: ' . $response->get_error_message());
+        error_log('[Baskerville GK] verify upstream FAILED: ' . $response->get_error_message() . ' | IP=' . ($_SERVER['REMOTE_ADDR'] ?? ''));
 
         return [
             'message'       => $response->get_error_message(),
@@ -452,6 +499,19 @@ function wpsec_verify_captcha_solution_via_upstream_cookies() {
     issues request to the /token/verify endpoint
 */
 function wpsec_verify_captcha_pass_token_cookie_is_valid() {
+    // Per-IP rate limit: protect upstream /token/verify.
+    // Fail open (return 200) so a rate-limited visitor is not permanently blocked.
+    $ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) );
+    if (
+        $ip !== '' &&
+        isset( $GLOBALS['baskerville_challenge'] ) &&
+        $GLOBALS['baskerville_challenge'] instanceof Baskerville_Gatekeeper &&
+        $GLOBALS['baskerville_challenge']->upstream_rate_limited( $ip, 'token' )
+    ) {
+        wpsec_log( '[gatekeeper] upstream token-verify rate limit exceeded, failing open' );
+        return [ 'status_code' => 200, 'message' => 'rate limited, failing open' ];
+    }
+
     $original_url = (is_ssl() ? 'https://' : 'http://')
         . ($_SERVER['HTTP_HOST'] ?? '')
         . ($_SERVER['REQUEST_URI'] ?? '');
@@ -505,7 +565,26 @@ function wpsec_verify_captcha_pass_token_cookie_is_valid() {
 function wpsec_issue_challenge() {
     wpsec_log('[gatekeeper] starting challenge issuance flow');
 
+    // Per-IP rate limit: protect upstream /captcha/generate from flood.
+    // Fail OPEN on limit exceeded — let the visitor through rather than blocking
+    // a potentially legitimate user whose IP hit the ceiling (e.g. shared NAT).
+    $ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) );
+    if (
+        $ip !== '' &&
+        isset( $GLOBALS['baskerville_challenge'] ) &&
+        $GLOBALS['baskerville_challenge'] instanceof Baskerville_Gatekeeper &&
+        $GLOBALS['baskerville_challenge']->upstream_rate_limited( $ip, 'generate' )
+    ) {
+        wpsec_log( '[gatekeeper] upstream generate rate limit exceeded, failing open' );
+        return; // let WordPress render the real page
+    }
+
     wpsec_log('[gatekeeper] issuing challenge for uri=' . ($_SERVER['REQUEST_URI'] ?? ''));
+
+    // Record gk_redir stat for the analytics precision chart.
+    if (isset($GLOBALS['baskerville_challenge']) && $GLOBALS['baskerville_challenge'] instanceof Baskerville_Gatekeeper) {
+        $GLOBALS['baskerville_challenge']->log_challenge_event('redir', '', $ip);
+    }
 
     $original_url = (is_ssl() ? 'https://' : 'http://')
         . ($_SERVER['HTTP_HOST'] ?? '')
@@ -527,12 +606,10 @@ function wpsec_issue_challenge() {
     ]);
 
     if (is_wp_error($response)) {
-        wpsec_log('[gatekeeper] challenge fetch failed: ' . $response->get_error_message());
-
-        status_header(503);
-        header('Content-Type: text/html; charset=utf-8');
-        echo '<!doctype html><html><body><h1>Challenge unavailable</h1></body></html>';
-        exit;
+        wpsec_log('[gatekeeper] challenge fetch failed: ' . $response->get_error_message() . ' — failing open');
+        // Upstream unreachable — let the visitor through rather than blocking them with a broken page.
+        wpsec_clear_challenge_cookies();
+        return;
     }
 
     $status_code  = wp_remote_retrieve_response_code($response);
@@ -545,9 +622,24 @@ function wpsec_issue_challenge() {
 
     wpsec_forward_upstream_cookies($response);
 
+    // Prevent any page-cache plugin from storing the challenge HTML.
+    // WP Super Cache (both PHP and Expert/mod_rewrite modes), W3TC, WP Rocket etc.
+    // all check DONOTCACHEPAGE before writing to their cache stores.
+    if (!defined('DONOTCACHEPAGE')) {
+        define('DONOTCACHEPAGE', true);
+    }
+    // Some plugins also check the global (W3TC, LiteSpeed Cache).
+    $GLOBALS['DONOTCACHEPAGE'] = 1;
+
+    nocache_headers(); // Sets Cache-Control, Pragma, Expires (browser).
+    // Explicitly tell CDN/reverse-proxy layers not to store this response.
+    // nocache_headers() covers the browser; these cover Varnish, Nginx, CDNs.
+    header('Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    header('Surrogate-Control: no-store');   // Varnish / Fastly
+    header('CDN-Cache-Control: no-store');   // Cloudflare and others
+    header('Vary: Cookie');                  // treat each cookie variation as different cache key
     status_header(200);
     header('Content-Type: ' . $content_type);
-    header('Cache-Control: no-store, no-cache');
     echo $body;
     exit;
 }
@@ -852,7 +944,38 @@ function wpsec_enforce_captcha_policy() {
         wpsec_log('[gatekeeper] template_redirect fired');
         wpsec_log('[gatekeeper] request uri=' . ($_SERVER['REQUEST_URI'] ?? ''));
         wpsec_log('[gatekeeper] request method=' . ($_SERVER['REQUEST_METHOD'] ?? ''));
-    
+
+        // Unconditional diagnostic — remove after bug is confirmed fixed.
+        $diag_cookies = [];
+        foreach ($_COOKIE as $n => $v) {
+            if (strpos($n, '__wpsec_') === 0 || strpos($n, 'baskerville') === 0) {
+                $diag_cookies[] = $n;
+            }
+        }
+        error_log('[Baskerville GK] POLICY fired uri=' . ($_SERVER['REQUEST_URI'] ?? '') . ' challenge_global=' . (!empty($GLOBALS['baskerville_gatekeeper_challenge']) ? 'SET' : 'unset') . ' relevant_cookies=' . implode(',', $diag_cookies));
+
+        // maybe_activate_test_mode() (priority 0) may have set this before us (priority 1)
+        $is_test_mode = !empty($GLOBALS['baskerville_gatekeeper_test_mode']);
+
+        // Respect master switch — if protection is off, clear any stale challenge cookies and allow
+        $bsk_options = get_option('baskerville_settings', array());
+        $master_enabled = !isset($bsk_options['master_protection_enabled']) || $bsk_options['master_protection_enabled'];
+        if (!$master_enabled && !$is_test_mode) {
+            wpsec_log('[gatekeeper] master switch OFF, clearing stale cookies and allowing');
+            wpsec_clear_challenge_cookies();
+            wpsec_clear_pass_token_cookie();
+            return;
+        }
+
+        // Also bail immediately if the provider is no longer 'gatekeeper' (settings changed mid-session)
+        $provider = isset($bsk_options['captcha_provider']) ? $bsk_options['captcha_provider'] : 'none';
+        if ($provider !== 'gatekeeper' && !$is_test_mode) {
+            wpsec_log('[gatekeeper] provider changed, clearing stale cookies and allowing');
+            wpsec_clear_challenge_cookies();
+            wpsec_clear_pass_token_cookie();
+            return;
+        }
+
         /*
             we start by checking you're not admin, hitting the admin page or anything
             relevant for wordpress correct functionality
@@ -861,20 +984,23 @@ function wpsec_enforce_captcha_policy() {
             wpsec_log('[gatekeeper] admin request, allowing');
             return;
         }
-    
+
         if (defined('REST_REQUEST') && REST_REQUEST) {
             wpsec_log('[gatekeeper] REST request, allowing');
             return;
         }
-    
+
         if (wp_doing_ajax()) {
             wpsec_log('[gatekeeper] AJAX request, allowing');
             return;
         }
-    
+
         if (is_user_logged_in() && current_user_can('manage_options')) {
-            wpsec_log('[gatekeeper] privileged logged-in user, allowing');
-            return;
+            if (!$is_test_mode) {
+                wpsec_log('[gatekeeper] privileged logged-in user, allowing');
+                return;
+            }
+            wpsec_log('[gatekeeper] admin test mode active, proceeding with challenge flow');
         }
     
         /*
@@ -899,23 +1025,36 @@ function wpsec_enforce_captcha_policy() {
             or have submitted a solution or have already passed etc
         */
     
+        // Fast path: check our own local HMAC pass cookie.
+        // This is set by set_local_pass() after successful upstream verification.
+        // If valid, skip the upstream /token/verify round-trip entirely.
+        if (isset($GLOBALS['baskerville_challenge']) && $GLOBALS['baskerville_challenge'] instanceof Baskerville_Gatekeeper) {
+            $has_local = $GLOBALS['baskerville_challenge']->validate_local_pass();
+            error_log('[Baskerville GK] local pass check: ' . ($has_local ? 'VALID' : 'absent') . ' cookie=' . (isset($_COOKIE[Baskerville_Gatekeeper::GK_PASS_COOKIE]) ? 'present' : 'missing'));
+            if ($has_local) {
+                wpsec_log('[gatekeeper] local pass cookie valid, allowing');
+                return;
+            }
+        }
+
         //we check to see if the captcha challenge has previously been passed
         //by looking for the challenge passed cookie. If so, we go through validating it
         //to make sure its not forged, expired, replayed etc. If not we continue
         //to check whether this current requester ought to be challenged
         if (wpsec_captcha_pass_token_cookie_is_present()) {
-    
+
             $token_validation_result = wpsec_verify_captcha_pass_token_cookie_is_valid();
-    
+
             $message = $token_validation_result['message'] ?? '';
             $status_code = (int) ($token_validation_result['status_code'] ?? 0);
-    
-            if ($status_code === 204) {
+
+            wpsec_log('[gatekeeper] token verify status=' . $status_code . ' message=' . $message);
+
+            // Accept both 200 and 204 — the endpoint may return either depending on server version.
+            if ($status_code === 204 || $status_code === 200) {
                 wpsec_log('[gatekeeper] valid pass cookie found, allowing');
-                //make sure we always relay their valid cookie back to them so that they can continue
-                //to browser undisturbed since their solution is legitamate
                 return;
-    
+
             } else {
     
                 //either the token is a fake, or replayed from someone else or 
@@ -952,19 +1091,10 @@ function wpsec_enforce_captcha_policy() {
             }
         }
     
-        //if the user didnt have a challenge pass BUT also is not meant to be challenged
-        //then allow them through normally
-        if (!wpsec_should_challenge()) {
-            wpsec_log('[gatekeeper] should not challenge, allowing normal render');
-            return;
-        }
-
-        /*
-            at this point we know that we are dealing with a user who needs to be challenged
-            but it could also be that we are in the middle of a challenge
-        */
-    
-        //check if its a refresh
+        // Handle puzzle refresh (X-Action: refresh header sent by the challenge JS).
+        // Must run BEFORE the should_challenge() gate because the JS's fetch() uses
+        // Accept:*/* which causes the firewall to bail at is_public_html_request()
+        // and leave baskerville_gatekeeper_challenge unset.
         $requested_action = wpsec_get_requested_action();
         wpsec_log('[gatekeeper] requested action=' . $requested_action);
         if ($requested_action === 'refresh') {
@@ -972,20 +1102,70 @@ function wpsec_enforce_captcha_policy() {
             wpsec_clear_challenge_cookies();
             wpsec_refresh_challenge_state();
         }
-    
-        //check if it has solution
+
+        // Process solution submission BEFORE the should_challenge() gate.
+        //
+        // Root cause: the firewall (plugins_loaded) contains an early-return guard
+        // `if (!is_public_html_request()) return;` that fires on the challenge JS's
+        // fetch() call because fetch() sends Accept:*/* rather than text/html.
+        // This leaves baskerville_gatekeeper_challenge unset, making
+        // wpsec_should_challenge() return false even while solution cookies are in
+        // the request — so the user would be silently allowed through without any
+        // verification taking place.
+        //
+        // Fix: check for solution cookies here, unconditionally. If the visitor has
+        // submitted a solution it must always be verified, regardless of whether the
+        // firewall challenge-flag was set.
         if (wpsec_has_verification_cookies()) {
             $verification_result = wpsec_verify_captcha_solution_via_upstream_cookies();
             $message = $verification_result['message'] ?? '';
             $status_code = (int) ($verification_result['status_code'] ?? 0);
-    
+
+            // Unconditional log — visible in error_log regardless of WP_DEBUG.
+            // Remove after the verification loop is fixed.
+            error_log('[Baskerville GK] verify upstream status=' . $status_code . ' message=' . substr($message, 0, 80));
+
             wpsec_log('[gatekeeper] verification result status=' . $status_code . ' message=' . $message);
     
             if ($status_code === 403 && $message === 'invalid solution') {
-                //relay back the 403 + message such that the puzzle displays the correct
-                //message to the user
-                wpsec_log('[gatekeeper] relaying invalid solution back to client');
-                wpsec_send_plain_response(403, 'invalid solution');
+                // Wrong solution. Clear all challenge/solution cookies and serve a
+                // fresh challenge instead of sending a plain-text 403 "invalid solution"
+                // response.
+                //
+                // Why not send wpsec_send_plain_response(403, …) here:
+                //   When a CDN (e.g. eQpress) intercepts the verification fetch() and
+                //   serves a cached 200 response, the browser never receives our 403 and
+                //   the solution cookies are never cleared. On the next regular page
+                //   navigation PHP sees stale solution cookies, re-runs verification,
+                //   gets 403 again, and sends plain text "invalid solution" — the browser
+                //   renders a blank white page with that text.
+                //
+                // By clearing cookies + re-issuing the challenge:
+                //   - The challenge JS's fetch() gets 200 HTML → handleRedirect() → reload.
+                //     On the reload the solution cookies are gone → fresh challenge is shown.
+                //   - Any later regular navigation with stale cookies also ends up at a
+                //     clean challenge page rather than a blank error page.
+                //   - Security is unaffected: the user must still solve the puzzle correctly.
+                // Count this failure and ban the IP if the threshold is reached.
+                $fail_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+                $just_banned = (
+                    $fail_ip !== '' &&
+                    isset($GLOBALS['baskerville_challenge']) &&
+                    $GLOBALS['baskerville_challenge'] instanceof Baskerville_Gatekeeper &&
+                    $GLOBALS['baskerville_challenge']->record_failed_attempt($fail_ip)
+                );
+
+                if ($just_banned) {
+                    wpsec_log('[gatekeeper] IP banned after repeated challenge failures: ' . $fail_ip);
+                    wpsec_clear_challenge_cookies();
+                    wpsec_send_plain_response(403, 'Forbidden');
+                    return;
+                }
+
+                wpsec_log('[gatekeeper] invalid solution — clearing cookies and re-issuing fresh challenge');
+                wpsec_clear_challenge_cookies();
+                wpsec_issue_challenge();
+                return;
     
             } else if ($status_code === 429) {
                 //relay back 429 + message (which would be "x seconds") and is handled by
@@ -1006,45 +1186,114 @@ function wpsec_enforce_captcha_policy() {
                 exit;
     
             } else if ($status_code === 400) {
-                //re-issue the challenge but NOT here, instead respond BACK to the user
-                //with 404 such that client side triggers refresh and gets challenged again
-                //however, we need to first clear all of their existing cookies
-                wpsec_log('[gatekeeper] bad verification payload, clearing cookies and telling client to refresh');
-                wpsec_clear_challenge_cookies();
-                wpsec_send_plain_response(404, 'refresh challenge');
+                // Upstream could not parse the solution cookies (bad format / tampering).
+                // Send HTTP 400 back so the JS shows "Incorrect solution. Please try again"
+                // (case 6 in the client state machine).
+                //
+                // IMPORTANT: do NOT send 404 here. The challenge JS treats 404 as a
+                // success signal (case 5 → handleRedirect) which causes an infinite
+                // reload loop when there is no pass cookie yet.
+                //
+                // Keep __wpsec_challenge_ so the user can retry the same puzzle;
+                // only clear the per-attempt solution cookies.
+                wpsec_log('[gatekeeper] bad verification payload (400), clearing solution cookies');
+                wpsec_clear_solution_cookies();
+                wpsec_send_plain_response(400, 'invalid solution');
     
-            } else if ($status_code === 200) {
+            } else if ($status_code === 200 || $status_code === 204) {
                 //their solution was correct, the wordpress origin will receive
                 //a "challenge passed" solution cookie in the header. Here we need
-                //to remove them from the list to challenge and subsequently we 
-                //need to delete all other cookies they might have AND attach this 
-                //new cookie that the captcha service server sends back to the wordpress 
+                //to remove them from the list to challenge and subsequently we
+                //need to delete all other cookies they might have AND attach this
+                //new cookie that the captcha service server sends back to the wordpress
                 //origin server
-                wpsec_log('[gatekeeper] verification succeeded, clearing leftover challenge cookies and allowing');
-    
-                // so for example, we could implement a function that would mark them as having already
-                // passed and remove them from the list of people to be challenged and not be interferred with
-                // later unless the ML pipeline pushes up another challenge or something.
-                // so as a placeholder here to remove from local challenge list / cache / rule store i left
-                //this just for it to be clear
-                // wpsec_mark_visitor_as_passed();
-    
-                // upstream pass cookie has already been forwarded in wpsec_verify_captcha_solution_via_upstream_cookies()
-                // now clear any leftover challenge/solution cookies from this host-side state
+                wpsec_log('[gatekeeper] verification succeeded (status=' . $status_code . '), setting local pass and clearing challenge cookies');
+
+                // Set our own HMAC-signed local pass cookie so the firewall will
+                // recognise this visitor on the next request regardless of whether
+                // the upstream also forwarded __wpsec_solved_.
+                if (isset($GLOBALS['baskerville_challenge']) && $GLOBALS['baskerville_challenge'] instanceof Baskerville_Gatekeeper) {
+                    $GLOBALS['baskerville_challenge']->set_local_pass();
+                    $GLOBALS['baskerville_challenge']->log_challenge_event('pass');
+                    wpsec_log('[gatekeeper] local pass cookie set (baskerville_gk_pass)');
+                }
+
+                // Clear leftover challenge/solution cookies.
                 wpsec_clear_challenge_cookies();
+
+                // Log whether __wpsec_solved_ was also forwarded by upstream (informational only).
+                if (isset($_COOKIE[CAPTCHA_PREVIOUSLY_PASSED_COOKIE_NAME])) {
+                    wpsec_log('[gatekeeper] upstream pass cookie also forwarded');
+                } else {
+                    wpsec_log('[gatekeeper] note: upstream pass cookie absent; local pass handles access');
+                }
+
+                // If this was an admin test session, end it now
+                if (!empty($GLOBALS['baskerville_gatekeeper_test_mode'])) {
+                    $user_id = get_current_user_id();
+                    if ($user_id) {
+                        delete_user_meta($user_id, 'baskerville_gk_test');
+                        wpsec_log('[gatekeeper] test mode ended for user ' . $user_id);
+                    }
+                }
+
+                // Send a compact, explicitly non-cacheable 200 response and exit.
+                //
+                // Why NOT return here (letting WordPress render the full page):
+                //   The challenge JS calls fetch() with credentials:"include". If we
+                //   return, WordPress sends a full HTML page with Set-Cookie: baskerville_gk_pass.
+                //   A CDN (e.g. eQpress/Deflect) may cache this response INCLUDING the
+                //   Set-Cookie header. The next visitor whose verification fetch() is served
+                //   from that cache would receive the previous user's pass cookie, store it,
+                //   see HTTP 200, call handleRedirect() → reload → validate_local_pass() passes
+                //   (HMAC not IP-bound) → visitor gets through WITHOUT solving the puzzle.
+                //
+                // By sending a tiny JSON body + no-store headers and exiting:
+                //   - CDNs are explicitly told not to cache (no-store headers on a small response)
+                //   - The JS only needs status 200 to call handleRedirect() → page reload
+                //   - On the reload, baskerville_gk_pass is present in the browser cookie jar
+                //     → has_valid_pass() = true → no challenge → user sees the real page
+                //   - The Set-Cookie header is still sent (cookies are queued before exit)
+                wpsec_log('[gatekeeper] sending no-store 200 ack — pass cookie in Set-Cookie, JS will reload');
+                nocache_headers();
+                header('Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+                header('Surrogate-Control: no-store');
+                header('CDN-Cache-Control: no-store');
+                header('Vary: Cookie');
+                status_header(200);
+                header('Content-Type: application/json; charset=utf-8');
+                echo '{"ok":true}';
+                exit;
     
-                wpsec_log('[gatekeeper] verification succeeded, allowing normal render');
+            } else if ($status_code === 0) {
+                // Upstream unreachable — fail open to prevent infinite loop.
+                // Clear stale challenge cookies and let the visitor through.
+                wpsec_log('[gatekeeper] upstream unreachable (status=0), clearing cookies and allowing');
+                wpsec_clear_challenge_cookies();
                 return;
-    
+
             } else {
-                //something went wrong, this is unexpected, log it in some persistent error
-                //log and fallback on re-issueing the challenge
-                wpsec_log('[gatekeeper] unexpected verification result, clearing cookies and reissuing challenge');
-                wpsec_clear_challenge_cookies();
-                wpsec_issue_challenge();
+                // Unexpected status from /captcha/verify.
+                // Do NOT call wpsec_issue_challenge() here — that sends HTTP 200, which
+                // the challenge JS treats as success → handleRedirect → reload → no pass
+                // cookie → challenge again → infinite loop.
+                // Instead, send HTTP 500 so the JS shows "Incorrect solution. Please try again"
+                // and lets the user retry without a reload loop.
+                wpsec_log('[gatekeeper] unexpected verification result (status=' . $status_code . '), sending 500 to avoid reload loop');
+                error_log('[Baskerville GK] unexpected /captcha/verify status=' . $status_code . ' message=' . substr($message, 0, 80));
+                wpsec_clear_solution_cookies();
+                wpsec_send_plain_response(500, 'verification error');
             }
         }
     
+
+        // No solution cookies. Only issue a fresh challenge if the firewall flagged
+        // this visitor (under_attack mode, borderline score, etc.). Visitors who are
+        // not meant to be challenged should see the normal page.
+        if (!wpsec_should_challenge()) {
+            wpsec_log('[gatekeeper] should not challenge, allowing normal render');
+            return;
+        }
 
         wpsec_log('[gatekeeper] no valid verification cookies, issuing challenge');
         wpsec_issue_challenge();
@@ -1060,9 +1309,412 @@ function wpsec_enforce_captcha_policy() {
 }
 
 
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-//calls main function to enforce captcha enforcement policy
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-add_action('template_redirect', 'wpsec_enforce_captcha_policy');
+/**
+ * Baskerville Gatekeeper — challenge provider class.
+ *
+ * Implements the same firewall interface as Baskerville_Turnstile so that the
+ * firewall can use either provider transparently via $GLOBALS['baskerville_challenge'].
+ *
+ * Key difference from Turnstile: redirect_to_challenge() does NOT perform an
+ * HTTP redirect. It sets $GLOBALS['baskerville_gatekeeper_challenge'] = true and
+ * returns, allowing wpsec_enforce_captcha_policy() on template_redirect to serve
+ * the challenge inline at the original URL.
+ */
+class Baskerville_Gatekeeper {
+
+    /** Local pass cookie set by WordPress after successful upstream verification. */
+    const GK_PASS_COOKIE = 'baskerville_gk_pass';
+    /** TTL for local pass in seconds (24 h). */
+    const GK_PASS_TTL = 86400;
+
+    /** Max wrong solutions before an IP is banned (default; overridden by gk_fail_max option). */
+    const GK_FAIL_MAX    = 3;
+    /** Window in seconds over which failures are counted (1 h). */
+    const GK_FAIL_WINDOW = 3600;
+    /** How long a challenge-failure ban lasts in seconds (default 1 h; overridden by gk_ban_ttl_sec option). */
+    const GK_BAN_TTL     = 3600;
+
+    private $enabled;
+    private $challenge_borderline;
+    private $borderline_min;
+    private $borderline_max;
+    private $under_attack;
+
+    /** @var Baskerville_Core */
+    private $core;
+
+    /** @var Baskerville_Stats */
+    private $stats;
+
+    public function __construct($core = null, $stats = null) {
+        $options = get_option('baskerville_settings', array());
+        $provider = isset($options['captcha_provider']) ? $options['captcha_provider'] : 'none';
+        $this->enabled            = ($provider === 'gatekeeper');
+        $this->challenge_borderline = isset($options['turnstile_challenge_borderline']) ? (bool) $options['turnstile_challenge_borderline'] : false;
+        $this->borderline_min     = isset($options['turnstile_borderline_min']) ? (int) $options['turnstile_borderline_min'] : 40;
+        $this->borderline_max     = isset($options['turnstile_borderline_max']) ? (int) $options['turnstile_borderline_max'] : 70;
+        $this->under_attack       = isset($options['turnstile_under_attack']) ? (bool) $options['turnstile_under_attack'] : false;
+        $this->core               = $core;
+        $this->stats              = $stats;
+    }
+
+    public function is_enabled() {
+        return $this->enabled;
+    }
+
+    /**
+     * Per-IP rate limiter for upstream calls.
+     *
+     * Limits how often a single visitor IP can trigger calls to captcha.openports.dev.
+     * Uses the same file-cache window counter as the firewall burst protection.
+     *
+     * Limits (per 60-second window):
+     *   generate — 6  (challenge page loads / refreshes)
+     *   verify   — 10 (solution submission attempts)
+     *   token    — 6  (pass-token re-verification)
+     *
+     * Returns true when the IP has exceeded the limit (caller should fail open or 429).
+     */
+    public function upstream_rate_limited( string $ip, string $action ): bool {
+        if ( ! $this->core || $ip === '' ) {
+            return false;
+        }
+
+        $limits = [
+            'generate' => 6,
+            'verify'   => 10,
+            'token'    => 6,
+        ];
+
+        $max = $limits[ $action ] ?? 6;
+        $cnt = $this->core->fc_inc_in_window( "gk_{$action}:{$ip}", 60 );
+
+        if ( $cnt > $max ) {
+            wpsec_log( "[gatekeeper] rate limit hit action={$action} ip={$ip} cnt={$cnt}" );
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Record a failed challenge attempt for an IP.
+     *
+     * Increments a sliding-window counter (GK_FAIL_WINDOW seconds).
+     * When the count reaches GK_FAIL_MAX the IP is written into the shared
+     * ban cache (same key/format used by Baskerville_Firewall::set_ban) so
+     * the firewall will block it on every subsequent request.
+     *
+     * Returns true if the IP was just banned (caller should respond with 403).
+     */
+    public function record_failed_attempt(string $ip): bool {
+        if (!$this->core || $ip === '') {
+            return false;
+        }
+
+        // Read configurable thresholds from baskerville_settings (fall back to constants).
+        $opts     = get_option('baskerville_settings', array());
+        $fail_max = isset($opts['gk_fail_max']) ? (int) $opts['gk_fail_max'] : self::GK_FAIL_MAX;
+        $ban_ttl  = isset($opts['gk_ban_ttl_sec']) ? (int) $opts['gk_ban_ttl_sec'] : self::GK_BAN_TTL;
+
+        $cnt = $this->core->fc_inc_in_window("gk_fail:{$ip}", self::GK_FAIL_WINDOW);
+        wpsec_log("[gatekeeper] challenge fail count ip={$ip} cnt={$cnt}/{$fail_max}");
+
+        // Write gk_fail stat to DB for analytics.
+        $this->log_challenge_event('fail', 'gk-challenge-fail', $ip);
+
+        if ($cnt >= $fail_max) {
+            $payload = [
+                'reason' => 'gk-challenge-fail',
+                'until'  => time() + $ban_ttl,
+                'score'  => 100,
+                'cls'    => 'bot',
+            ];
+            $this->core->fc_set("ban:{$ip}", $payload, $ban_ttl);
+            wpsec_log("[gatekeeper] IP BANNED after {$cnt} failed challenges: ip={$ip}");
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Write a gk_redir / gk_pass / gk_fail event to the stats table.
+     * Mirrors Baskerville_Turnstile::log_challenge_event() but uses gk_ prefix.
+     *
+     * @param string $result  'redir' | 'pass' | 'fail'
+     * @param string $reason  Optional reason string (for fail events)
+     * @param string $ip      Visitor IP (defaults to REMOTE_ADDR)
+     */
+    public function log_challenge_event(string $result, string $reason = '', string $ip = '') {
+        global $wpdb;
+
+        if ($ip === '') {
+            $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+        }
+        $baskerville_id = isset($_COOKIE['baskerville_id']) ? sanitize_text_field(wp_unslash($_COOKIE['baskerville_id'])) : '';
+        $baskerville_id = substr($baskerville_id, 0, 100);
+        $user_agent     = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '';
+
+        $event_type = 'gk_' . $result; // gk_redir, gk_pass, gk_fail
+
+        $table_name = $wpdb->prefix . 'baskerville_stats';
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+        $wpdb->insert(
+            $table_name,
+            array(
+                'visit_key'             => wp_generate_uuid4(),
+                'ip'                    => $ip,
+                'baskerville_id'        => $baskerville_id,
+                'timestamp_utc'         => current_time('mysql', true),
+                'event_type'            => $event_type,
+                'block_reason'          => $reason,
+                'user_agent'            => $user_agent,
+                'score'                 => 0,
+                'classification'        => 'gatekeeper',
+                'had_fp'                => !empty($baskerville_id) ? 1 : 0,
+                'evaluation_json'       => '{}',
+                'score_reasons'         => '',
+                'classification_reason' => 'gk_challenge',
+            ),
+            array('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%d', '%s', '%s', '%s')
+        );
+    }
+
+    public function should_challenge($score, $baskerville_id) {
+        if (!$this->enabled) {
+            return false;
+        }
+        if ($this->has_valid_pass()) {
+            return false;
+        }
+        if ($this->under_attack) {
+            return true;
+        }
+        if (!$this->challenge_borderline) {
+            return false;
+        }
+        return $score >= $this->borderline_min && $score <= $this->borderline_max;
+    }
+
+    /**
+     * Set a local HMAC-signed pass cookie so the firewall recognises a verified visitor.
+     * Called after the upstream /captcha/verify returns 200.
+     * This is the primary pass mechanism — it does not depend on the upstream setting
+     * __wpsec_solved_ (which can silently fail due to proxy/cookie-forwarding issues).
+     *
+     * The cookie is paired with a server-side file-cache entry keyed by IP+timestamp.
+     * validate_local_pass() requires BOTH to be present. This prevents a CDN from
+     * replaying a cached Set-Cookie header (from a previous user's successful solve) to
+     * a different visitor: the cache entry only exists for the IP that actually solved.
+     */
+    public function set_local_pass() {
+        $timestamp = time();
+        $ip        = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+        $secret    = wp_salt('auth');
+        $hmac      = hash_hmac('sha256', (string) $timestamp, $secret);
+        $value     = $timestamp . '.' . $hmac;
+
+        setcookie(self::GK_PASS_COOKIE, $value, [
+            'expires'  => $timestamp + self::GK_PASS_TTL,
+            'path'     => '/',
+            'domain'   => '',
+            'secure'   => is_ssl(),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+        $_COOKIE[self::GK_PASS_COOKIE] = $value;
+
+        // Write IP-bound server-side record. validate_local_pass() checks this
+        // in addition to the HMAC so CDN-replayed cookies from other IPs are rejected.
+        if ($this->core && $ip !== '') {
+            $this->core->fc_set("gk_lp:{$ip}:{$timestamp}", 1, self::GK_PASS_TTL);
+        }
+    }
+
+    /**
+     * Validate the local HMAC pass cookie set by set_local_pass().
+     *
+     * Requires two things:
+     *   1. A valid HMAC on the cookie value (proves it was issued by this server).
+     *   2. A matching server-side cache entry keyed by IP + timestamp (proves the
+     *      cookie was originally issued for *this* IP, not replayed from another
+     *      visitor via a CDN-cached Set-Cookie header).
+     */
+    public function validate_local_pass() {
+        $cookie = isset($_COOKIE[self::GK_PASS_COOKIE]) ? (string) $_COOKIE[self::GK_PASS_COOKIE] : '';
+        if ($cookie === '') {
+            return false;
+        }
+        $dot = strpos($cookie, '.');
+        if ($dot === false) {
+            return false;
+        }
+        $timestamp = (int) substr($cookie, 0, $dot);
+        $hmac      = (string) substr($cookie, $dot + 1);
+
+        if ($timestamp <= 0 || time() > $timestamp + self::GK_PASS_TTL) {
+            return false;
+        }
+        $secret   = wp_salt('auth');
+        $expected = hash_hmac('sha256', (string) $timestamp, $secret);
+        if (!hash_equals($expected, $hmac)) {
+            return false;
+        }
+
+        // Require the server-side IP-bound record to exist.
+        // Without this check a CDN could replay a cached baskerville_gk_pass Set-Cookie
+        // header (from another visitor's successful solve) and bypass the challenge.
+        if ($this->core) {
+            $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+            if ($ip !== '' && !$this->core->fc_get("gk_lp:{$ip}:{$timestamp}")) {
+                error_log('[Baskerville GK] validate_local_pass: HMAC ok but NO server record — ip=' . $ip . ' ts=' . $timestamp . ' (CDN replay or expired cache)');
+                return false;
+            }
+            error_log('[Baskerville GK] validate_local_pass: HMAC + server record OK — ip=' . $ip . ' ts=' . $timestamp);
+        }
+
+        return true;
+    }
+
+    /**
+     * Lightweight pass check used by the firewall at plugins_loaded.
+     * Checks the local pass first (no upstream call), then falls back to
+     * the upstream-issued __wpsec_solved_ token and the server-side cache.
+     */
+    public function has_valid_pass() {
+        // Local HMAC pass — set by set_local_pass() after successful upstream verification.
+        // validate_local_pass() now also checks a server-side IP-bound cache entry so
+        // CDN-replayed cookies from other visitors are rejected.
+        if ($this->validate_local_pass()) {
+            error_log('[Baskerville GK] has_valid_pass: LOCAL PASS valid (baskerville_gk_pass)');
+            return true;
+        }
+        // Upstream pass token forwarded from captcha.openports.dev.
+        if ($this->has_pass_cookie()) {
+            error_log('[Baskerville GK] has_valid_pass: UPSTREAM COOKIE present (__wpsec_solved_=' . substr((string)($_COOKIE[CAPTCHA_PREVIOUSLY_PASSED_COOKIE_NAME] ?? ''), 0, 30) . ')');
+            return true;
+        }
+        error_log('[Baskerville GK] has_valid_pass: FALSE (no valid pass)');
+        return false;
+    }
+
+    public function has_pass_cookie() {
+        return !empty($_COOKIE[CAPTCHA_PREVIOUSLY_PASSED_COOKIE_NAME]);
+    }
+
+    /**
+     * Sets a flag for wpsec_enforce_captcha_policy() to pick up at template_redirect.
+     * Does NOT perform an HTTP redirect — challenge is served inline by the gatekeeper.
+     */
+    public function redirect_to_challenge() {
+        $GLOBALS['baskerville_gatekeeper_challenge'] = true;
+
+        // Tell page-cache plugins not to store this response.
+        // Defined here (plugins_loaded) so it is set before any caching plugin
+        // hooks into shutdown or ob_start to write its cache file.
+        if (!defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
+        $GLOBALS['DONOTCACHEPAGE'] = 1;
+    }
+
+    /**
+     * Register the template_redirect hook that serves the challenge inline.
+     * Called from plugins_loaded after the firewall is initialised.
+     */
+    public function init() {
+        add_action('template_redirect', 'wpsec_enforce_captcha_policy', 1);
+        add_action('template_redirect', array($this, 'maybe_activate_test_mode'), 0);
+        add_action('wp_ajax_baskerville_gk_test_start', array($this, 'ajax_test_start'));
+        add_action('wp_ajax_baskerville_gk_test_stop',  array($this, 'ajax_test_stop'));
+
+        // Tell WP Super Cache (PHP mode) to bypass its cache for visitors who
+        // carry any of our cookies.  Super Cache stores a list of "no-cache"
+        // cookie names; if any of them is present in the request the cached
+        // file is not served and WordPress runs normally.
+        $this->register_supercache_bypass_cookies();
+    }
+
+    /**
+     * Register Baskerville cookies with WP Super Cache so that users who have
+     * already solved the challenge (or are mid-challenge) are never served a
+     * stale cached version of the challenge page.
+     *
+     * This works for WP Super Cache PHP/Simple mode.  Expert (mod_rewrite) mode
+     * is handled by defining DONOTCACHEPAGE before writing the challenge response,
+     * which prevents the challenge HTML from ever entering the file cache.
+     */
+    private function register_supercache_bypass_cookies() {
+        // WP Super Cache: filter to append cookie names.
+        add_filter('wpsc_cookie_names', function( $cookies ) {
+            $ours = array(
+                self::GK_PASS_COOKIE,                  // baskerville_gk_pass
+                CAPTCHA_PREVIOUSLY_PASSED_COOKIE_NAME, // __wpsec_solved_
+                USER_CAPTCHA_CHALLENGE_COOKIE_NAME,    // __wpsec_challenge_
+                'baskerville_id',
+            );
+            return array_unique( array_merge( (array) $cookies, $ours ) );
+        });
+
+        // WP Super Cache also checks the global $cache_rejected_cookies array.
+        add_action('wp', function() {
+            global $cache_rejected_cookies;
+            if (!is_array($cache_rejected_cookies)) {
+                $cache_rejected_cookies = array();
+            }
+            $ours = array(
+                self::GK_PASS_COOKIE,
+                CAPTCHA_PREVIOUSLY_PASSED_COOKIE_NAME,
+                USER_CAPTCHA_CHALLENGE_COOKIE_NAME,
+                'baskerville_id',
+            );
+            $cache_rejected_cookies = array_unique( array_merge( $cache_rejected_cookies, $ours ) );
+        });
+    }
+
+    /**
+     * Runs at template_redirect priority 0 (before wpsec_enforce_captcha_policy).
+     * If the current logged-in admin has an active test session, sets the challenge
+     * globals so the admin bypass in wpsec_enforce_captcha_policy() is skipped.
+     */
+    public function maybe_activate_test_mode() {
+        if (!is_user_logged_in() || !current_user_can('manage_options')) {
+            return;
+        }
+        $user_id = get_current_user_id();
+        $expiry  = (int) get_user_meta($user_id, 'baskerville_gk_test', true);
+        if ($expiry <= 0 || time() > $expiry) {
+            return;
+        }
+        $GLOBALS['baskerville_gatekeeper_challenge'] = true;
+        $GLOBALS['baskerville_gatekeeper_test_mode'] = true;
+        wpsec_log('[gatekeeper] test mode active for user ' . $user_id . ', expires ' . date('H:i:s', $expiry));
+    }
+
+    /** AJAX: start test mode for the current admin user. */
+    public function ajax_test_start() {
+        check_ajax_referer('baskerville_gk_test_start', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized', 403);
+        }
+        $user_id = get_current_user_id();
+        $expiry  = time() + 10 * MINUTE_IN_SECONDS;
+        update_user_meta($user_id, 'baskerville_gk_test', $expiry);
+        wp_send_json_success(array(
+            'url'    => home_url('/'),
+            'expiry' => $expiry,
+        ));
+    }
+
+    /** AJAX: stop test mode for the current admin user. */
+    public function ajax_test_stop() {
+        check_ajax_referer('baskerville_gk_test_stop', 'nonce');
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Unauthorized', 403);
+        }
+        delete_user_meta(get_current_user_id(), 'baskerville_gk_test');
+        wp_send_json_success();
+    }
+}
