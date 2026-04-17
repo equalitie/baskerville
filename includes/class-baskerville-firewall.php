@@ -103,33 +103,14 @@ class Baskerville_Firewall
 			status_header(403);
 			nocache_headers();
 			header('Content-Type: text/plain; charset=UTF-8');
-			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
-			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
-			if (!empty($meta['cls']))    header('X-Baskerville-Class: ' . $meta['cls']);
 			if (!empty($meta['until'])) {
 				$until = (int)$meta['until'];
-				header('X-Baskerville-Until: ' . gmdate('c', $until));
 				$retry = max(1, $until - time());
 				header('Retry-After: ' . $retry);
 			}
 		}
 
-		// Show specific message based on ban reason (no translations - runs before init)
-		$reason = $meta['reason'] ?? '';
-		if (strpos($reason, 'no-cookie-burst') === 0) {
-			esc_html_e( 'Forbidden - Too many requests without session cookie', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			esc_html_e( 'Forbidden - Too many requests without JavaScript', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			esc_html_e( 'Forbidden - Non-browser client rate limit exceeded', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'ai-bot') === 0) {
-			esc_html_e( 'Forbidden - AI bot detected', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'cached-ban') === 0) {
-			esc_html_e( 'Forbidden - IP temporarily banned', 'baskerville-ai-security' );
-		} else {
-			esc_html_e( 'Forbidden - Bot detected', 'baskerville-ai-security' );
-		}
-		echo "\n";
+		echo "Forbidden\n";
 		exit;
 	}
 
@@ -139,18 +120,13 @@ class Baskerville_Firewall
 			status_header(403);
 			nocache_headers();
 			header('Content-Type: text/plain; charset=UTF-8');
-			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
-			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
-			if (!empty($meta['cls']))    header('X-Baskerville-Class: ' . $meta['cls']);
 			if (!empty($meta['until'])) {
 				$until = (int)$meta['until'];
-				header('X-Baskerville-Until: ' . gmdate('c', $until));
 				$retry = max(1, $until - time());
 				header('Retry-After: ' . $retry);
 			}
 		}
-		esc_html_e( 'Forbidden - Access from this country is restricted', 'baskerville-ai-security' );
-		echo "\n";
+		echo "Forbidden - Access restricted in your region\n";
 		exit;
 	}
 

@@ -166,10 +166,8 @@ class Baskerville_Honeypot {
 			// Send 403 response
 			status_header(403);
 			nocache_headers();
-			echo "<!DOCTYPE html>\n<html>\n<head>\n<title>" . esc_html__( '403 Forbidden', 'baskerville-ai-security' ) . "</title>\n</head>\n<body>\n";
-			echo "<h1>" . esc_html__( '403 Forbidden', 'baskerville-ai-security' ) . "</h1>\n";
-			echo "<p>" . esc_html__( 'Access denied. Automated bot detected.', 'baskerville-ai-security' ) . "</p>\n";
-			echo "</body>\n</html>";
+			header('Content-Type: text/plain; charset=UTF-8');
+			echo "Forbidden\n";
 			exit;
 		} else {
 			// error_log("Baskerville Honeypot: NOT banning IP $ip (ban_enabled={$ban_enabled}, honeypot_ban_enabled={$honeypot_ban_enabled})");
