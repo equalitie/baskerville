@@ -584,6 +584,9 @@ h3.baskerville-section-title {
 .baskerville-ml-10 {
     margin-left: 10px;
 }
+.baskerville-ml-20 {
+    margin-left: 20px;
+}
 .baskerville-my-20 {
     margin: 20px 0;
 }
@@ -960,10 +963,16 @@ h3.baskerville-section-title {
     border: 2px solid var(--bsk-color-warning-yellow);
     background: var(--bsk-color-warning-bg);
 }
+/* Under Attack Mode active — override border/bg */
+.baskerville-master-switch-attack {
+    border-color: var(--bsk-color-danger) !important;
+    background: var(--bsk-color-danger-bg) !important;
+}
 .baskerville-master-switch-header {
     display: flex;
     align-items: center;
     gap: 30px;
+    flex-wrap: wrap;
 }
 .baskerville-master-switch-title {
     margin: 0;
@@ -973,6 +982,104 @@ h3.baskerville-section-title {
 }
 .baskerville-master-switch-title-off {
     color: var(--bsk-color-warning-dark);
+}
+
+/* Under Attack quick-toggle in master switch bar */
+.baskerville-under-attack-quick {
+    margin-left: auto;
+    padding-left: 20px;
+    border-left: 2px solid rgba(0,0,0,.08);
+}
+
+/* Red toggle slider — used for Under Attack Mode */
+.baskerville-toggle-slider-danger {
+    background-color: var(--bsk-color-danger) !important;
+}
+/* Under Attack slider turns red immediately on check (no JS needed) */
+.baskerville-under-attack-quick input:checked + .baskerville-toggle-slider {
+    background-color: var(--bsk-color-danger);
+}
+
+/* Clear All Bans quick button */
+.baskerville-clear-bans-quick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.baskerville-btn-clear-bans {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-color: var(--bsk-color-danger-alt) !important;
+    color: var(--bsk-color-danger-alt) !important;
+}
+.baskerville-btn-clear-bans:hover {
+    background: var(--bsk-color-danger-bg) !important;
+}
+.baskerville-clear-bans-msg {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Disabled toggle label — grayed out, no pointer */
+.baskerville-toggle-disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* No-challenge warning banner */
+.baskerville-no-challenge-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    margin: 0 0 24px 0;
+    padding: 24px 28px;
+    border-radius: 8px;
+    border: 3px solid var(--bsk-color-danger);
+    background: #fff;
+}
+.baskerville-no-challenge-banner-icon .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: var(--bsk-color-danger);
+    flex-shrink: 0;
+    margin-top: 4px;
+}
+.baskerville-no-challenge-banner-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.baskerville-no-challenge-banner-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--bsk-color-danger);
+    line-height: 1.2;
+}
+.baskerville-no-challenge-banner-text {
+    font-size: 15px;
+    color: #333;
+    line-height: 1.6;
+    max-width: 680px;
+}
+.baskerville-no-challenge-banner-cta {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 10px 22px;
+    border-radius: 5px;
+    background: var(--bsk-color-danger);
+    color: #fff !important;
+    font-size: 15px;
+    font-weight: 600;
+    text-decoration: none !important;
+    transition: background .15s;
+    align-self: flex-start;
+}
+.baskerville-no-challenge-banner-cta:hover {
+    background: var(--bsk-color-danger-dark) !important;
+    color: #fff !important;
 }
 
 /* Simple table for diagnostics */

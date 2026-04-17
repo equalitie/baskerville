@@ -51,8 +51,8 @@ jQuery(document).ready(function($) {
 			var icon = getEventIcon(event.classification, event.event_type);
 			var color = getEventColor(event.classification, event.event_type);
 			var timeAgo = getTimeAgo(event.created_at);
-			var isTurnstileFail = event.event_type === 'ts_fail';
-			var displayLabel = isTurnstileFail ? i18n.turnstileFailed : event.classification.toUpperCase().replace('_', ' ');
+			var isTurnstileFail = event.event_type === 'ts_fail' || event.event_type === 'gk_fail';
+			var displayLabel = isTurnstileFail ? i18n.challengeFailed : event.classification.toUpperCase().replace('_', ' ');
 
 			var banBadge = '';
 			if (isTurnstileFail) {
@@ -121,6 +121,9 @@ jQuery(document).ready(function($) {
 			var item = $('<div class="live-feed-item"></div>');
 			var countryName = event.country_code ? getCountryName(event.country_code) : '';
 			var reasonText = isTurnstileFail ? i18n.failedTurnstile : (event.reason || i18n.noReason);
+			if (event.block_reason === 'gk-challenge-fail') {
+				reasonText = i18n.failedTurnstile;
+			}
 			item.html(
 				'<span class="feed-icon">' + icon + '</span> ' +
 				'<strong style="color: ' + color + ';">' + displayLabel + '</strong>' +
@@ -163,7 +166,7 @@ jQuery(document).ready(function($) {
 	}
 
 	function getEventIcon(classification, eventType) {
-		if (eventType === 'ts_fail') return '\u{1f6e1}\ufe0f';
+		if (eventType === 'ts_fail' || eventType === 'gk_fail') return '\u{1f6e1}\ufe0f';
 		if (eventType === 'honeypot') return '\u{1f36f}';
 		if (classification === 'ai_bot') return '\u{1f916}';
 		if (classification === 'bad_bot') return '\u{1f534}';
@@ -172,7 +175,7 @@ jQuery(document).ready(function($) {
 	}
 
 	function getEventColor(classification, eventType) {
-		if (eventType === 'ts_fail') return '#dc2626';
+		if (eventType === 'ts_fail' || eventType === 'gk_fail') return '#dc2626';
 		if (classification === 'ai_bot') return '#9333ea';
 		if (classification === 'bad_bot') return '#dc2626';
 		if (classification === 'bot') return '#f59e0b';

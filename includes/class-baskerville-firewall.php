@@ -103,33 +103,14 @@ class Baskerville_Firewall
 			status_header(403);
 			nocache_headers();
 			header('Content-Type: text/plain; charset=UTF-8');
-			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
-			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
-			if (!empty($meta['cls']))    header('X-Baskerville-Class: ' . $meta['cls']);
 			if (!empty($meta['until'])) {
 				$until = (int)$meta['until'];
-				header('X-Baskerville-Until: ' . gmdate('c', $until));
 				$retry = max(1, $until - time());
 				header('Retry-After: ' . $retry);
 			}
 		}
 
-		// Show specific message based on ban reason (no translations - runs before init)
-		$reason = $meta['reason'] ?? '';
-		if (strpos($reason, 'no-cookie-burst') === 0) {
-			esc_html_e( 'Forbidden - Too many requests without session cookie', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			esc_html_e( 'Forbidden - Too many requests without JavaScript', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'nojs-burst') === 0) {
-			esc_html_e( 'Forbidden - Non-browser client rate limit exceeded', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'ai-bot') === 0) {
-			esc_html_e( 'Forbidden - AI bot detected', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'cached-ban') === 0) {
-			esc_html_e( 'Forbidden - IP temporarily banned', 'baskerville-ai-security' );
-		} else {
-			esc_html_e( 'Forbidden - Bot detected', 'baskerville-ai-security' );
-		}
-		echo "\n";
+		echo "Forbidden\n";
 		exit;
 	}
 
@@ -139,18 +120,13 @@ class Baskerville_Firewall
 			status_header(403);
 			nocache_headers();
 			header('Content-Type: text/plain; charset=UTF-8');
-			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
-			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
-			if (!empty($meta['cls']))    header('X-Baskerville-Class: ' . $meta['cls']);
 			if (!empty($meta['until'])) {
 				$until = (int)$meta['until'];
-				header('X-Baskerville-Until: ' . gmdate('c', $until));
 				$retry = max(1, $until - time());
 				header('Retry-After: ' . $retry);
 			}
 		}
-		esc_html_e( 'Forbidden - Access from this country is restricted', 'baskerville-ai-security' );
-		echo "\n";
+		echo "Forbidden - Access restricted in your region\n";
 		exit;
 	}
 
@@ -470,14 +446,15 @@ class Baskerville_Firewall
 		$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
 		$risk           = (int)($evaluation['score'] ?? 0);
 
-		// Turnstile challenge for borderline bot scores (BEFORE burst protection)
+		// Challenge provider (Gatekeeper or Turnstile) for borderline bot scores (BEFORE burst protection)
 		// This gives borderline visitors a chance to prove they're human instead of getting 403
-		if (isset($GLOBALS['baskerville_turnstile'])) {
-			$turnstile = $GLOBALS['baskerville_turnstile'];
+		if (isset($GLOBALS['baskerville_challenge'])) {
+			$challenge_provider = $GLOBALS['baskerville_challenge'];
 			$baskerville_id = $this->core->get_cookie_id();
 
-			if ($turnstile->should_challenge($risk, $baskerville_id)) {
-				$turnstile->redirect_to_challenge();
+			if ($challenge_provider->should_challenge($risk, $baskerville_id)) {
+				$challenge_provider->redirect_to_challenge();
+				return; // Turnstile exits via wp_redirect; Gatekeeper sets a flag and returns
 			}
 		}
 
@@ -492,19 +469,20 @@ class Baskerville_Firewall
 				$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
 				$cls = $classification['classification'] ?? 'bot';
 
-				// If classified as human, try Turnstile challenge instead of banning
-				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
-					$turnstile = $GLOBALS['baskerville_turnstile'];
-					if ($turnstile->is_enabled()) {
-						if ($turnstile->has_valid_pass()) {
-							// Already passed Turnstile - allow through, don't ban
+				// If classified as human, try challenge provider instead of banning
+				if ($cls === 'human' && isset($GLOBALS['baskerville_challenge'])) {
+					$challenge_provider = $GLOBALS['baskerville_challenge'];
+					if ($challenge_provider->is_enabled()) {
+						if ($challenge_provider->has_valid_pass()) {
+							// Already passed challenge - allow through, don't ban
 							return;
 						}
-						$turnstile->redirect_to_challenge();
+						$challenge_provider->redirect_to_challenge();
+						return; // Turnstile exits via wp_redirect; Gatekeeper sets a flag and returns
 					}
 				}
 
-				// Not human or Turnstile not available - ban
+				// Not human or challenge provider not available - ban
 				$reason = "no-cookie-burst>{$threshold}/{$window_sec}s";
 				$ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
 
@@ -535,19 +513,20 @@ class Baskerville_Firewall
 				$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
 				$cls = $classification['classification'] ?? 'unknown';
 
-				// If classified as human, try Turnstile challenge instead of banning
-				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
-					$turnstile = $GLOBALS['baskerville_turnstile'];
-					if ($turnstile->is_enabled()) {
-						if ($turnstile->has_valid_pass()) {
-							// Already passed Turnstile - allow through, don't ban
+				// If classified as human, try challenge provider instead of banning
+				if ($cls === 'human' && isset($GLOBALS['baskerville_challenge'])) {
+					$challenge_provider = $GLOBALS['baskerville_challenge'];
+					if ($challenge_provider->is_enabled()) {
+						if ($challenge_provider->has_valid_pass()) {
+							// Already passed challenge - allow through, don't ban
 							return;
 						}
-						$turnstile->redirect_to_challenge();
+						$challenge_provider->redirect_to_challenge();
+						return; // Turnstile exits via wp_redirect; Gatekeeper sets a flag and returns
 					}
 				}
 
-				// Not human or Turnstile not available - ban
+				// Not human or challenge provider not available - ban
 				$reason = "nojs-burst>{$threshold}/{$window_sec}s";
 				$ttl    = (int) get_option('baskerville_ban_ttl_sec', 600);
 
@@ -609,15 +588,16 @@ class Baskerville_Firewall
 				$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
 				$cls = $classification['classification'] ?? 'bot';
 
-				// If classified as human, try Turnstile challenge instead of banning
-				if ($cls === 'human' && isset($GLOBALS['baskerville_turnstile'])) {
-					$turnstile = $GLOBALS['baskerville_turnstile'];
-					if ($turnstile->is_enabled()) {
-						if ($turnstile->has_valid_pass()) {
-							// Already passed Turnstile - allow through, don't ban
+				// If classified as human, try challenge provider instead of banning
+				if ($cls === 'human' && isset($GLOBALS['baskerville_challenge'])) {
+					$challenge_provider = $GLOBALS['baskerville_challenge'];
+					if ($challenge_provider->is_enabled()) {
+						if ($challenge_provider->has_valid_pass()) {
+							// Already passed challenge - allow through, don't ban
 							return;
 						}
-						$turnstile->redirect_to_challenge();
+						$challenge_provider->redirect_to_challenge();
+						return; // Turnstile exits via wp_redirect; Gatekeeper sets a flag and returns
 					}
 				}
 

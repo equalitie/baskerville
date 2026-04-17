@@ -30,7 +30,6 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-rest.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-honeypot.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
-require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
 // Add custom cron intervals
@@ -52,9 +51,23 @@ add_action('plugins_loaded', function () {
 	$aiua  = new Baskerville_AI_UA($core);       // AI_UA should receive $core in constructor
 	$stats = new Baskerville_Stats($core, $aiua); // Stats receives Core and AI_UA
 
-	// Cloudflare Turnstile - must be created BEFORE firewall for borderline challenge
-	$turnstile = new Baskerville_Turnstile($core, $stats);
-	$GLOBALS['baskerville_turnstile'] = $turnstile;
+	// Challenge provider — must be created BEFORE firewall for borderline challenge decisions
+	$options_early = get_option('baskerville_settings', array());
+	$captcha_provider = isset($options_early['captcha_provider']) ? $options_early['captcha_provider'] : 'none';
+
+	if ($captcha_provider === 'gatekeeper') {
+		require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-gatekeeper.php';
+		$challenge_obj = new Baskerville_Gatekeeper($core, $stats);
+	} elseif ($captcha_provider === 'turnstile') {
+		require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
+		$challenge_obj = new Baskerville_Turnstile($core, $stats);
+	} else {
+		$challenge_obj = null;
+	}
+
+	if ($challenge_obj !== null) {
+		$GLOBALS['baskerville_challenge'] = $challenge_obj;
+	}
 
 	// pre-DB firewall (MUST run IMMEDIATELY, before any other hooks)
 	// This runs directly in plugins_loaded to catch requests as early as possible
@@ -79,8 +92,10 @@ add_action('plugins_loaded', function () {
 	$honeypot = new Baskerville_Honeypot($core, $stats, $aiua);
 	$honeypot->init();
 
-	// Initialize Turnstile hooks (object already created before firewall)
-	$turnstile->init();
+	// Initialize challenge provider hooks (object already created before firewall)
+	if ($challenge_obj !== null) {
+		$challenge_obj->init();
+	}
 
 	// periodic statistics cleanup
 	add_action('baskerville_cleanup_stats', [$stats, 'cleanup_old_stats']);
