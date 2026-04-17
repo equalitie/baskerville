@@ -1352,10 +1352,12 @@ class Baskerville_Admin {
 			return 'NGINX (custom X-Country-Code header)';
 		} elseif (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
 			return 'Cloudflare';
+		} elseif (!empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) {
+			return 'Deflect CDN (X-Deflect-Country-Code)';
 		}
 
 		// Check MaxMind first
-		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
 		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
 		if (file_exists($db_path) && file_exists($autoload_path)) {
 			return 'MaxMind GeoLite2';
@@ -1396,9 +1398,12 @@ class Baskerville_Admin {
 		if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
 			return array('source' => 'Cloudflare', 'available' => true, 'country' => sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
 		}
+		if (!empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) {
+			return array('source' => 'Deflect CDN', 'available' => true, 'country' => sanitize_text_field(wp_unslash($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])));
+		}
 
 		// Check MaxMind first (priority over Deflect)
-		$db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+		$db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
 		$autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
 
 		if (file_exists($db_path) && file_exists($autoload_path)) {
@@ -2896,7 +2901,7 @@ class Baskerville_Admin {
 					<?php if ($is_custom_ip): ?>
 						<span class="baskerville-badge baskerville-badge-warning"><?php esc_html_e('Custom IP', 'baskerville-ai-security'); ?></span>
 					<?php endif; ?>
-					<br><strong><?php esc_html_e('Priority order:', 'baskerville-ai-security'); ?></strong> <?php esc_html_e( 'NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → MaxMind → Deflect GeoIP', 'baskerville-ai-security' ); ?>
+					<br><strong><?php esc_html_e('Priority order:', 'baskerville-ai-security'); ?></strong> <?php esc_html_e( 'NGINX GeoIP2 → NGINX GeoIP Legacy → NGINX Custom Header → Cloudflare → Deflect CDN → MaxMind → Deflect GeoIP', 'baskerville-ai-security' ); ?>
 				</div>
 
 				<div class="geoip-results">
@@ -2935,6 +2940,15 @@ class Baskerville_Admin {
 						<div class="geoip-source-name"><?php esc_html_e( 'Cloudflare', 'baskerville-ai-security' ); ?></div>
 						<div class="geoip-source-result <?php echo $results['cloudflare'] ? 'available' : 'unavailable'; ?>">
 							<?php echo $results['cloudflare'] ? esc_html($results['cloudflare']) : esc_html__('Not available', 'baskerville-ai-security'); ?>
+						</div>
+					</div>
+
+					<!-- Deflect CDN -->
+					<div class="geoip-source <?php echo $results['deflect_cdn'] ? 'available' : 'unavailable'; ?>">
+						<div class="geoip-status-icon"><?php echo $results['deflect_cdn'] ? '✅' : '❌'; ?></div>
+						<div class="geoip-source-name"><?php esc_html_e( 'Deflect CDN', 'baskerville-ai-security' ); ?> <small class="baskerville-text-muted">(X-Deflect-Country-Code)</small></div>
+						<div class="geoip-source-result <?php echo $results['deflect_cdn'] ? 'available' : 'unavailable'; ?>">
+							<?php echo $results['deflect_cdn'] ? esc_html($results['deflect_cdn']) : esc_html__('Not available', 'baskerville-ai-security'); ?>
 						</div>
 					</div>
 
@@ -3010,9 +3024,9 @@ class Baskerville_Admin {
 							</td>
 						</tr>
 						<tr>
-							<td><?php esc_html_e( 'WP_CONTENT_DIR:', 'baskerville-ai-security' ); ?></td>
+							<td><?php esc_html_e( 'Uploads Base Dir:', 'baskerville-ai-security' ); ?></td>
 							<td>
-								<code><?php echo esc_html($results['maxmind_debug']['wp_content_dir']); ?></code>
+								<code><?php echo esc_html($results['maxmind_debug']['uploads_basedir']); ?></code>
 							</td>
 						</tr>
 						<tr>
@@ -3169,6 +3183,9 @@ class Baskerville_Admin {
 				} elseif ($results['cloudflare'] && $results['cloudflare'] !== 'N/A (only for current IP)') {
 					$active_source = __( 'Cloudflare', 'baskerville-ai-security' );
 					$active_country = $results['cloudflare'];
+				} elseif (!empty($results['deflect_cdn']) && $results['deflect_cdn'] !== 'N/A (only for current IP)') {
+					$active_source = __( 'Deflect CDN', 'baskerville-ai-security' );
+					$active_country = $results['deflect_cdn'];
 				} elseif ($results['maxmind']) {
 					$active_source = __( 'MaxMind GeoLite2', 'baskerville-ai-security' );
 					$active_country = $results['maxmind'];
@@ -4894,7 +4911,7 @@ done
 			'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
 			'curl/7.68.0',
 			'python-requests/2.28.0',
-			'Googlebot/2.1 (+http://www.google.com/bot.html)',
+			'Googlebot/2.1',
 			'facebookexternalhit/1.1',
 		);
 

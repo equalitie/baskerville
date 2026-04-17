@@ -421,6 +421,9 @@ class Baskerville_Core {
         if (defined('REST_REQUEST') && REST_REQUEST) return false;
         if (wp_doing_ajax()) return false;
 
+        $method = sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+        if (!in_array($method, ['GET','HEAD'], true)) return false;
+
         // Check for feed and trackback using REQUEST_URI (works before query parsing)
         $uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
 
@@ -431,11 +434,20 @@ class Baskerville_Core {
         // Trackback detection: trackback.php or wp-trackback.php
         if (strpos($uri, 'trackback') !== false) return false;
 
-        if (strpos($uri, '/wp-json/') === 0) return false;
+        // Static assets: sub-resource requests (JS, CSS, images, fonts) should NOT
+        // count as page views. Without this, a single page load can increment burst
+        // counters 20+ times when CDN cache is cold (all sub-resources hit origin).
+        $path = wp_parse_url($uri, PHP_URL_PATH) ?: '';
+        if (preg_match('~\.(?:css|js|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|otf|map|webmanifest)$~i', $path)) {
+            return false;
+        }
+        // WordPress asset directories — even without extension (e.g. versioned bundles)
+        if (preg_match('~^/wp-(?:content|includes)/~', $path)) {
+            return false;
+        }
+
         $accept = sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? ''));
         if ($accept && !preg_match('~text/html|application/xhtml\+xml|\*/\*~i', $accept)) return false;
-        $method = sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? 'GET'));
-        if (!in_array($method, ['GET','HEAD'], true)) return false;
         return true;
     }
 
@@ -462,15 +474,24 @@ class Baskerville_Core {
             }
         }
 
+        // Check WordPress-specific API indicators
+        if (wp_doing_ajax()) {
+            return true;
+        }
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            return true;
+        }
+
         // Check URL patterns
         $uri = strtolower(sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '')));
 
+        $rest_prefix = '/' . strtolower(rest_get_url_prefix()) . '/';
         $api_paths = [
             '/api/', '/v1/', '/v2/', '/v3/', '/rest/', '/graphql/', '/gql/',
             '/auth/', '/oauth/', '/token/', '/webhook/', '/webhooks/',
             '/callback/', '/payment/', '/checkout/', '/orders/',
             '/system/', '/monitoring/', '/health/', '/status/',
-            '/wp-json/', '/wp-admin/admin-ajax.php'
+            $rest_prefix,
         ];
 
         foreach ($api_paths as $path) {
@@ -504,47 +525,49 @@ class Baskerville_Core {
 
     /**
      * Get country code for IP address
-     * Priority: 1) NGINX GeoIP, 2) Cloudflare, 3) MaxMind, 4) Deflect GeoIP
+     * Priority: 1) NGINX GeoIP headers, 2) Cloudflare, 3) Deflect CDN, 4) MaxMind (cached), 5) Deflect GeoIP DB (cached)
+     * Header-based sources are checked BEFORE cache — they are per-request and always current.
+     * Cache is only used for expensive database lookups.
      * @param string $ip
      * @return string|null Two-letter country code (e.g., 'US', 'RU') or null if unknown
      */
     public function get_country_by_ip($ip) {
         if (empty($ip)) return null;
 
-        // Check cache first (7 days TTL)
+        // 1. Check request-level headers first — these are always authoritative and need no caching.
+        // NGINX GeoIP variables
+        if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
+        }
+        if (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
+        }
+        if (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
+        }
+        // Cloudflare
+        if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
+        }
+        // Deflect CDN (X-Deflect-Country-Code header)
+        if (!empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) {
+            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])));
+        }
+
+        // 2. No header available — fall back to database lookup with 7-day cache.
         $cache_key = "country:{$ip}";
         $cached = $this->fc_get($cache_key);
         if ($cached !== null) {
             return $cached === 'XX' ? null : $cached;
         }
 
-        $country = null;
+        $country = $this->lookup_country_maxmind($ip);
 
-        // 1. Check NGINX GeoIP variables (fastest)
-        if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
-        }
-        elseif (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
-        }
-        elseif (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
-        }
-        // 2. Check Cloudflare header
-        elseif (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
-            $country = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
-        }
-        // 3. Try MaxMind local database first
-        else {
-            $country = $this->lookup_country_maxmind($ip);
-
-            // 4. Fallback to Deflect GeoIP (free, no registration required)
-            if ($country === null) {
-                $country = $this->lookup_country_deflect($ip);
-            }
+        if ($country === null) {
+            $country = $this->lookup_country_deflect($ip);
         }
 
-        // Normalize and validate
+        // Validate
         if ($country && strlen($country) === 2 && ctype_alpha($country)) {
             $country = strtoupper($country);
         } else {
@@ -594,7 +617,7 @@ class Baskerville_Core {
      * @return string|null
      */
     private function lookup_country_maxmind($ip) {
-        $db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+        $db_path = wp_upload_dir()['basedir'] . '/geoip/GeoLite2-Country.mmdb';
         if (!file_exists($db_path)) return null;
 
         if (!class_exists('GeoIp2\Database\Reader')) {
@@ -633,6 +656,7 @@ class Baskerville_Core {
             'nginx_geoip_legacy' => null,
             'nginx_custom_header' => null,
             'cloudflare' => null,
+            'deflect_cdn' => null,
             'deflect' => null,
             'deflect_debug' => array(),
             'maxmind' => null,
@@ -658,12 +682,18 @@ class Baskerville_Core {
             if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
                 $results['cloudflare'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
             }
+
+            // Check Deflect CDN header
+            if (!empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) {
+                $results['deflect_cdn'] = strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])));
+            }
         } else {
             // For non-current IPs, note that server-side sources only work for current IP
             $results['nginx_geoip2'] = 'N/A (only for current IP)';
             $results['nginx_geoip_legacy'] = 'N/A (only for current IP)';
             $results['nginx_custom_header'] = 'N/A (only for current IP)';
             $results['cloudflare'] = 'N/A (only for current IP)';
+            $results['deflect_cdn'] = 'N/A (only for current IP)';
         }
 
         // Test Deflect GeoIP
@@ -700,12 +730,13 @@ class Baskerville_Core {
         }
 
         // Test MaxMind directly with detailed diagnostics
-        $db_path = WP_CONTENT_DIR . '/uploads/geoip/GeoLite2-Country.mmdb';
+        $upload_dir = wp_upload_dir();
+        $db_path = $upload_dir['basedir'] . '/geoip/GeoLite2-Country.mmdb';
         $results['maxmind_debug']['expected_path'] = $db_path;
         $results['maxmind_debug']['file_exists'] = file_exists($db_path);
         $results['maxmind_debug']['is_readable'] = is_readable($db_path);
         $results['maxmind_debug']['file_size'] = file_exists($db_path) ? filesize($db_path) : 0;
-        $results['maxmind_debug']['wp_content_dir'] = WP_CONTENT_DIR;
+        $results['maxmind_debug']['uploads_basedir'] = $upload_dir['basedir'];
 
         // Check if vendor autoload exists
         $autoload_path = BASKERVILLE_PLUGIN_PATH . 'vendor/autoload.php';
@@ -738,10 +769,12 @@ class Baskerville_Core {
     }
 
     public function handle_widget_toggle() {
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
         if (!isset($_GET['baskerville_debug'])) return;
 
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for debug widget toggle parameter
+        // Only allow administrators with a valid nonce to toggle debug widgets
+        if (!current_user_can('manage_options')) return;
+        if (!isset($_GET['_bsk_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_bsk_nonce'])), 'baskerville_debug_toggle')) return;
+
         $v = strtolower(sanitize_text_field(wp_unslash($_GET['baskerville_debug'])));
         $enable  = in_array($v, ['1','on','true','yes'], true);
         $disable = in_array($v, ['0','off','false','no','clear'], true);
@@ -766,10 +799,8 @@ class Baskerville_Core {
             unset($_COOKIE['baskerville_show_widgets']);
         }
 
-        // Hint to cache not to cache this output
+        // Prevent caching of this specific response only when debug toggle is active
         if (!headers_sent()) {
-            // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Known cache-bypass constant used by caching plugins.
-            if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
             nocache_headers();
         }
     }

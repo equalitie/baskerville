@@ -21,7 +21,7 @@ class Baskerville_REST {
         register_rest_route('baskerville/v1', '/fp', [
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => [$this, 'handle_fp'],
-            'permission_callback' => function () { return true; }, // public endpoint; nonce checked inside
+            'permission_callback' => '__return_true', // Intentionally public: collects browser fingerprints from all visitors
         ]);
     }
 
@@ -80,7 +80,7 @@ class Baskerville_REST {
             return $rate_limit_response;
         }
         $nonce = $request->get_header('x-wp-nonce');
-        if ($nonce && !wp_verify_nonce($nonce, 'wp_rest')) {
+        if (!$nonce || !wp_verify_nonce($nonce, 'wp_rest')) {
             return new WP_REST_Response(['error' => 'invalid_nonce'], 403);
         }
 
