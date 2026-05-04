@@ -5,6 +5,18 @@ class Baskerville_AI_UA {
     /** @var Baskerville_Core */
     private $core;
 
+    /**
+     * AI companies that publish official IP ranges.
+     * Key = internal bot name (matches get_ai_ip_ranges keys),
+     * Value = company name (matches get_ai_bot_company output).
+     */
+    private const VERIFIED_AI_COMPANIES = [
+        'ClaudeBot'      => 'Anthropic',
+        'GPTBot'         => 'OpenAI',
+        'OAISearchBot'   => 'OpenAI',
+        'GoogleExtended' => 'Google',
+    ];
+
     public function __construct(Baskerville_Core $core) {
         $this->core = $core;
     }
@@ -125,6 +137,119 @@ class Baskerville_AI_UA {
         }
 
         return esc_html__('Unknown', 'baskerville-ai-security');
+    }
+
+    /**
+     * Parse IP prefixes from an AI company's JSON.
+     * Supports two formats:
+     *   Anthropic/Google: {"prefixes": [{"ipv4Prefix":"1.2.3.0/24"}, {"ipv6Prefix":"..."}]}
+     *   OpenAI:           {"prefixes": ["1.2.3.0/24", ...]}
+     */
+    private function parse_ai_prefixes(array $data): array {
+        $result = [];
+        foreach ($data['prefixes'] ?? [] as $item) {
+            if (is_string($item) && $item !== '') {
+                $result[] = $item;
+            } elseif (is_array($item)) {
+                $cidr = $item['ipv4Prefix'] ?? $item['ipv6Prefix'] ?? '';
+                if ($cidr !== '') $result[] = $cidr;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Check whether $ip falls within a CIDR range (IPv4 or IPv6).
+     */
+    private function ip_in_cidr(string $ip, string $cidr): bool {
+        $parts  = explode('/', $cidr, 2);
+        $range  = $parts[0];
+        $prefix = isset($parts[1]) ? (int) $parts[1] : -1;
+
+        $is_ipv6 = strpos($range, ':') !== false;
+
+        if ($is_ipv6) {
+            $ip_bin    = @inet_pton($ip);
+            $range_bin = @inet_pton($range);
+            if ($ip_bin === false || $range_bin === false || strlen($ip_bin) !== 16) return false;
+            if ($prefix < 0) return $ip_bin === $range_bin;
+            $prefix = min($prefix, 128);
+            $full_bytes = intdiv($prefix, 8);
+            $rem        = $prefix % 8;
+            $mask       = str_repeat("\xff", $full_bytes);
+            if ($rem > 0) $mask .= chr(0xff & (0xff << (8 - $rem)));
+            $mask = str_pad($mask, 16, "\x00");
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- binary string masking
+            return ($ip_bin & $mask) === ($range_bin & $mask);
+        } else {
+            $ip_long    = ip2long($ip);
+            $range_long = ip2long($range);
+            if ($ip_long === false || $range_long === false) return false;
+            if ($prefix < 0) return $ip_long === $range_long;
+            $prefix = min($prefix, 32);
+            if ($prefix === 0) return true;
+            $mask = -1 << (32 - $prefix);
+            return ($ip_long & $mask) === ($range_long & $mask);
+        }
+    }
+
+    /**
+     * Fetch and cache IP ranges published by AI companies.
+     * Cached for 1 hour via fc_get/fc_set (APCu or file).
+     * Returns: ['ClaudeBot' => ['1.2.3.0/24', ...], 'GPTBot' => [...], ...]
+     */
+    private function get_ai_ip_ranges(): array {
+        $cached = $this->core->fc_get('ai_ip_ranges');
+        if (is_array($cached)) return $cached;
+
+        $sources = [
+            'ClaudeBot'      => 'https://claude.com/crawling/bots.json',
+            'GPTBot'         => 'https://openai.com/gptbot.json',
+            'OAISearchBot'   => 'https://openai.com/searchbot.json',
+            'GoogleExtended' => 'https://developers.google.com/static/crawling/ipranges/common-crawlers.json',
+        ];
+
+        // Keep old data on partial failure so we don't lose valid ranges
+        $existing = is_array($cached) ? $cached : [];
+        $result   = [];
+
+        foreach ($sources as $name => $url) {
+            $response = wp_remote_get($url, [
+                'timeout'    => 5,
+                'user-agent' => 'BaskervillePlugin/1.0',
+            ]);
+            if (is_wp_error($response)) {
+                wpsec_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
+                $result[$name] = $existing[$name] ?? [];
+                continue;
+            }
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            if (!is_array($data)) {
+                wpsec_log("[AiBotVerificator] {$name}: invalid JSON");
+                $result[$name] = $existing[$name] ?? [];
+                continue;
+            }
+            $prefixes      = $this->parse_ai_prefixes($data);
+            $result[$name] = $prefixes;
+            wpsec_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
+        }
+
+        $this->core->fc_set('ai_ip_ranges', $result, HOUR_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * Returns the internal bot name (e.g. "ClaudeBot", "GPTBot") if $ip belongs
+     * to a published AI crawler range, or "" otherwise.
+     */
+    public function get_ai_bot_name_by_ip(string $ip): string {
+        foreach ($this->get_ai_ip_ranges() as $name => $cidrs) {
+            foreach ($cidrs as $cidr) {
+                if ($this->ip_in_cidr($ip, $cidr)) return $name;
+            }
+        }
+        return '';
     }
 
     public function verify_crawler_ip(string $ip, string $ua): array {
@@ -425,21 +550,73 @@ class Baskerville_AI_UA {
             ];
         }
 
-        // 1) Explicit AI bots by UA — priority check
+        // 1) AI IP range verification (authoritative — checked before UA)
+        // Fetch once; reused below for the unverified/spoof check.
+        $ai_ranges   = $this->get_ai_ip_ranges();
+        $ip_bot_name = '';
+        foreach ($ai_ranges as $name => $cidrs) {
+            foreach ($cidrs as $cidr) {
+                if ($this->ip_in_cidr($ip, $cidr)) { $ip_bot_name = $name; break 2; }
+            }
+        }
+        if ($ip_bot_name) {
+            $company = self::VERIFIED_AI_COMPANIES[$ip_bot_name] ?? $ip_bot_name;
+            return [
+                'classification' => 'verified_ai_bot',
+                /* translators: %s: bot name from published IP range */
+                'reason'         => sprintf( __( 'Verified AI bot by IP range (%s)', 'baskerville-ai-security' ), $ip_bot_name ),
+                'risk_score'     => 0,
+                'details'        => [
+                    'ip_verified_as' => $ip_bot_name,
+                    'company'        => $company,
+                    'ua_claimed_ai'  => $this->is_ai_bot_user_agent($user_agent),
+                    'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                ],
+            ];
+        }
+
+        // 2) AI bot by UA
         if ($this->is_ai_bot_user_agent($user_agent)) {
             $company = $this->get_ai_bot_company($user_agent);
+            // Only flag as unverified/spoofed when we actually have ranges loaded for this company.
+            // If ranges failed to fetch or the company isn't supported yet, fall through to ai_bot.
+            $has_loaded_ranges = false;
+            foreach (self::VERIFIED_AI_COMPANIES as $bot_name => $co) {
+                if ($co === $company && !empty($ai_ranges[$bot_name])) {
+                    $has_loaded_ranges = true;
+                    break;
+                }
+            }
+            if ($has_loaded_ranges) {
+                return [
+                    'classification' => 'ai_bot_unverified',
+                    /* translators: %s: AI bot company name */
+                    'reason'         => sprintf( __( 'AI bot UA (%s) but IP not in published ranges', 'baskerville-ai-security' ), $company ),
+                    'risk_score'     => max(60, $risk_score),
+                    'details'        => [
+                        'has_cookie'     => $had_cookie,
+                        'is_ai_bot'      => true,
+                        'is_bot_ua'      => $this->is_bot_user_agent($user_agent),
+                        'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                        'company'        => $company,
+                        'ip_verified_as' => null,
+                    ],
+                ];
+            }
+            // Company doesn't publish ranges — can't verify, treat as regular ai_bot
             return [
                 'classification' => 'ai_bot',
                 /* translators: %s: AI bot company name */
                 'reason'         => sprintf( __( 'AI bot detected by user agent (%s)', 'baskerville-ai-security' ), $company ),
                 'risk_score'     => $risk_score,
                 'details'        => [
-                    'has_cookie' => $had_cookie,
-                    'is_ai_bot'  => true,
-                    'is_bot_ua'  => $this->is_bot_user_agent($user_agent),
-                    'user_agent' => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
-                    'company'    => $company
-                ]
+                    'has_cookie'     => $had_cookie,
+                    'is_ai_bot'      => true,
+                    'is_bot_ua'      => $this->is_bot_user_agent($user_agent),
+                    'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                    'company'        => $company,
+                    'ip_verified_as' => null,
+                ],
             ];
         }
 

@@ -84,6 +84,8 @@ class Baskerville_Admin {
 				'ua'                   => __( 'UA:', 'baskerville-ai-security' ),
 				'honeypot'             => __( 'HONEYPOT', 'baskerville-ai-security' ),
 				'userAgent'            => __( 'USER-AGENT', 'baskerville-ai-security' ),
+				'ipVerified'           => __( 'IP VERIFIED', 'baskerville-ai-security' ),
+				'ipMismatch'           => __( 'IP MISMATCH', 'baskerville-ai-security' ),
 				'failedTurnstile'      => __( 'Failed Cloudflare Turnstile challenge', 'baskerville-ai-security' ),
 				'noReason'             => __( 'No reason', 'baskerville-ai-security' ),
 				'score'                => __( 'score', 'baskerville-ai-security' ),
@@ -126,7 +128,9 @@ class Baskerville_Admin {
 				'automatedLabel'       => __( 'Automated:', 'baskerville-ai-security' ),
 				'trafficDistLast'      => __( 'Traffic Distribution — last', 'baskerville-ai-security' ),
 				'badBots'              => __( 'Bad Bots', 'baskerville-ai-security' ),
-				'aiBots'               => __( 'AI Bots', 'baskerville-ai-security' ),
+				'aiBots'               => __( 'AI Bots (UA only)', 'baskerville-ai-security' ),
+				'aiBotsUnverified'     => __( 'AI Bots (IP mismatch)', 'baskerville-ai-security' ),
+				'aiBotsVerified'       => __( 'AI Bots (IP verified)', 'baskerville-ai-security' ),
 				'otherBots'            => __( 'Other Bots', 'baskerville-ai-security' ),
 				'verifiedCrawlers'     => __( 'Verified Crawlers', 'baskerville-ai-security' ),
 				'count'                => __( 'Count', 'baskerville-ai-security' ),
@@ -573,6 +577,14 @@ class Baskerville_Admin {
 			'baskerville_ai_bot_control_section'
 		);
 
+		add_settings_field(
+			'block_ai_bot_unverified',
+			esc_html__('Block IP-Mismatch AI Bots', 'baskerville-ai-security'),
+			array($this, 'render_block_ai_bot_unverified_field'),
+			'baskerville-ai-bot-control',
+			'baskerville_ai_bot_control_section'
+		);
+
 		// Honeypot fields (moved from general settings)
 		add_settings_field(
 			'honeypot_enabled',
@@ -711,6 +723,11 @@ class Baskerville_Admin {
 
 		// Honeypot settings - if AI bot control tab submitted, unchecked = false; otherwise preserve existing
 		$is_ai_tab = isset($input['ai_bot_control_tab']);
+
+		$sanitized['block_ai_bot_unverified'] = isset($input['block_ai_bot_unverified'])
+			? (bool) $input['block_ai_bot_unverified']
+			: ($is_ai_tab ? false : (isset($existing['block_ai_bot_unverified']) ? $existing['block_ai_bot_unverified'] : true));
+
 		$sanitized['honeypot_enabled'] = isset($input['honeypot_enabled'])
 			? (bool) $input['honeypot_enabled']
 			: ($is_ai_tab ? false : (isset($existing['honeypot_enabled']) ? $existing['honeypot_enabled'] : false));
@@ -1193,6 +1210,24 @@ class Baskerville_Admin {
 				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville-ai-security'); ?></em>
 			</p>
 		</div>
+		<?php
+	}
+
+	public function render_block_ai_bot_unverified_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = !isset($options['block_ai_bot_unverified']) || $options['block_ai_bot_unverified'];
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[block_ai_bot_unverified]" value="0">
+			<input type="checkbox" name="baskerville_settings[block_ai_bot_unverified]" value="1" <?php checked($enabled, true); ?> />
+			<strong><?php esc_html_e('Always block bots with IP mismatch', 'baskerville-ai-security'); ?></strong>
+		</label>
+		<p class="description">
+			<?php esc_html_e(
+				'When enabled, any request claiming to be from Anthropic, OpenAI, or Google but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
+				'baskerville-ai-security'
+			); ?>
+		</p>
 		<?php
 	}
 
@@ -1748,9 +1783,11 @@ class Baskerville_Admin {
 				COUNT(*) AS total_visits,
 				SUM(CASE WHEN classification='human'   THEN 1 ELSE 0 END) AS human_count,
 				SUM(CASE WHEN classification='bad_bot' THEN 1 ELSE 0 END) AS bad_bot_count,
-				SUM(CASE WHEN classification='ai_bot'  THEN 1 ELSE 0 END) AS ai_bot_count,
-				SUM(CASE WHEN classification='bot'     THEN 1 ELSE 0 END) AS bot_count,
-				SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
+				SUM(CASE WHEN classification='ai_bot'            THEN 1 ELSE 0 END) AS ai_bot_count,
+				SUM(CASE WHEN classification='verified_ai_bot'   THEN 1 ELSE 0 END) AS verified_ai_bot_count,
+				SUM(CASE WHEN classification='ai_bot_unverified' THEN 1 ELSE 0 END) AS ai_bot_unverified_count,
+				SUM(CASE WHEN classification='bot'               THEN 1 ELSE 0 END) AS bot_count,
+				SUM(CASE WHEN classification='verified_bot'      THEN 1 ELSE 0 END) AS verified_bot_count,
 				AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
 			FROM %i
 			WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
@@ -1769,15 +1806,17 @@ class Baskerville_Admin {
 			$humanPct = $total > 0 ? round(($humanCnt * 100.0) / $total, 2) : 0;
 
 			$out[] = [
-				'time'               => $r['time_slot'],
-				'total_visits'       => $total,
-				'human_count'        => $humanCnt,
-				'bad_bot_count'      => (int)$r['bad_bot_count'],
-				'ai_bot_count'       => (int)$r['ai_bot_count'],
-				'bot_count'          => (int)$r['bot_count'],
-				'verified_bot_count' => (int)$r['verified_bot_count'],
-				'avg_score'          => $r['avg_score'] !== null ? round((float)$r['avg_score'], 2) : null,
-				'human_percentage'   => $humanPct
+				'time'                    => $r['time_slot'],
+				'total_visits'            => $total,
+				'human_count'             => $humanCnt,
+				'bad_bot_count'           => (int)$r['bad_bot_count'],
+				'ai_bot_count'            => (int)$r['ai_bot_count'],
+				'verified_ai_bot_count'   => (int)$r['verified_ai_bot_count'],
+				'ai_bot_unverified_count' => (int)$r['ai_bot_unverified_count'],
+				'bot_count'               => (int)$r['bot_count'],
+				'verified_bot_count'      => (int)$r['verified_bot_count'],
+				'avg_score'               => $r['avg_score'] !== null ? round((float)$r['avg_score'], 2) : null,
+				'human_percentage'        => $humanPct
 			];
 		}
 
@@ -5125,10 +5164,10 @@ done
 			 INNER JOIN (
 				 SELECT ip, MAX(created_at) as max_created
 				 FROM " . esc_sql($table) . "
-				 WHERE classification IN ('bad_bot', 'ai_bot', 'bot') OR score >= 50 OR (block_reason IS NOT NULL AND block_reason != '') OR event_type = 'ts_fail'
+				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot') OR score >= 50 OR (block_reason IS NOT NULL AND block_reason != '') OR event_type = 'ts_fail'
 				 GROUP BY ip
 			 ) t2 ON t1.ip = t2.ip AND t1.created_at = t2.max_created
-			 WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'bot') OR t1.score >= 50 OR (t1.block_reason IS NOT NULL AND t1.block_reason != '') OR t1.event_type = 'ts_fail')
+			 WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot') OR t1.score >= 50 OR (t1.block_reason IS NOT NULL AND t1.block_reason != '') OR t1.event_type = 'ts_fail')
 			 ORDER BY t1.created_at DESC
 			 LIMIT %d",
 			30
@@ -5165,7 +5204,7 @@ done
 
 		$blocks_today = (int) $wpdb->get_var(
 			"SELECT COUNT(*) FROM " . esc_sql($table) . "
-			 WHERE classification IN ('bad_bot', 'ai_bot')
+			 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified')
 			   AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
 		);
 
@@ -5173,7 +5212,7 @@ done
 
 		$blocks_hour = (int) $wpdb->get_var(
 			"SELECT COUNT(*) FROM " . esc_sql($table) . "
-			 WHERE classification IN ('bad_bot', 'ai_bot')
+			 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified')
 			   AND created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)"
 		);
 
@@ -5182,7 +5221,7 @@ done
 		$top_ips = $wpdb->get_results(
 			"SELECT ip, country_code, COUNT(*) as count
 			 FROM " . esc_sql($table) . "
-			 WHERE classification IN ('bad_bot', 'ai_bot')
+			 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified')
 			   AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
 			 GROUP BY ip
 			 ORDER BY count DESC
@@ -5195,7 +5234,7 @@ done
 		$top_countries = $wpdb->get_results(
 			"SELECT country_code, COUNT(*) as count
 			 FROM " . esc_sql($table) . "
-			 WHERE classification IN ('bad_bot', 'ai_bot')
+			 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified')
 			   AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
 			 GROUP BY country_code
 			 ORDER BY count DESC

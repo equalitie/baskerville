@@ -64,7 +64,8 @@ jQuery(document).ready(function($) {
 			}
 
 			var companyBadge = '';
-			if (event.classification === 'ai_bot') {
+			var isAiClass = event.classification === 'ai_bot' || event.classification === 'ai_bot_unverified' || event.classification === 'verified_ai_bot';
+			if (isAiClass) {
 				var companyName = null;
 				var reasonMatch = event.reason && event.reason.match(/\(([^)]+)\)$/);
 				if (reasonMatch) {
@@ -97,19 +98,19 @@ jQuery(document).ready(function($) {
 					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
 					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
 				}
-			} else if (event.classification === 'ai_bot') {
+			} else if (isAiClass) {
 				if (event.event_type === 'honeypot') {
 					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-honeypot">' + i18n.honeypot + '</span>';
-					if (event.ua) {
-						truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-						userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
-					}
+				} else if (event.classification === 'verified_ai_bot') {
+					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-verified">' + i18n.ipVerified + '</span>';
+				} else if (event.classification === 'ai_bot_unverified') {
+					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-spoof">' + i18n.ipMismatch + '</span>';
 				} else {
 					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-useragent">' + i18n.userAgent + '</span>';
-					if (event.ua) {
-						truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-						userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
-					}
+				}
+				if (event.ua) {
+					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
 				}
 			} else {
 				if (isUserAgentBased && event.ua) {
@@ -165,6 +166,8 @@ jQuery(document).ready(function($) {
 	function getEventIcon(classification, eventType) {
 		if (eventType === 'ts_fail') return '\u{1f6e1}\ufe0f';
 		if (eventType === 'honeypot') return '\u{1f36f}';
+		if (classification === 'verified_ai_bot')  return '\u2705';       // ✅
+		if (classification === 'ai_bot_unverified') return '\u{1f916}\u26a0\ufe0f'; // 🤖⚠️
 		if (classification === 'ai_bot') return '\u{1f916}';
 		if (classification === 'bad_bot') return '\u{1f534}';
 		if (classification === 'bot') return '\u{1f7e1}';
@@ -173,6 +176,8 @@ jQuery(document).ready(function($) {
 
 	function getEventColor(classification, eventType) {
 		if (eventType === 'ts_fail') return '#dc2626';
+		if (classification === 'verified_ai_bot')   return '#16a34a'; // green
+		if (classification === 'ai_bot_unverified') return '#ea580c'; // orange-red
 		if (classification === 'ai_bot') return '#9333ea';
 		if (classification === 'bad_bot') return '#dc2626';
 		if (classification === 'bot') return '#f59e0b';
