@@ -37,6 +37,50 @@ class Baskerville_Firewall
 		$this->insert_block_row($ip, $evaluation, $classification, $ua, $reason);
 	}
 
+	/* ===== One-shot DB logging gate for allowed AI bot visits ===== */
+	private function botvisit_once(string $ip, array $classification, string $ua, int $gate_ttl = 3600): void {
+		$cls = $classification['classification'] ?? '';
+		$k   = "botvisit:{$ip}:" . md5($cls . $ua);
+		if ($this->core->fc_get($k)) return; // already logged within the hour
+		$this->core->fc_set($k, 1, $gate_ttl);
+		$this->insert_ai_bot_visit_row($ip, $classification, $ua);
+	}
+
+	/**
+	 * Insert an AI bot visit row (not a block) for analytics.
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+	 */
+	private function insert_ai_bot_visit_row(string $ip, array $classification, string $ua): void {
+		global $wpdb;
+		$table     = $wpdb->prefix . 'baskerville_stats';
+		$cookie_id = $this->core->get_cookie_id() ?: '';
+		$visit_key = $this->stats->make_visit_key($ip, $cookie_id);
+		$country   = $this->core->get_country_by_ip($ip);
+
+		$wpdb->insert(
+			$table,
+			[
+				'visit_key'             => $visit_key,
+				'ip'                    => $ip,
+				'country_code'          => $country,
+				'baskerville_id'        => $cookie_id,
+				'timestamp_utc'         => current_time('mysql', true),
+				'score'                 => 0,
+				'classification'        => (string)($classification['classification'] ?? 'ai_bot'),
+				'user_agent'            => $ua,
+				'evaluation_json'       => '{}',
+				'score_reasons'         => '',
+				'classification_reason' => (string)($classification['reason'] ?? ''),
+				'block_reason'          => '',
+				'event_type'            => 'ai_bot',
+				'had_fp'                => 0,
+			],
+			['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%d']
+		);
+	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
+
 	/**
 	 * Insert block event row into database.
 	 *
@@ -382,6 +426,11 @@ class Baskerville_Firewall
 						'until'  => time() + $ttl,
 					]);
 				}
+			}
+
+			// Log allowed AI bot visits for analytics (1 visit per IP+UA per hour)
+			if (in_array($cls, ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'], true)) {
+				$this->botvisit_once($ip, $classification, $ua);
 			}
 		}
 

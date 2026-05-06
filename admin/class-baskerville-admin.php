@@ -5164,10 +5164,18 @@ done
 			 INNER JOIN (
 				 SELECT ip, MAX(created_at) as max_created
 				 FROM " . esc_sql($table) . "
-				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot') OR score >= 50 OR (block_reason IS NOT NULL AND block_reason != '') OR event_type = 'ts_fail'
+				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot')
+				    OR (score >= 50 AND classification NOT IN ('verified_bot', 'verified_ai_bot'))
+				    OR (block_reason IS NOT NULL AND block_reason != '')
+				    OR event_type = 'ts_fail'
 				 GROUP BY ip
 			 ) t2 ON t1.ip = t2.ip AND t1.created_at = t2.max_created
-			 WHERE (t1.classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot') OR t1.score >= 50 OR (t1.block_reason IS NOT NULL AND t1.block_reason != '') OR t1.event_type = 'ts_fail')
+			 WHERE (
+			    t1.classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot')
+			    OR (t1.score >= 50 AND t1.classification NOT IN ('verified_bot', 'verified_ai_bot'))
+			    OR (t1.block_reason IS NOT NULL AND t1.block_reason != '')
+			    OR t1.event_type = 'ts_fail'
+			 )
 			 ORDER BY t1.created_at DESC
 			 LIMIT %d",
 			30

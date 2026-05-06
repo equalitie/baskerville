@@ -437,7 +437,9 @@
                 var labels = timeseries.map(function(i) { return fmtHHMM(i.time); });
                 var humans = timeseries.map(function(i) { return i.human_count || 0; });
                 var automated = timeseries.map(function(i) {
-                    return (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.ai_bot_unverified_count||0) + (i.verified_ai_bot_count||0) + (i.bot_count||0) + (i.verified_bot_count||0);
+                    // verified_bot (Googlebot/Bingbot) and verified_ai_bot are legitimate crawlers —
+                    // exclude them from the "automated threat" count
+                    return (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.ai_bot_unverified_count||0) + (i.bot_count||0);
                 });
 
                 var totalHumans = humans.reduce(function(a,b) { return a+b; }, 0);
@@ -545,7 +547,7 @@
                                 callbacks: {
                                     afterBody: function(items) {
                                         var idx = items[0].dataIndex;
-                                        var total = (badBots[idx]||0) + (aiBots[idx]||0) + (aiBotsUnverified[idx]||0) + (aiBotsVerified[idx]||0) + (bots[idx]||0) + (verifiedBots[idx]||0);
+                                        var total = (badBots[idx]||0) + (aiBots[idx]||0) + (aiBotsUnverified[idx]||0) + (bots[idx]||0);
                                         return [i18n.totalBots + ' ' + total];
                                     }
                                 }
