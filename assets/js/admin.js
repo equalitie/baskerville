@@ -204,12 +204,18 @@
                 // Prepare datasets
                 var datasets = [];
                 Object.keys(data.companies).forEach(function(company) {
+                    var isUnverified = company.slice(-3) === ' [?]';
+                    var baseName = isUnverified ? company.slice(0, -3) : company;
+                    var baseColor = companyColors[baseName] || '#9ca3af';
+                    var color = isUnverified ? '#ea580c' : baseColor;
+                    var label = isUnverified ? baseName + ' (IP mismatch)' : company;
                     datasets.push({
-                        label: company,
+                        label: label,
                         data: data.companies[company],
-                        backgroundColor: companyColors[company] || '#9ca3af',
-                        borderColor: companyColors[company] || '#9ca3af',
-                        borderWidth: 1
+                        backgroundColor: isUnverified ? 'rgba(234,88,12,0.85)' : color,
+                        borderColor: color,
+                        borderWidth: isUnverified ? 2 : 1,
+                        borderDash: isUnverified ? [4, 2] : []
                     });
                 });
 
@@ -431,7 +437,9 @@
                 var labels = timeseries.map(function(i) { return fmtHHMM(i.time); });
                 var humans = timeseries.map(function(i) { return i.human_count || 0; });
                 var automated = timeseries.map(function(i) {
-                    return (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.bot_count||0) + (i.verified_bot_count||0);
+                    // verified_bot (Googlebot/Bingbot) and verified_ai_bot are legitimate crawlers —
+                    // exclude them from the "automated threat" count
+                    return (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.ai_bot_unverified_count||0) + (i.bot_count||0);
                 });
 
                 var totalHumans = humans.reduce(function(a,b) { return a+b; }, 0);
@@ -498,15 +506,19 @@
                 });
 
                 // Bot types data
-                var badBots = timeseries.map(function(i) { return i.bad_bot_count || 0; });
-                var aiBots = timeseries.map(function(i) { return i.ai_bot_count || 0; });
-                var bots = timeseries.map(function(i) { return i.bot_count || 0; });
-                var verifiedBots = timeseries.map(function(i) { return i.verified_bot_count || 0; });
+                var badBots         = timeseries.map(function(i) { return i.bad_bot_count            || 0; });
+                var aiBots          = timeseries.map(function(i) { return i.ai_bot_count             || 0; });
+                var aiBotsUnverified= timeseries.map(function(i) { return i.ai_bot_unverified_count  || 0; });
+                var aiBotsVerified  = timeseries.map(function(i) { return i.verified_ai_bot_count    || 0; });
+                var bots            = timeseries.map(function(i) { return i.bot_count                || 0; });
+                var verifiedBots    = timeseries.map(function(i) { return i.verified_bot_count       || 0; });
 
-                var totalBadBots = badBots.reduce(function(a,b) { return a+b; }, 0);
-                var totalAiBots = aiBots.reduce(function(a,b) { return a+b; }, 0);
-                var totalBots = bots.reduce(function(a,b) { return a+b; }, 0);
-                var totalVerifiedBots = verifiedBots.reduce(function(a,b) { return a+b; }, 0);
+                var totalBadBots          = badBots.reduce(function(a,b) { return a+b; }, 0);
+                var totalAiBots           = aiBots.reduce(function(a,b) { return a+b; }, 0);
+                var totalAiBotsUnverified = aiBotsUnverified.reduce(function(a,b) { return a+b; }, 0);
+                var totalAiBotsVerified   = aiBotsVerified.reduce(function(a,b) { return a+b; }, 0);
+                var totalBots             = bots.reduce(function(a,b) { return a+b; }, 0);
+                var totalVerifiedBots     = verifiedBots.reduce(function(a,b) { return a+b; }, 0);
 
                 // 3) Stacked Bar: Bot Types
                 new Chart(document.getElementById('baskervilleBotTypesBar').getContext('2d'), {
@@ -514,10 +526,12 @@
                     data: {
                         labels: labels,
                         datasets: [
-                            { label: i18n.badBots, data: badBots, stack: 'bots', backgroundColor: '#F44336' },
-                            { label: i18n.aiBots, data: aiBots, stack: 'bots', backgroundColor: '#9C27B0' },
-                            { label: i18n.otherBots, data: bots, stack: 'bots', backgroundColor: '#FF9800' },
-                            { label: i18n.verifiedCrawlers, data: verifiedBots, stack: 'bots', backgroundColor: '#2196F3' }
+                            { label: i18n.badBots,             data: badBots,          stack: 'bots', backgroundColor: '#F44336' },
+                            { label: i18n.aiBotsUnverified,    data: aiBotsUnverified, stack: 'bots', backgroundColor: '#EA580C' },
+                            { label: i18n.aiBots,              data: aiBots,           stack: 'bots', backgroundColor: '#9C27B0' },
+                            { label: i18n.aiBotsVerified,      data: aiBotsVerified,   stack: 'bots', backgroundColor: '#16A34A' },
+                            { label: i18n.otherBots,           data: bots,             stack: 'bots', backgroundColor: '#FF9800' },
+                            { label: i18n.verifiedCrawlers,    data: verifiedBots,     stack: 'bots', backgroundColor: '#2196F3' }
                         ]
                     },
                     options: {
@@ -533,7 +547,7 @@
                                 callbacks: {
                                     afterBody: function(items) {
                                         var idx = items[0].dataIndex;
-                                        var total = (badBots[idx]||0) + (aiBots[idx]||0) + (bots[idx]||0) + (verifiedBots[idx]||0);
+                                        var total = (badBots[idx]||0) + (aiBots[idx]||0) + (aiBotsUnverified[idx]||0) + (bots[idx]||0);
                                         return [i18n.totalBots + ' ' + total];
                                     }
                                 }
@@ -546,8 +560,8 @@
                 new Chart(document.getElementById('baskervilleBotTypesPie').getContext('2d'), {
                     type: 'pie',
                     data: {
-                        labels: [i18n.badBots, i18n.aiBots, i18n.otherBots, i18n.verifiedCrawlers],
-                        datasets: [{ data: [totalBadBots, totalAiBots, totalBots, totalVerifiedBots], backgroundColor: ['#F44336', '#9C27B0', '#FF9800', '#2196F3'] }]
+                        labels: [i18n.badBots, i18n.aiBotsUnverified, i18n.aiBots, i18n.aiBotsVerified, i18n.otherBots, i18n.verifiedCrawlers],
+                        datasets: [{ data: [totalBadBots, totalAiBotsUnverified, totalAiBots, totalAiBotsVerified, totalBots, totalVerifiedBots], backgroundColor: ['#F44336', '#EA580C', '#9C27B0', '#16A34A', '#FF9800', '#2196F3'] }]
                     },
                     options: {
                         responsive: true, maintainAspectRatio: true,
@@ -558,7 +572,7 @@
                                 callbacks: {
                                     label: function(ctx) {
                                         var v = ctx.parsed || 0;
-                                        var sum = totalBadBots + totalAiBots + totalBots + totalVerifiedBots || 1;
+                                        var sum = totalBadBots + totalAiBotsUnverified + totalAiBots + totalAiBotsVerified + totalBots + totalVerifiedBots || 1;
                                         var pct = Math.round((v*100)/sum);
                                         return ' ' + ctx.label + ': ' + v + ' (' + pct + '%)';
                                     }

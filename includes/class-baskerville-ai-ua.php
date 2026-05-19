@@ -5,6 +5,38 @@ class Baskerville_AI_UA {
     /** @var Baskerville_Core */
     private $core;
 
+    /**
+     * AI companies that publish official IP ranges.
+     * Key = internal bot name (matches get_ai_ip_ranges keys),
+     * Value = company name (matches get_ai_bot_company output).
+     */
+    private const VERIFIED_AI_COMPANIES = [
+        'ClaudeBot'           => 'Anthropic',
+        'GPTBot'              => 'OpenAI',
+        'OAISearchBot'        => 'OpenAI',
+        'ChatGPT-User'        => 'OpenAI',
+        'GoogleExtended'      => 'Google',
+        'GoogleSpecial'       => 'Google',
+        'GoogleUserTriggered' => 'Google',
+        'PerplexityBot'       => 'Perplexity',
+        'PerplexityUser'      => 'Perplexity',
+        'MistralBot'          => 'Mistral',
+        'MistralAIUser'       => 'Mistral',
+        'DuckAssistBot'       => 'DuckDuckGo',
+        'Bingbot'             => 'Microsoft',
+        'CCBot'               => 'Common Crawl',
+        'AmazonBot'           => 'Amazon',
+    ];
+
+    /**
+     * Companies that verify their crawlers via reverse DNS rather than published IP ranges.
+     * Key = company name (as returned by get_ai_bot_company()).
+     * Value = array of allowed PTR hostname suffixes.
+     */
+    private const RDNS_VERIFIED_COMPANIES = [
+        'Meta' => ['.facebook.com', '.fbscan.com'],
+    ];
+
     public function __construct(Baskerville_Core $core) {
         $this->core = $core;
     }
@@ -51,26 +83,83 @@ class Baskerville_AI_UA {
         $ua = strtolower($user_agent);
 
         $ai_crawlers = [
-            'gptbot',                // OpenAI
-            'openai.*crawler',       // OpenAI legacy
-            'openai-httplib',        // Python OpenAI lib
-            'chatgpt',               // Any generic ChatGPT client
-            'anthropic',             // Claude / Anthropic
-            'claudebot',             // ClaudeBot
-            'google-extended',       // Google's opt-out agent
-            'ai crawler',            // Generic
-            'bytespider',            // ByteDance
+            // OpenAI
+            'gptbot',                // GPTBot (official crawler)
+            'chatgpt-user',          // ChatGPT browsing plugin
+            'oai-searchbot',         // OAISearchBot (SearchGPT)
+            'chatgpt',               // Generic ChatGPT client
+
+            // Anthropic
+            'claudebot',             // ClaudeBot (official crawler)
+            'claude-user',           // Claude browsing/operator
+            'claude-searchbot',      // Claude search
+            'anthropic-ai',          // Anthropic generic
+
+            // Google
+            'google-extended',       // Google AI opt-out token
+            'google-cloudvertexbot', // Vertex AI
+            'google-notebooklm',     // NotebookLM
+            'googleagent-mariner',   // Project Mariner
+            'googleagent-urlcontext',// Gemini URL context
+            'google-firebase',       // Firebase AI
+            'gemini-deep-research',  // Gemini Deep Research
+            'google-agent',          // Generic Google agent
+
+            // Meta
+            'meta-externalagent',    // Meta AI training crawler
+            'meta-externalfetcher',  // Meta fetching agent
+            'meta-webindexer',       // Meta web indexer
+            'facebookbot',           // Facebook AI research
+            'facebot',               // Meta legacy
+
+            // Amazon / AWS
+            'amazonbot',             // Amazon AI research
+            'bedrockbot',            // Amazon Bedrock
+            'novaact',               // Amazon Nova Act agent
+            'amazonbuyforme',        // Amazon agentic shopping
+
+            // ByteDance / TikTok
+            'bytespider',            // ByteDance crawler
+            'tiktokspider',          // TikTok web indexer
+
+            // Perplexity
+            'perplexitybot',         // PerplexityBot
+            'perplexity-user',       // Perplexity user-facing requests
+
+            // Mistral
+            'mistralbot',            // MistralBot (index crawler)
+            'mistralai-user',        // MistralAI-User
+
+            // DeepSeek
+            'deepseekbot',           // DeepSeek crawler
+
+            // Microsoft / Bing
+            'bingbot',               // Bingbot (Microsoft Copilot/AI Search)
+
+            // DuckDuckGo
+            'duckassistbot',         // DuckAssist AI
+
+            // Cohere
+            'cohere',                // Cohere training/inference
+
+            // Common Crawl (major LLM training source)
+            'ccbot',
+
+            // Data aggregators / scraping-as-a-service
+            'webzio-extended',       // Webz.io AI data
+            'firecrawlagent',        // Firecrawl (LLM scraping)
+            'youbot',                // You.com AI crawler
+            'ai2bot',                // Allen Institute for AI
+            'diffbot',               // Diffbot knowledge graph
+            'omgilibot',             // Omgili / Webz
+            'img2dataset',           // LAION img2dataset
+
+            // Other / regional AI crawlers
             'yisouspider',           // Baidu affiliate
             'youdao',                // NetEase AI
-            'ccbot',                 // Common Crawl (training source)
-            'petalbot',              // Huawei
-            'facebookbot',           // Facebook/Meta AI research
-            'facebot',               // Meta
-            'amazonbot',             // Amazon AI research
-            'cohere',                // Cohere.ai
-            'perplexitybot',         // Perplexity
-            'ai\scrawler',           // catch-all
-            'meta-externalagent',    // facebook training
+            'petalbot',              // Huawei Petal Search
+            'ai\scrawler',           // catch-all pattern
+            'ai crawler',            // catch-all
         ];
 
         foreach ($ai_crawlers as $pattern) {
@@ -94,28 +183,87 @@ class Baskerville_AI_UA {
 
         $ua = strtolower($user_agent);
 
-        // Mapping: pattern => company name
+        // Mapping: pattern => company name (more specific patterns first)
         $ai_bot_companies = [
-            'gptbot'              => 'OpenAI',
-            'openai.*crawler'     => 'OpenAI',
-            'openai-httplib'      => 'OpenAI',
-            'chatgpt'             => 'OpenAI',
-            'anthropic'           => 'Anthropic',
-            'claudebot'           => 'Anthropic',
-            'google-extended'     => 'Google',
-            'bytespider'          => 'ByteDance',
-            'yisouspider'         => 'Baidu',
-            'youdao'              => 'NetEase',
-            'ccbot'               => 'Common Crawl',
-            'petalbot'            => 'Huawei',
-            'facebookbot'         => 'Meta',
-            'facebot'             => 'Meta',
-            'meta-externalagent'  => 'Meta',
-            'amazonbot'           => 'Amazon',
-            'cohere'              => 'Cohere',
-            'perplexitybot'       => 'Perplexity',
-            'ai\scrawler'         => 'Generic',
-            'ai crawler'          => 'Generic',
+            // OpenAI
+            'gptbot'                  => 'OpenAI',
+            'chatgpt-user'            => 'OpenAI',
+            'oai-searchbot'           => 'OpenAI',
+            'chatgpt'                 => 'OpenAI',
+
+            // Anthropic
+            'claudebot'               => 'Anthropic',
+            'claude-user'             => 'Anthropic',
+            'claude-searchbot'        => 'Anthropic',
+            'anthropic-ai'            => 'Anthropic',
+
+            // Google
+            'google-cloudvertexbot'   => 'Google',
+            'google-notebooklm'       => 'Google',
+            'googleagent-mariner'     => 'Google',
+            'googleagent-urlcontext'  => 'Google',
+            'google-firebase'         => 'Google',
+            'gemini-deep-research'    => 'Google',
+            'google-extended'         => 'Google',
+            'google-agent'            => 'Google',
+
+            // Meta
+            'meta-externalagent'      => 'Meta',
+            'meta-externalfetcher'    => 'Meta',
+            'meta-webindexer'         => 'Meta',
+            'facebookbot'             => 'Meta',
+            'facebot'                 => 'Meta',
+
+            // Amazon
+            'amazonbot'               => 'Amazon',
+            'bedrockbot'              => 'Amazon',
+            'novaact'                 => 'Amazon',
+            'amazonbuyforme'          => 'Amazon',
+
+            // ByteDance / TikTok
+            'tiktokspider'            => 'ByteDance',
+            'bytespider'              => 'ByteDance',
+
+            // Perplexity
+            'perplexitybot'           => 'Perplexity',
+            'perplexity-user'         => 'Perplexity',
+
+            // Mistral
+            'mistralbot'              => 'Mistral',
+            'mistralai-user'          => 'Mistral',
+
+            // DeepSeek
+            'deepseekbot'             => 'DeepSeek',
+
+            // Microsoft / Bing
+            'bingbot'                 => 'Microsoft',
+
+            // DuckDuckGo
+            'duckassistbot'           => 'DuckDuckGo',
+
+            // Cohere
+            'cohere'                  => 'Cohere',
+
+            // Common Crawl
+            'ccbot'                   => 'Common Crawl',
+
+            // Data aggregators
+            'webzio-extended'         => 'Webz.io',
+            'firecrawlagent'          => 'Firecrawl',
+            'youbot'                  => 'You.com',
+            'ai2bot'                  => 'Allen AI',
+            'diffbot'                 => 'Diffbot',
+            'omgilibot'               => 'Webz.io',
+            'img2dataset'             => 'LAION',
+
+            // Regional
+            'yisouspider'             => 'Baidu',
+            'youdao'                  => 'NetEase',
+            'petalbot'                => 'Huawei',
+
+            // Catch-all
+            'ai\scrawler'             => 'Generic',
+            'ai crawler'              => 'Generic',
         ];
 
         foreach ($ai_bot_companies as $pattern => $company) {
@@ -125,6 +273,181 @@ class Baskerville_AI_UA {
         }
 
         return esc_html__('Unknown', 'baskerville-ai-security');
+    }
+
+    /**
+     * Parse IP prefixes from an AI company's JSON.
+     * Supports two formats:
+     *   Anthropic/Google: {"prefixes": [{"ipv4Prefix":"1.2.3.0/24"}, {"ipv6Prefix":"..."}]}
+     *   OpenAI:           {"prefixes": ["1.2.3.0/24", ...]}
+     */
+    private function parse_ai_prefixes(array $data): array {
+        $result = [];
+        foreach ($data['prefixes'] ?? [] as $item) {
+            if (is_string($item) && $item !== '') {
+                $result[] = $item;
+            } elseif (is_array($item)) {
+                $cidr = $item['ipv4Prefix'] ?? $item['ipv6Prefix'] ?? '';
+                if ($cidr !== '') $result[] = $cidr;
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Check whether $ip falls within a CIDR range (IPv4 or IPv6).
+     */
+    private function ip_in_cidr(string $ip, string $cidr): bool {
+        $parts  = explode('/', $cidr, 2);
+        $range  = $parts[0];
+        $prefix = isset($parts[1]) ? (int) $parts[1] : -1;
+
+        $is_ipv6 = strpos($range, ':') !== false;
+
+        if ($is_ipv6) {
+            $ip_bin    = @inet_pton($ip);
+            $range_bin = @inet_pton($range);
+            if ($ip_bin === false || $range_bin === false || strlen($ip_bin) !== 16) return false;
+            if ($prefix < 0) return $ip_bin === $range_bin;
+            $prefix = min($prefix, 128);
+            $full_bytes = intdiv($prefix, 8);
+            $rem        = $prefix % 8;
+            $mask       = str_repeat("\xff", $full_bytes);
+            if ($rem > 0) $mask .= chr(0xff & (0xff << (8 - $rem)));
+            $mask = str_pad($mask, 16, "\x00");
+            // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- binary string masking
+            return ($ip_bin & $mask) === ($range_bin & $mask);
+        } else {
+            $ip_long    = ip2long($ip);
+            $range_long = ip2long($range);
+            if ($ip_long === false || $range_long === false) return false;
+            if ($prefix < 0) return $ip_long === $range_long;
+            $prefix = min($prefix, 32);
+            if ($prefix === 0) return true;
+            $mask = -1 << (32 - $prefix);
+            return ($ip_long & $mask) === ($range_long & $mask);
+        }
+    }
+
+    /**
+     * Verify a bot IP via reverse DNS + forward confirmation.
+     *
+     * Algorithm (same as Googlebot/Meta official verification):
+     *   1. PTR lookup: hostname = gethostbyaddr($ip)
+     *   2. Check hostname ends with one of $allowed_suffixes
+     *   3. Forward lookup: gethostbynamel($hostname) must contain $ip
+     *
+     * Result cached 15 min per IP to avoid repeated DNS round-trips on every request.
+     *
+     * @param string   $ip              Visitor IP
+     * @param string[] $allowed_suffixes e.g. ['.facebook.com', '.fbscan.com']
+     */
+    private function verify_by_rdns(string $ip, array $allowed_suffixes): bool {
+        $cache_key = 'ai_rdns_' . substr(md5($ip), 0, 12);
+        $cached    = $this->core->fc_get($cache_key);
+        if ($cached !== null) return (bool) $cached;
+
+        $result   = false;
+        $hostname = @gethostbyaddr($ip);
+
+        if ($hostname !== false && $hostname !== $ip) {
+            foreach ($allowed_suffixes as $suffix) {
+                if (substr($hostname, -strlen($suffix)) === $suffix) {
+                    // Forward-confirm: hostname must resolve back to the same IP.
+                    $forward = @gethostbynamel($hostname);
+                    if (is_array($forward) && in_array($ip, $forward, true)) {
+                        $result = true;
+                    }
+                    wpsec_log(sprintf(
+                        '[AiBotVerificator] rDNS %s → %s | forward match: %s',
+                        $ip, $hostname, $result ? 'yes' : 'no'
+                    ));
+                    break;
+                }
+            }
+        }
+
+        $this->core->fc_set($cache_key, $result, 15 * MINUTE_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * Fetch and cache IP ranges published by AI companies.
+     * Cached for 1 hour via fc_get/fc_set (APCu or file).
+     * Returns: ['ClaudeBot' => ['1.2.3.0/24', ...], 'GPTBot' => [...], ...]
+     */
+    private function get_ai_ip_ranges(): array {
+        $cached = $this->core->fc_get('ai_ip_ranges');
+        if (is_array($cached)) return $cached;
+
+        $sources = [
+            // Anthropic
+            'ClaudeBot'           => 'https://claude.com/crawling/bots.json',
+            // OpenAI
+            'GPTBot'              => 'https://openai.com/gptbot.json',
+            'OAISearchBot'        => 'https://openai.com/searchbot.json',
+            'ChatGPT-User'        => 'https://openai.com/chatgpt-user.json',
+            // Google
+            'GoogleExtended'      => 'https://developers.google.com/static/crawling/ipranges/common-crawlers.json',
+            'GoogleSpecial'       => 'https://developers.google.com/static/crawling/ipranges/special-crawlers.json',
+            'GoogleUserTriggered' => 'https://developers.google.com/static/crawling/ipranges/user-triggered-fetchers.json',
+            // Perplexity
+            'PerplexityBot'       => 'https://www.perplexity.ai/perplexitybot.json',
+            'PerplexityUser'      => 'https://www.perplexity.ai/perplexity-user.json',
+            // Mistral
+            'MistralBot'          => 'https://mistral.ai/mistralai-index-ips.json',
+            'MistralAIUser'       => 'https://mistral.ai/mistralai-user-ips.json',
+            // DuckDuckGo
+            'DuckAssistBot'       => 'https://duckduckgo.com/duckduckbot.json',
+            // Microsoft / Bing
+            'Bingbot'             => 'https://www.bing.com/toolbox/bingbot.json',
+            // Common Crawl
+            'CCBot'               => 'https://index.commoncrawl.org/ccbot.json',
+            // Amazon
+            'AmazonBot'           => 'https://developer.amazon.com/amazonbot/ip-addresses/',
+        ];
+
+        // Keep old data on partial failure so we don't lose valid ranges
+        $existing = is_array($cached) ? $cached : [];
+        $result   = [];
+
+        foreach ($sources as $name => $url) {
+            $response = wp_remote_get($url, [
+                'timeout'    => 5,
+                'user-agent' => 'BaskervillePlugin/1.0',
+            ]);
+            if (is_wp_error($response)) {
+                wpsec_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
+                $result[$name] = $existing[$name] ?? [];
+                continue;
+            }
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            if (!is_array($data)) {
+                wpsec_log("[AiBotVerificator] {$name}: invalid JSON");
+                $result[$name] = $existing[$name] ?? [];
+                continue;
+            }
+            $prefixes      = $this->parse_ai_prefixes($data);
+            $result[$name] = $prefixes;
+            wpsec_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
+        }
+
+        $this->core->fc_set('ai_ip_ranges', $result, HOUR_IN_SECONDS);
+        return $result;
+    }
+
+    /**
+     * Returns the internal bot name (e.g. "ClaudeBot", "GPTBot") if $ip belongs
+     * to a published AI crawler range, or "" otherwise.
+     */
+    public function get_ai_bot_name_by_ip(string $ip): string {
+        foreach ($this->get_ai_ip_ranges() as $name => $cidrs) {
+            foreach ($cidrs as $cidr) {
+                if ($this->ip_in_cidr($ip, $cidr)) return $name;
+            }
+        }
+        return '';
     }
 
     public function verify_crawler_ip(string $ip, string $ua): array {
@@ -425,21 +748,110 @@ class Baskerville_AI_UA {
             ];
         }
 
-        // 1) Explicit AI bots by UA — priority check
+        // 1) AI bot detection — UA check first (fast, no HTTP), then IP ranges only when needed.
+        // We never fetch IP ranges for normal requests — only when UA already claims to be an AI bot.
         if ($this->is_ai_bot_user_agent($user_agent)) {
-            $company = $this->get_ai_bot_company($user_agent);
+            $company   = $this->get_ai_bot_company($user_agent);
+            $ai_ranges = $this->get_ai_ip_ranges(); // cached; HTTP only on hourly cache miss
+
+            // Check if the IP actually belongs to this company's published ranges
+            $ip_bot_name = '';
+            foreach ($ai_ranges as $name => $cidrs) {
+                foreach ($cidrs as $cidr) {
+                    if ($this->ip_in_cidr($ip, $cidr)) { $ip_bot_name = $name; break 2; }
+                }
+            }
+
+            if ($ip_bot_name) {
+                // UA + IP both confirm → verified
+                $verified_company = self::VERIFIED_AI_COMPANIES[$ip_bot_name] ?? $ip_bot_name;
+                return [
+                    'classification' => 'verified_ai_bot',
+                    /* translators: %s: bot name from published IP range */
+                    'reason'         => sprintf( __( 'Verified AI bot by IP range (%s)', 'baskerville-ai-security' ), $ip_bot_name ),
+                    'risk_score'     => 0,
+                    'details'        => [
+                        'ip_verified_as' => $ip_bot_name,
+                        'company'        => $verified_company,
+                        'ua_claimed_ai'  => true,
+                        'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                    ],
+                ];
+            }
+
+            // UA claims AI but IP didn't match — check if we actually have ranges for this company
+            // (guards against false positives when ranges failed to load)
+            $has_loaded_ranges = false;
+            foreach (self::VERIFIED_AI_COMPANIES as $bot_name => $co) {
+                if ($co === $company && !empty($ai_ranges[$bot_name])) {
+                    $has_loaded_ranges = true;
+                    break;
+                }
+            }
+            if ($has_loaded_ranges) {
+                return [
+                    'classification' => 'ai_bot_unverified',
+                    /* translators: %s: AI bot company name */
+                    'reason'         => sprintf( __( 'AI bot UA (%s) but IP not in published ranges', 'baskerville-ai-security' ), $company ),
+                    'risk_score'     => max(60, $risk_score),
+                    'details'        => [
+                        'has_cookie'     => $had_cookie,
+                        'is_ai_bot'      => true,
+                        'is_bot_ua'      => $this->is_bot_user_agent($user_agent),
+                        'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                        'company'        => $company,
+                        'ip_verified_as' => null,
+                    ],
+                ];
+            }
+            // rDNS-verified companies (e.g. Meta — no published IP range JSON)
+            if (isset(self::RDNS_VERIFIED_COMPANIES[$company])) {
+                $allowed = self::RDNS_VERIFIED_COMPANIES[$company];
+                if ($this->verify_by_rdns($ip, $allowed)) {
+                    return [
+                        'classification' => 'verified_ai_bot',
+                        /* translators: %s: AI bot company name */
+                        'reason'         => sprintf( __( 'Verified AI bot by rDNS (%s)', 'baskerville-ai-security' ), $company ),
+                        'risk_score'     => 0,
+                        'details'        => [
+                            'ip_verified_as' => $company,
+                            'company'        => $company,
+                            'ua_claimed_ai'  => true,
+                            'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                        ],
+                    ];
+                }
+                // rDNS failed — company is known to verify via rDNS, so IP mismatch is suspicious
+                return [
+                    'classification' => 'ai_bot_unverified',
+                    /* translators: %s: AI bot company name */
+                    'reason'         => sprintf( __( 'AI bot UA (%s) but rDNS verification failed', 'baskerville-ai-security' ), $company ),
+                    'risk_score'     => max(60, $risk_score),
+                    'details'        => [
+                        'has_cookie'     => $had_cookie,
+                        'is_ai_bot'      => true,
+                        'is_bot_ua'      => $this->is_bot_user_agent($user_agent),
+                        'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                        'company'        => $company,
+                        'ip_verified_as' => null,
+                    ],
+                ];
+            }
+
+            // Company doesn't publish ranges and doesn't use rDNS — can't verify, treat as regular ai_bot
             return [
                 'classification' => 'ai_bot',
                 /* translators: %s: AI bot company name */
                 'reason'         => sprintf( __( 'AI bot detected by user agent (%s)', 'baskerville-ai-security' ), $company ),
                 'risk_score'     => $risk_score,
                 'details'        => [
-                    'has_cookie' => $had_cookie,
-                    'is_ai_bot'  => true,
-                    'is_bot_ua'  => $this->is_bot_user_agent($user_agent),
-                    'user_agent' => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
-                    'company'    => $company
-                ]
+                    'has_cookie'     => $had_cookie,
+                    'is_ai_bot'      => true,
+                    'is_bot_ua'      => $this->is_bot_user_agent($user_agent),
+                    'user_agent'     => substr($user_agent, 0, 100) . (strlen($user_agent) > 100 ? '...' : ''),
+                    'company'        => $company,
+                    'ip_verified_as' => null,
+                ],
             ];
         }
 

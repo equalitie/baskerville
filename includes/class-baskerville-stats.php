@@ -478,7 +478,7 @@ class Baskerville_Stats
                     COUNT(*) AS total_visits,
                     SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified') THEN 1 ELSE 0 END) AS ai_bot_count,
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
                     AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score
@@ -543,7 +543,7 @@ class Baskerville_Stats
                     COUNT(*) AS total_visits,
                     SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified') THEN 1 ELSE 0 END) AS ai_bot_count,
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
                     AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score
@@ -602,7 +602,7 @@ class Baskerville_Stats
                     COUNT(DISTINCT ip) unique_ips,
                     SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified') THEN 1 ELSE 0 END) AS ai_bot_count,
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
                     AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score,
@@ -669,10 +669,10 @@ class Baskerville_Stats
                     ) AS time_slot,
                     COUNT(*) AS total_blocks,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_blocks,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_blocks,
+                    SUM(CASE WHEN classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified') THEN 1 ELSE 0 END) AS ai_bot_blocks,
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
-                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
                   FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s
@@ -724,10 +724,10 @@ class Baskerville_Stats
                 "SELECT
                     COUNT(*) AS total_blocks,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_blocks,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_blocks,
+                    SUM(CASE WHEN classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified') THEN 1 ELSE 0 END) AS ai_bot_blocks,
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
-                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
                   FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s",
@@ -861,7 +861,7 @@ class Baskerville_Stats
                 "SELECT
                     LEAST(FLOOR(score / %d), %d) AS b,
                     SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END) AS human_count,
-                    SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
+                    SUM(CASE WHEN classification IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
                     COUNT(*) AS total_count
                   FROM %i
                   WHERE event_type IN ('page','fp')
@@ -890,8 +890,8 @@ class Baskerville_Stats
           SELECT
             SUM(CASE WHEN classification='human' THEN score ELSE 0 END)        AS human_sum,
             SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END)            AS human_n,
-            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN score ELSE 0 END) AS auto_sum,
-            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END)     AS auto_n
+            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot','verified_bot') THEN score ELSE 0 END) AS auto_sum,
+            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot','verified_bot') THEN 1 ELSE 0 END)     AS auto_n
           FROM " . esc_sql($table) . "
           WHERE event_type IN ('page','fp') AND had_fp=1 AND timestamp_utc >= %s
         ", $cutoff), ARRAY_A) ?: ['human_sum'=>0,'human_n'=>0,'auto_sum'=>0,'auto_n'=>0];
@@ -927,7 +927,7 @@ class Baskerville_Stats
                     COUNT(DISTINCT ip) AS unique_ips,
                     COUNT(*) AS events
                   FROM %i
-                  WHERE classification='ai_bot'
+                  WHERE classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified')
                     AND timestamp_utc >= %s
                   GROUP BY user_agent
                   ORDER BY unique_ips DESC, events DESC",
@@ -942,7 +942,7 @@ class Baskerville_Stats
             $wpdb->prepare(
                 "SELECT COUNT(DISTINCT ip)
                   FROM %i
-                  WHERE classification='ai_bot'
+                  WHERE classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified')
                     AND timestamp_utc >= %s",
                 $table,
                 $cutoff
@@ -989,12 +989,11 @@ class Baskerville_Stats
             // Simplified query - just get timestamp and user_agent, group in PHP
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT timestamp_utc, user_agent
+                    "SELECT timestamp_utc, user_agent, classification
                      FROM {$wpdb->prefix}baskerville_stats
-                     WHERE classification = %s
+                     WHERE classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified')
                        AND timestamp_utc >= %s
                      ORDER BY timestamp_utc ASC",
-                    'ai_bot',
                     $cutoff
                 ),
                 ARRAY_A
@@ -1028,13 +1027,18 @@ class Baskerville_Stats
                 $slot_timestamp = floor($timestamp / $slot_seconds) * $slot_seconds;
                 $time_slot = gmdate('Y-m-d H:i:s', $slot_timestamp);
 
-                if (!isset($companies_data[$company])) {
-                    $companies_data[$company] = [];
+                // Tag IP-mismatch entries so the chart can colour them differently
+                $display_key = ($row['classification'] === 'ai_bot_unverified')
+                    ? $company . ' [?]'
+                    : $company;
+
+                if (!isset($companies_data[$display_key])) {
+                    $companies_data[$display_key] = [];
                 }
-                if (!isset($companies_data[$company][$time_slot])) {
-                    $companies_data[$company][$time_slot] = 0;
+                if (!isset($companies_data[$display_key][$time_slot])) {
+                    $companies_data[$display_key][$time_slot] = 0;
                 }
-                $companies_data[$company][$time_slot]++;
+                $companies_data[$display_key][$time_slot]++;
             }
 
             // Generate all time slots
