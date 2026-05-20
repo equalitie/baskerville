@@ -184,104 +184,120 @@
                     return hours + ':' + minutes;
                 });
 
-                // Company colors
+                // Company colors — each company gets a distinct hue
                 var companyColors = {
-                    'OpenAI': '#10a37f',
-                    'Anthropic': '#d4a574',
-                    'Google': '#4285f4',
-                    'Meta': '#0668e1',
-                    'ByteDance': '#fe2c55',
-                    'Amazon': '#ff9900',
-                    'Baidu': '#2932e1',
-                    'Perplexity': '#6366f1',
-                    'Cohere': '#7c3aed',
-                    'Common Crawl': '#9ca3af',
-                    'Huawei': '#e91e63',
-                    'Unknown': '#6b7280',
-                    'Generic': '#9ca3af'
+                    'OpenAI':        '#10a37f',
+                    'Anthropic':     '#c96442',
+                    'Google':        '#4285f4',
+                    'Meta':          '#1877f2',
+                    'ByteDance':     '#fe2c55',
+                    'Amazon':        '#e47911',
+                    'Baidu':         '#2932e1',
+                    'Perplexity':    '#6366f1',
+                    'Mistral':       '#f59e0b',
+                    'Cohere':        '#7c3aed',
+                    'DeepSeek':      '#0ea5e9',
+                    'Microsoft':     '#00a4ef',
+                    'DuckDuckGo':    '#de5833',
+                    'Common Crawl':  '#64748b',
+                    'Huawei':        '#e91e63',
+                    'Unknown':       '#6b7280',
+                    'Generic':       '#9ca3af'
                 };
 
-                // Prepare datasets
-                var datasets = [];
-                Object.keys(data.companies).forEach(function(company) {
-                    var isUnverified = company.slice(-3) === ' [?]';
-                    var baseName = isUnverified ? company.slice(0, -3) : company;
-                    var baseColor = companyColors[baseName] || '#9ca3af';
-                    var color = isUnverified ? '#ea580c' : baseColor;
-                    var label = isUnverified ? baseName + ' (IP mismatch)' : company;
-                    datasets.push({
-                        label: label,
-                        data: data.companies[company],
-                        backgroundColor: isUnverified ? 'rgba(234,88,12,0.85)' : color,
-                        borderColor: color,
-                        borderWidth: isUnverified ? 2 : 1,
-                        borderDash: isUnverified ? [4, 2] : []
-                    });
-                });
+                // Fallback palette for companies not in the map above
+                var fallbackPalette = [
+                    '#06b6d4','#84cc16','#f97316','#a855f7','#14b8a6',
+                    '#f43f5e','#8b5cf6','#22c55e','#eab308','#3b82f6'
+                ];
+                var fallbackIdx = 0;
 
-                // Create chart
-                var ctx = document.getElementById('aiBotsChart').getContext('2d');
-                new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: datasets
-                    },
-                    options: {
+                function hexToRgba(hex, alpha) {
+                    var r = parseInt(hex.slice(1,3), 16);
+                    var g = parseInt(hex.slice(3,5), 16);
+                    var b = parseInt(hex.slice(5,7), 16);
+                    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+                }
+
+                function buildDatasets(seriesObj) {
+                    var ds = [];
+                    Object.keys(seriesObj).forEach(function(company) {
+                        var baseColor = companyColors[company];
+                        if (!baseColor) {
+                            baseColor = fallbackPalette[fallbackIdx % fallbackPalette.length];
+                            fallbackIdx++;
+                            companyColors[company] = baseColor;
+                        }
+                        ds.push({
+                            label: company,
+                            data: seriesObj[company],
+                            backgroundColor: hexToRgba(baseColor, 0.85),
+                            borderColor: baseColor,
+                            borderWidth: 1
+                        });
+                    });
+                    return ds;
+                }
+
+                function makeChartOptions(titleText) {
+                    return {
                         responsive: true,
                         maintainAspectRatio: true,
-                        interaction: {
-                            mode: 'index',
-                            intersect: false
-                        },
+                        interaction: { mode: 'index', intersect: false },
                         scales: {
-                            x: {
-                                stacked: true,
-                                title: {
-                                    display: true,
-                                    text: i18n.timeUtc
-                                },
-                                ticks: {
-                                    maxRotation: 45,
-                                    minRotation: 45
-                                }
-                            },
-                            y: {
-                                stacked: true,
-                                beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: i18n.hits
-                                }
-                            }
+                            x: { stacked: true, title: { display: true, text: i18n.timeUtc }, ticks: { maxRotation: 45, minRotation: 45 } },
+                            y: { stacked: true, beginAtZero: true, title: { display: true, text: i18n.hits } }
                         },
                         plugins: {
-                            title: {
-                                display: true,
-                                text: i18n.aiBotHitsLast + ' ' + data.hours + 'h',
-                                font: {
-                                    size: 16,
-                                    weight: 'bold'
-                                }
-                            },
-                            legend: {
-                                display: true,
-                                position: 'bottom'
-                            },
+                            title: { display: true, text: titleText, font: { size: 16, weight: 'bold' } },
+                            legend: { display: true, position: 'bottom' },
                             tooltip: {
                                 callbacks: {
                                     footer: function(items) {
                                         var total = 0;
-                                        items.forEach(function(item) {
-                                            total += item.parsed.y;
-                                        });
+                                        items.forEach(function(i) { total += i.parsed.y; });
                                         return 'Total: ' + total;
                                     }
                                 }
                             }
                         }
-                    }
-                });
+                    };
+                }
+
+                // Chart 1: Verified AI bots by company
+                var verifiedCompanies = data.companies || {};
+                if (Object.keys(verifiedCompanies).length > 0 && document.getElementById('aiBotsChart')) {
+                    new Chart(document.getElementById('aiBotsChart').getContext('2d'), {
+                        type: 'bar',
+                        data: { labels: labels, datasets: buildDatasets(verifiedCompanies) },
+                        options: makeChartOptions(i18n.aiBotHitsLast + ' ' + data.hours + 'h')
+                    });
+                } else if (document.getElementById('aiBotsChart')) {
+                    document.getElementById('aiBotsChart').parentElement.innerHTML =
+                        '<p class="baskerville-no-data" style="text-align:center;padding:20px;">No verified AI bot visits in this period</p>';
+                }
+
+                // Chart 2: Unverified / spoofers by company
+                var spooferCompanies = data.spoofers || {};
+                if (Object.keys(spooferCompanies).length > 0 && document.getElementById('aiBotsUnverifiedChart')) {
+                    var spooferDatasets = buildDatasets(spooferCompanies);
+                    // Desaturate: all spoofer bars use orange-red palette
+                    spooferDatasets.forEach(function(ds, idx) {
+                        var spooferPalette = ['#ea580c','#dc2626','#b45309','#7c3aed','#0369a1','#15803d','#c026d3','#0e7490','#a16207','#be123c'];
+                        var c = spooferPalette[idx % spooferPalette.length];
+                        ds.backgroundColor = hexToRgba(c, 0.75);
+                        ds.borderColor = c;
+                    });
+                    new Chart(document.getElementById('aiBotsUnverifiedChart').getContext('2d'), {
+                        type: 'bar',
+                        data: { labels: labels, datasets: spooferDatasets },
+                        options: makeChartOptions('Unverified AI Bot UAs (Spoofers) — last ' + data.hours + 'h')
+                    });
+                } else if (document.getElementById('aiBotsUnverifiedChart')) {
+                    document.getElementById('aiBotsUnverifiedChart').parentElement.innerHTML =
+                        '<p class="baskerville-no-data" style="text-align:center;padding:20px;">No unverified AI bot visits in this period</p>';
+                }
+
             })();
         }
 
@@ -519,6 +535,16 @@
                 var totalAiBotsVerified   = aiBotsVerified.reduce(function(a,b) { return a+b; }, 0);
                 var totalBots             = bots.reduce(function(a,b) { return a+b; }, 0);
                 var totalVerifiedBots     = verifiedBots.reduce(function(a,b) { return a+b; }, 0);
+
+                // DEBUG: log AI bot totals to help diagnose missing bars
+                console.log('[Baskerville] Bot Types totals:', {
+                    bad_bots: totalBadBots,
+                    ai_bot_ua_only: totalAiBots,
+                    ai_bot_ip_mismatch: totalAiBotsUnverified,
+                    ai_bot_ip_verified: totalAiBotsVerified,
+                    other_bots: totalBots,
+                    verified_crawlers: totalVerifiedBots
+                });
 
                 // 3) Stacked Bar: Bot Types
                 new Chart(document.getElementById('baskervilleBotTypesBar').getContext('2d'), {
