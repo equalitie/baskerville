@@ -25,6 +25,9 @@ class Baskerville_Installer {
 		if (get_option('baskerville_cookie_secret') === false) {
 			add_option('baskerville_cookie_secret', bin2hex(random_bytes(32)));
 		}
+		if (get_option('baskerville_altcha_hmac_key') === false) {
+			add_option('baskerville_altcha_hmac_key', bin2hex(random_bytes(32)), '', 'no');
+		}
 
 		if (get_option('baskerville_nocookie_window_sec') === false)  add_option('baskerville_nocookie_window_sec', 60);
 		if (get_option('baskerville_nocookie_threshold') === false)   add_option('baskerville_nocookie_threshold', 10);

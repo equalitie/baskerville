@@ -34,14 +34,19 @@ class Baskerville_Firewall
 		$k   = "blocklog:{$ip}:{$sig}";
 		if ($this->core->fc_get($k)) return; // already logged recently
 		$this->core->fc_set($k, 1, $gate_ttl);
+		// Also claim the shared AI-log gate so botvisit_once won't duplicate this entry
+		$cls = $classification['classification'] ?? '';
+		if (in_array($cls, ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'], true)) {
+			$this->core->fc_set("ailog:{$ip}", 1, $gate_ttl);
+		}
 		$this->insert_block_row($ip, $evaluation, $classification, $ua, $reason);
 	}
 
 	/* ===== One-shot DB logging gate for allowed AI bot visits ===== */
 	private function botvisit_once(string $ip, array $classification, string $ua, int $gate_ttl = 3600): void {
 		$cls = $classification['classification'] ?? '';
-		$k   = "botvisit:{$ip}:" . md5($cls . $ua);
-		if ($this->core->fc_get($k)) return; // already logged within the hour
+		$k   = "ailog:{$ip}"; // shared gate with blocklog to prevent duplicates
+		if ($this->core->fc_get($k)) return; // already logged recently
 		$this->core->fc_set($k, 1, $gate_ttl);
 		$this->insert_ai_bot_visit_row($ip, $classification, $ua);
 	}
@@ -200,6 +205,10 @@ class Baskerville_Firewall
 
 	public function pre_db_firewall(): void {
 		$ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+		// Normalize IPv4-mapped IPv6 (::ffff:x.x.x.x) to plain IPv4
+		if (preg_match('/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i', $ip, $m)) {
+			$ip = $m[1];
+		}
 
 		if ($ip === '') return;
 
@@ -235,12 +244,16 @@ class Baskerville_Firewall
 		$is_turnstile_page = (
 			strpos($request_uri, '/baskerville-challenge') !== false ||
 			strpos($request_uri, '/baskerville-verify') !== false ||
+			strpos($request_uri, '/baskerville-altcha-challenge') !== false ||
 			strpos($request_uri, 'baskerville_challenge') !== false ||
 			strpos($request_uri, 'baskerville_verify') !== false ||
+			strpos($request_uri, 'baskerville_altcha_challenge') !== false ||
 			strpos($query_string, 'baskerville_challenge') !== false ||
 			strpos($query_string, 'baskerville_verify') !== false ||
+			strpos($query_string, 'baskerville_altcha_challenge') !== false ||
 			filter_has_var(INPUT_GET, 'baskerville_challenge') ||
 			filter_has_var(INPUT_GET, 'baskerville_verify') ||
+			filter_has_var(INPUT_GET, 'baskerville_altcha_challenge') ||
 			filter_has_var(INPUT_POST, 'baskerville_verify')
 		);
 
@@ -429,8 +442,10 @@ class Baskerville_Firewall
 			}
 
 			// Log allowed AI bot visits for analytics (1 visit per IP+UA per hour)
+			// Return early so regular bot detection doesn't also score and log this request.
 			if (in_array($cls, ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'], true)) {
 				$this->botvisit_once($ip, $classification, $ua);
+				return;
 			}
 		}
 
@@ -539,11 +554,23 @@ class Baskerville_Firewall
 		$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
 		$risk           = (int)($evaluation['score'] ?? 0);
 
-		// Turnstile challenge for borderline bot scores (BEFORE burst protection)
-		// This gives borderline visitors a chance to prove they're human instead of getting 403
+		// Challenge check (Under Attack Mode / borderline scores)
 		if (isset($GLOBALS['baskerville_turnstile'])) {
-			$turnstile = $GLOBALS['baskerville_turnstile'];
+			$turnstile      = $GLOBALS['baskerville_turnstile'];
 			$baskerville_id = $this->core->get_cookie_id();
+
+			if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG && !headers_sent()) {
+				$ip_cache_val   = $this->core->fc_get("turnstile_pass:{$ip}");
+				$invalidated_at = (int) get_option('baskerville_pass_invalidated_at', 0);
+				$options_dbg    = get_option('baskerville_settings', []);
+				header('X-Bsk-Under-Attack: '   . (empty($options_dbg['turnstile_under_attack']) ? '0' : '1'));
+				header('X-Bsk-Altcha-Enabled: ' . (empty($options_dbg['altcha_enabled']) ? '0' : '1'));
+				header('X-Bsk-Pass-Cookie: '    . (isset($_COOKIE['baskerville_pass']) ? '1' : '0'));
+				header('X-Bsk-Pass-Cache: '     . ($ip_cache_val ? (int)$ip_cache_val : '0'));
+				header('X-Bsk-Invalidated-At: ' . $invalidated_at);
+				header('X-Bsk-Challenge-Provider: ' . ($options_dbg['challenge_provider'] ?? 'altcha'));
+				header('X-Bsk-Should-Challenge: '   . ($turnstile->should_challenge($risk, $baskerville_id) ? '1' : '0'));
+			}
 
 			if ($turnstile->should_challenge($risk, $baskerville_id)) {
 				$turnstile->redirect_to_challenge();

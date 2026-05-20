@@ -25,6 +25,7 @@ class Baskerville_Admin {
 		add_action('wp_ajax_baskerville_get_live_stats', array($this, 'ajax_get_live_stats'));
 		add_action('wp_ajax_baskerville_import_logs', array($this, 'ajax_import_logs'));
 		add_action('wp_ajax_baskerville_ip_lookup', array($this, 'ajax_ip_lookup'));
+		add_action('wp_ajax_baskerville_clear_pass_cache', array($this, 'ajax_clear_pass_cache'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
 	}
 
@@ -42,7 +43,7 @@ class Baskerville_Admin {
 		wp_enqueue_script('chartjs', BASKERVILLE_PLUGIN_URL . 'assets/js/chart.min.js', array(), '4.5.1', true);
 
 		// Enqueue admin.js
-		wp_enqueue_script('baskerville-admin', BASKERVILLE_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'select2', 'chartjs'), BASKERVILLE_VERSION, true);
+		wp_enqueue_script('baskerville-admin', BASKERVILLE_PLUGIN_URL . 'assets/js/admin.js', array('jquery', 'select2', 'chartjs'), BASKERVILLE_VERSION . '.3', true);
 
 		// Enqueue Live Feed JS only on the plugin settings page
 		if ( $hook === 'toplevel_page_baskerville-settings' ) {
@@ -76,17 +77,21 @@ class Baskerville_Admin {
 				// Live Feed
 				'noRecentEvents'       => __( 'No recent events', 'baskerville-ai-security' ),
 				'turnstileFailed'      => __( 'TURNSTILE FAILED', 'baskerville-ai-security' ),
+				'altchaFailed'         => __( 'ALTCHA FAILED', 'baskerville-ai-security' ),
 				'challengeFailed'      => __( 'CHALLENGE FAILED', 'baskerville-ai-security' ),
 				'banned'               => __( 'BANNED', 'baskerville-ai-security' ),
 				'detected'             => __( 'DETECTED', 'baskerville-ai-security' ),
 				'unknownBot'           => __( 'Unknown Bot', 'baskerville-ai-security' ),
 				'turnstile'            => __( 'TURNSTILE', 'baskerville-ai-security' ),
+				'altcha'               => __( 'ALTCHA', 'baskerville-ai-security' ),
 				'ua'                   => __( 'UA:', 'baskerville-ai-security' ),
 				'honeypot'             => __( 'HONEYPOT', 'baskerville-ai-security' ),
 				'userAgent'            => __( 'USER-AGENT', 'baskerville-ai-security' ),
 				'ipVerified'           => __( 'IP VERIFIED', 'baskerville-ai-security' ),
-				'ipMismatch'           => __( 'IP MISMATCH', 'baskerville-ai-security' ),
+				'ipMismatch'           => __( 'AI SPOOFER', 'baskerville-ai-security' ),
+				'ipUnknown'            => __( 'IP UNKNOWN', 'baskerville-ai-security' ),
 				'failedTurnstile'      => __( 'Failed Cloudflare Turnstile challenge', 'baskerville-ai-security' ),
+				'failedAltcha'         => __( 'Failed Altcha PoW challenge', 'baskerville-ai-security' ),
 				'noReason'             => __( 'No reason', 'baskerville-ai-security' ),
 				'score'                => __( 'score', 'baskerville-ai-security' ),
 				'banReason'            => __( 'Ban reason', 'baskerville-ai-security' ),
@@ -129,7 +134,7 @@ class Baskerville_Admin {
 				'trafficDistLast'      => __( 'Traffic Distribution — last', 'baskerville-ai-security' ),
 				'badBots'              => __( 'Bad Bots', 'baskerville-ai-security' ),
 				'aiBots'               => __( 'AI Bots (UA only)', 'baskerville-ai-security' ),
-				'aiBotsUnverified'     => __( 'AI Bots (IP mismatch)', 'baskerville-ai-security' ),
+				'aiBotsUnverified'     => __( 'AI Spoofers', 'baskerville-ai-security' ),
 				'aiBotsVerified'       => __( 'AI Bots (IP verified)', 'baskerville-ai-security' ),
 				'otherBots'            => __( 'Other Bots', 'baskerville-ai-security' ),
 				'verifiedCrawlers'     => __( 'Verified Crawlers', 'baskerville-ai-security' ),
@@ -140,13 +145,13 @@ class Baskerville_Admin {
 				'passedHumans'         => __( 'Passed (Humans)', 'baskerville-ai-security' ),
 				'failedBots'           => __( 'Failed (Bots)', 'baskerville-ai-security' ),
 				'challenges'           => __( 'Challenges', 'baskerville-ai-security' ),
-				'turnstileChallenges'  => __( 'Turnstile Challenges', 'baskerville-ai-security' ),
+				'turnstileChallenges'  => __( 'Challenges', 'baskerville-ai-security' ),
 				'redirects'            => __( 'Redirects:', 'baskerville-ai-security' ),
 				'precision'            => __( 'Precision:', 'baskerville-ai-security' ),
 				'challenged'           => __( 'Challenged:', 'baskerville-ai-security' ),
 				'passed'               => __( 'Passed:', 'baskerville-ai-security' ),
 				'failed'               => __( 'Failed:', 'baskerville-ai-security' ),
-				'noTurnstileData'      => __( 'No Turnstile data available. Enable Turnstile challenge for borderline scores to see data here.', 'baskerville-ai-security' ),
+				'noTurnstileData'      => __( 'No challenge data available. Enable Altcha or Turnstile for borderline scores to see data here.', 'baskerville-ai-security' ),
 				'noChallengesRecorded' => __( 'No challenges recorded', 'baskerville-ai-security' ),
 				'noDataPeriod'         => __( 'No data available for the selected period', 'baskerville-ai-security' ),
 				'noDataAvailable'      => __( 'No data available', 'baskerville-ai-security' ),
@@ -282,8 +287,8 @@ class Baskerville_Admin {
 
 		add_submenu_page(
 			'baskerville-settings',
-			esc_html__('Turnstile', 'baskerville-ai-security'),
-			esc_html__('Turnstile', 'baskerville-ai-security'),
+			esc_html__('Challenge', 'baskerville-ai-security'),
+			esc_html__('Challenge', 'baskerville-ai-security'),
 			'manage_options',
 			'baskerville-turnstile',
 			array($this, 'admin_page_turnstile')
@@ -579,7 +584,7 @@ class Baskerville_Admin {
 
 		add_settings_field(
 			'block_ai_bot_unverified',
-			esc_html__('Block IP-Mismatch AI Bots', 'baskerville-ai-security'),
+			esc_html__('Block AI Spoofers', 'baskerville-ai-security'),
 			array($this, 'render_block_ai_bot_unverified_field'),
 			'baskerville-ai-bot-control',
 			'baskerville_ai_bot_control_section'
@@ -748,6 +753,32 @@ class Baskerville_Admin {
 			$sanitized['api_rate_limit_window'] = max(10, min(3600, (int) $input['api_rate_limit_window']));
 		}
 
+		// Challenge provider
+		$allowed_providers = array('altcha', 'cloudflare_turnstile');
+		if (isset($input['challenge_provider']) && in_array($input['challenge_provider'], $allowed_providers, true)) {
+			$sanitized['challenge_provider'] = $input['challenge_provider'];
+		} else {
+			$sanitized['challenge_provider'] = isset($existing['challenge_provider']) ? $existing['challenge_provider'] : 'altcha';
+		}
+
+		// Altcha settings
+		// Only update altcha_enabled when Altcha is the active provider.
+		// When Turnstile is selected the altcha-settings-section is hidden but hidden inputs
+		// still submit value="0", which would silently disable Altcha form widgets.
+		if ($sanitized['challenge_provider'] === 'altcha') {
+			$sanitized['altcha_enabled'] = isset($input['altcha_enabled'])
+				? (bool) $input['altcha_enabled']
+				: (isset($existing['altcha_enabled']) ? $existing['altcha_enabled'] : true);
+		} else {
+			$sanitized['altcha_enabled'] = isset($existing['altcha_enabled']) ? $existing['altcha_enabled'] : true;
+		}
+
+		if (isset($input['altcha_max_number'])) {
+			$sanitized['altcha_max_number'] = max(10000, min(5000000, (int) $input['altcha_max_number']));
+		} else {
+			$sanitized['altcha_max_number'] = isset($existing['altcha_max_number']) ? $existing['altcha_max_number'] : 100000;
+		}
+
 		// Turnstile settings
 		$sanitized['turnstile_enabled'] = isset($input['turnstile_enabled'])
 			? (bool) $input['turnstile_enabled']
@@ -773,6 +804,13 @@ class Baskerville_Admin {
 		$sanitized['turnstile_under_attack'] = isset($input['turnstile_under_attack'])
 			? (bool) $input['turnstile_under_attack']
 			: (isset($existing['turnstile_under_attack']) ? $existing['turnstile_under_attack'] : false);
+
+		// When Under Attack Mode is newly enabled, flush page caches so cached pages
+		// are not served bypassing the Baskerville firewall.
+		$was_under_attack = !empty($existing['turnstile_under_attack']);
+		if ($sanitized['turnstile_under_attack'] && !$was_under_attack) {
+			$this->flush_page_caches();
+		}
 
 		if (isset($input['turnstile_borderline_min'])) {
 			$sanitized['turnstile_borderline_min'] = max(0, min(100, (int) $input['turnstile_borderline_min']));
@@ -1220,11 +1258,11 @@ class Baskerville_Admin {
 		<label>
 			<input type="hidden" name="baskerville_settings[block_ai_bot_unverified]" value="0">
 			<input type="checkbox" name="baskerville_settings[block_ai_bot_unverified]" value="1" <?php checked($enabled, true); ?> />
-			<strong><?php esc_html_e('Always block bots with IP mismatch', 'baskerville-ai-security'); ?></strong>
+			<strong><?php esc_html_e('Always block AI spoofers', 'baskerville-ai-security'); ?></strong>
 		</label>
 		<p class="description">
 			<?php esc_html_e(
-				'When enabled, any request claiming to be from Anthropic, OpenAI, or Google but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
+				'When enabled, any request using a known AI bot user agent (OpenAI, Anthropic, Google, Meta, Amazon, Perplexity, and others) but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
 				'baskerville-ai-security'
 			); ?>
 		</p>
@@ -1790,7 +1828,7 @@ class Baskerville_Admin {
 				SUM(CASE WHEN classification='verified_bot'      THEN 1 ELSE 0 END) AS verified_bot_count,
 				AVG(CASE WHEN had_fp=1 THEN score END) AS avg_score
 			FROM %i
-			WHERE event_type IN ('page','fp') AND timestamp_utc >= %s
+			WHERE timestamp_utc >= %s
 			GROUP BY time_slot
 			ORDER BY time_slot ASC",
 			$bucket_seconds,
@@ -1852,11 +1890,11 @@ class Baskerville_Admin {
 				FROM_UNIXTIME(
 				FLOOR(UNIX_TIMESTAMP(timestamp_utc) / %d) * %d
 				) AS time_slot,
-				SUM(CASE WHEN event_type='ts_redir' THEN 1 ELSE 0 END) AS redirect_count,
-				SUM(CASE WHEN event_type='ts_pass' THEN 1 ELSE 0 END) AS pass_count,
-				SUM(CASE WHEN event_type='ts_fail' THEN 1 ELSE 0 END) AS fail_count
+				SUM(CASE WHEN event_type IN ('ts_redir','ac_redir') THEN 1 ELSE 0 END) AS redirect_count,
+				SUM(CASE WHEN event_type IN ('ts_pass','ac_pass') THEN 1 ELSE 0 END) AS pass_count,
+				SUM(CASE WHEN event_type IN ('ts_fail','ac_fail') THEN 1 ELSE 0 END) AS fail_count
 			FROM %i
-			WHERE event_type IN ('ts_redir', 'ts_pass', 'ts_fail')
+			WHERE event_type IN ('ts_redir', 'ts_pass', 'ts_fail', 'ac_redir', 'ac_pass', 'ac_fail')
 			AND timestamp_utc >= %s
 			GROUP BY time_slot
 			ORDER BY time_slot ASC",
@@ -1928,18 +1966,18 @@ class Baskerville_Admin {
 			$cutoff
 		));
 
-		// Challenged unique IPs (ts_redir events)
+		// Challenged unique IPs (ts_redir + ac_redir events)
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$challenged_ips = (int) $wpdb->get_var($wpdb->prepare(
-			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s AND event_type = 'ts_redir'",
+			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s AND event_type IN ('ts_redir', 'ac_redir')",
 			$table,
 			$cutoff
 		));
 
-		// Passed unique IPs (ts_pass events)
+		// Passed unique IPs (ts_pass + ac_pass events)
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$passed_ips = (int) $wpdb->get_var($wpdb->prepare(
-			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s AND event_type = 'ts_pass'",
+			"SELECT COUNT(DISTINCT ip) FROM %i WHERE timestamp_utc >= %s AND event_type IN ('ts_pass', 'ac_pass')",
 			$table,
 			$cutoff
 		));
@@ -2529,9 +2567,14 @@ class Baskerville_Admin {
 				</div>
 			<?php else: ?>
 
-			<!-- Chart Container -->
+			<!-- AI Bots by Company (verified) -->
 			<div class="chart-container">
 				<canvas id="aiBotsChart"></canvas>
+			</div>
+
+			<!-- AI Bots — Unverified / Spoofers -->
+			<div class="chart-container" style="margin-top: 24px;">
+				<canvas id="aiBotsUnverifiedChart"></canvas>
 			</div>
 
 			<?php
@@ -3217,7 +3260,7 @@ class Baskerville_Admin {
 				</a>
 				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-turnstile')); ?>"
 				   class="nav-tab <?php echo $turnstile_enabled ? 'tab-enabled' : ''; ?> <?php echo $current_tab === 'turnstile' ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e('Turnstile', 'baskerville-ai-security'); ?>
+					<?php esc_html_e('Challenge', 'baskerville-ai-security'); ?>
 				</a>
 				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-analytics')); ?>"
 				   class="nav-tab <?php echo $current_tab === 'analytics' ? 'nav-tab-active' : ''; ?>">
@@ -3734,58 +3777,150 @@ class Baskerville_Admin {
 	}
 
 	private function render_turnstile_tab() {
-		$options = get_option('baskerville_settings', array());
-		$turnstile_enabled = isset($options['turnstile_enabled']) ? $options['turnstile_enabled'] : false;
-		$site_key = isset($options['turnstile_site_key']) ? $options['turnstile_site_key'] : '';
-		$secret_key = isset($options['turnstile_secret_key']) ? $options['turnstile_secret_key'] : '';
+		$options            = get_option('baskerville_settings', array());
+		$challenge_provider = isset($options['challenge_provider']) ? $options['challenge_provider'] : 'altcha';
+		$turnstile_enabled  = isset($options['turnstile_enabled']) ? $options['turnstile_enabled'] : false;
+		$altcha_enabled     = !isset($options['altcha_enabled']) || $options['altcha_enabled'];
+		$altcha_max_number  = isset($options['altcha_max_number']) ? (int) $options['altcha_max_number'] : 100000;
+		$site_key           = isset($options['turnstile_site_key']) ? $options['turnstile_site_key'] : '';
+		$secret_key         = isset($options['turnstile_secret_key']) ? $options['turnstile_secret_key'] : '';
 		?>
 		<form method="post" action="options.php">
 			<?php
 			settings_fields('baskerville_settings_group');
-			// Preserve master switch state
 			$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
 			echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+			submit_button();
 			?>
 
-			<table class="form-table" role="presentation">
-				<tr>
-					<td>
-						<div class="baskerville-toggle-label">
-							<span class="baskerville-toggle-text">
-								<?php esc_html_e('Cloudflare Turnstile', 'baskerville-ai-security'); ?>
-							</span>
-							<input type="hidden" name="baskerville_settings[turnstile_enabled]" value="0">
-							<label class="baskerville-toggle-switch">
-								<input type="checkbox" name="baskerville_settings[turnstile_enabled]" value="1" <?php checked($turnstile_enabled, true); ?> />
-								<span class="baskerville-toggle-slider-regular"></span>
+			<!-- Challenge Provider -->
+			<div class="baskerville-form-container">
+				<h3 class="baskerville-section-title"><?php esc_html_e('Challenge Provider', 'baskerville-ai-security'); ?></h3>
+				<p class="description">
+					<?php esc_html_e('Choose the challenge system used to verify borderline visitors and protect forms.', 'baskerville-ai-security'); ?>
+				</p>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php esc_html_e('Provider', 'baskerville-ai-security'); ?></th>
+						<td>
+							<label style="display:block;margin-bottom:8px">
+								<input type="radio" name="baskerville_settings[challenge_provider]" value="altcha"
+									<?php checked($challenge_provider, 'altcha'); ?> />
+								<strong><?php esc_html_e('Altcha (default)', 'baskerville-ai-security'); ?></strong>
+								&mdash;
+								<?php esc_html_e('Self-hosted, privacy-friendly proof-of-work. No API keys, no external data sharing, MIT licensed.', 'baskerville-ai-security'); ?>
 							</label>
-							<span class="baskerville-toggle-text">
-								<?php echo $turnstile_enabled ? esc_html__('ON', 'baskerville-ai-security') : esc_html__('OFF', 'baskerville-ai-security'); ?>
-							</span>
-						</div>
-						<p class="description baskerville-mt-10">
-							<?php esc_html_e('When enabled, Turnstile challenge will be shown on sensitive pages:', 'baskerville-ai-security'); ?>
-							<strong>wp-login.php</strong>,
-							<strong><?php esc_html_e('Registration', 'baskerville-ai-security'); ?></strong>,
-							<strong><?php esc_html_e('Comment form', 'baskerville-ai-security'); ?></strong>
-						</p>
-					</td>
-				</tr>
-			</table>
-			<?php submit_button(); ?>
+							<label style="display:block">
+								<input type="radio" name="baskerville_settings[challenge_provider]" value="cloudflare_turnstile"
+									<?php checked($challenge_provider, 'cloudflare_turnstile'); ?> />
+								<strong><?php esc_html_e('Cloudflare Turnstile', 'baskerville-ai-security'); ?></strong>
+								&mdash;
+								<?php esc_html_e('Requires a Cloudflare account and API keys. Sends visitor data to Cloudflare servers.', 'baskerville-ai-security'); ?>
+							</label>
+						</td>
+					</tr>
+				</table>
+			</div>
+
+			<!-- Altcha Settings -->
+			<div class="baskerville-form-container" id="altcha-settings-section">
+				<h3 class="baskerville-section-title"><?php esc_html_e('Altcha Settings', 'baskerville-ai-security'); ?></h3>
+				<p class="description">
+					<?php esc_html_e('Self-hosted PoW challenge. Verification happens entirely on your server — no external API calls.', 'baskerville-ai-security'); ?>
+				</p>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><?php esc_html_e('Altcha on forms', 'baskerville-ai-security'); ?></th>
+						<td>
+							<div class="baskerville-toggle-label">
+								<input type="hidden" name="baskerville_settings[altcha_enabled]" value="0">
+								<label class="baskerville-toggle-switch">
+									<input type="checkbox" name="baskerville_settings[altcha_enabled]" value="1" <?php checked($altcha_enabled, true); ?> />
+									<span class="baskerville-toggle-slider-regular"></span>
+								</label>
+								<span class="baskerville-toggle-text">
+									<?php echo $altcha_enabled ? esc_html__('ON', 'baskerville-ai-security') : esc_html__('OFF', 'baskerville-ai-security'); ?>
+								</span>
+							</div>
+							<p class="description baskerville-mt-10">
+								<?php esc_html_e('Show Altcha widget on: wp-login.php, Registration, Comment form.', 'baskerville-ai-security'); ?>
+							</p>
+						</td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e('Difficulty (max number)', 'baskerville-ai-security'); ?></th>
+						<td>
+							<input type="number" name="baskerville_settings[altcha_max_number]"
+								   value="<?php echo esc_attr($altcha_max_number); ?>"
+								   min="10000" max="5000000" step="10000" style="width:120px" />
+							<p class="description">
+								<?php esc_html_e('Higher = harder for bots, slightly slower for users. 100,000 ≈ 1–2 seconds. 500,000 ≈ 5 seconds.', 'baskerville-ai-security'); ?>
+							</p>
+						</td>
+					</tr>
+				</table>
+			</div>
+
+			<!-- Cloudflare Turnstile Settings -->
+			<div class="baskerville-form-container" id="turnstile-settings-section">
+				<h3 class="baskerville-section-title"><?php esc_html_e('Cloudflare Turnstile Settings', 'baskerville-ai-security'); ?></h3>
+				<table class="form-table" role="presentation">
+					<tr>
+						<td>
+							<div class="baskerville-toggle-label">
+								<span class="baskerville-toggle-text">
+									<?php esc_html_e('Cloudflare Turnstile', 'baskerville-ai-security'); ?>
+								</span>
+								<input type="hidden" name="baskerville_settings[turnstile_enabled]" value="0">
+								<label class="baskerville-toggle-switch">
+									<input type="checkbox" name="baskerville_settings[turnstile_enabled]" value="1" <?php checked($turnstile_enabled, true); ?> />
+									<span class="baskerville-toggle-slider-regular"></span>
+								</label>
+								<span class="baskerville-toggle-text">
+									<?php echo $turnstile_enabled ? esc_html__('ON', 'baskerville-ai-security') : esc_html__('OFF', 'baskerville-ai-security'); ?>
+								</span>
+							</div>
+							<p class="description baskerville-mt-10">
+								<?php esc_html_e('When enabled, Turnstile challenge will be shown on sensitive pages:', 'baskerville-ai-security'); ?>
+								<strong>wp-login.php</strong>,
+								<strong><?php esc_html_e('Registration', 'baskerville-ai-security'); ?></strong>,
+								<strong><?php esc_html_e('Comment form', 'baskerville-ai-security'); ?></strong>
+							</p>
+						</td>
+					</tr>
+				</table>
+			</div>
+
+			<script>
+			(function() {
+				function toggleSections() {
+					var radios = document.querySelectorAll('input[name="baskerville_settings[challenge_provider]"]');
+					var provider = 'altcha';
+					radios.forEach(function(r) { if (r.checked) provider = r.value; });
+					var altchaSection     = document.getElementById('altcha-settings-section');
+					var turnstileSection  = document.getElementById('turnstile-settings-section');
+					if (altchaSection)    altchaSection.style.display    = (provider === 'altcha')               ? '' : 'none';
+					if (turnstileSection) turnstileSection.style.display = (provider === 'cloudflare_turnstile') ? '' : 'none';
+				}
+				document.querySelectorAll('input[name="baskerville_settings[challenge_provider]"]')
+					.forEach(function(r) { r.addEventListener('change', toggleSections); });
+				toggleSections();
+			})();
+			</script>
 
 			<!-- Bot Score Challenge Settings -->
 			<div class="baskerville-form-container">
 				<h3 class="baskerville-section-title"><?php esc_html_e('Bot Score Challenge', 'baskerville-ai-security'); ?></h3>
 				<p class="description">
-					<?php esc_html_e('Show Turnstile challenge to visitors with borderline bot scores instead of blocking them outright.', 'baskerville-ai-security'); ?>
+					<?php esc_html_e('Show a challenge to visitors with borderline bot scores instead of blocking them outright.', 'baskerville-ai-security'); ?>
 				</p>
 
 				<?php
 				$challenge_borderline = isset($options['turnstile_challenge_borderline']) ? (bool) $options['turnstile_challenge_borderline'] : false;
-				$borderline_min = isset($options['turnstile_borderline_min']) ? (int) $options['turnstile_borderline_min'] : 40;
-				$borderline_max = isset($options['turnstile_borderline_max']) ? (int) $options['turnstile_borderline_max'] : 70;
-				$is_disabled = !$turnstile_enabled || empty($site_key) || empty($secret_key);
+				$borderline_min       = isset($options['turnstile_borderline_min']) ? (int) $options['turnstile_borderline_min'] : 40;
+				$borderline_max       = isset($options['turnstile_borderline_max']) ? (int) $options['turnstile_borderline_max'] : 70;
+				// Altcha is always ready; Turnstile requires keys to be configured
+				$is_disabled = ($challenge_provider === 'cloudflare_turnstile') && (!$turnstile_enabled || empty($site_key) || empty($secret_key));
 				?>
 
 				<table class="form-table" role="presentation">
@@ -3800,15 +3935,15 @@ class Baskerville_Admin {
 									   <?php checked($challenge_borderline, true); ?>
 									   <?php disabled($is_disabled, true); ?>
 								/>
-								<?php esc_html_e('Use Turnstile challenge for borderline bot scores', 'baskerville-ai-security'); ?>
+								<?php esc_html_e('Challenge visitors with borderline bot scores', 'baskerville-ai-security'); ?>
 							</label>
 							<?php if ($is_disabled): ?>
 								<p class="description baskerville-text-danger">
-									<?php esc_html_e('Enable Turnstile and configure keys above to use this feature.', 'baskerville-ai-security'); ?>
+									<?php esc_html_e('Enable Cloudflare Turnstile and configure keys above to use this feature.', 'baskerville-ai-security'); ?>
 								</p>
 							<?php else: ?>
 								<p class="description">
-									<?php esc_html_e('Instead of blocking visitors with uncertain bot scores, show them a Turnstile challenge. If they pass, they are allowed through.', 'baskerville-ai-security'); ?>
+									<?php esc_html_e('Instead of blocking visitors with uncertain bot scores, show them a challenge. If they pass, they are allowed through.', 'baskerville-ai-security'); ?>
 								</p>
 							<?php endif; ?>
 						</td>
@@ -3838,12 +3973,12 @@ class Baskerville_Admin {
 								   <?php disabled($is_disabled, true); ?>
 							/>
 							<p class="description">
-								<?php esc_html_e('Bot score range (0-100) that triggers Turnstile challenge.', 'baskerville-ai-security'); ?><br>
-								<strong><?php esc_html_e('Recommended:', 'baskerville-ai-security'); ?></strong> 40-70<br>
+								<?php esc_html_e('Bot score range (0–100) that triggers the challenge.', 'baskerville-ai-security'); ?><br>
+								<strong><?php esc_html_e('Recommended:', 'baskerville-ai-security'); ?></strong> 40–70<br>
 								<span class="baskerville-text-muted">
-									• 0-39: <?php esc_html_e('Likely human (allowed)', 'baskerville-ai-security'); ?><br>
-									• 40-70: <?php esc_html_e('Borderline (show Turnstile)', 'baskerville-ai-security'); ?><br>
-									• 71-100: <?php esc_html_e('Likely bot (blocked)', 'baskerville-ai-security'); ?>
+									• 0–39: <?php esc_html_e('Likely human (allowed)', 'baskerville-ai-security'); ?><br>
+									• 40–70: <?php esc_html_e('Borderline (show challenge)', 'baskerville-ai-security'); ?><br>
+									• 71–100: <?php esc_html_e('Likely bot (blocked)', 'baskerville-ai-security'); ?>
 								</span>
 							</p>
 						</td>
@@ -3862,16 +3997,16 @@ class Baskerville_Admin {
 									   <?php checked($under_attack_mode, true); ?>
 									   <?php disabled($is_disabled, true); ?>
 								/>
-								<?php esc_html_e('Show Turnstile challenge to ALL visitors', 'baskerville-ai-security'); ?>
+								<?php esc_html_e('Show challenge to ALL visitors', 'baskerville-ai-security'); ?>
 							</label>
 							<?php if ($under_attack_mode): ?>
 								<p class="description baskerville-text-danger-bold">
 									<span class="dashicons dashicons-warning baskerville-text-danger"></span>
-									<?php esc_html_e('ACTIVE: All visitors must pass Turnstile challenge!', 'baskerville-ai-security'); ?>
+									<?php esc_html_e('ACTIVE: All visitors must pass the challenge!', 'baskerville-ai-security'); ?>
 								</p>
 							<?php else: ?>
 								<p class="description">
-									<?php esc_html_e('Emergency mode for when your site is under attack. When enabled, EVERY visitor (including those classified as human) must pass a Turnstile challenge before accessing the site.', 'baskerville-ai-security'); ?><br><br>
+									<?php esc_html_e('Emergency mode for when your site is under attack. When enabled, EVERY visitor (including those classified as human) must pass a challenge before accessing the site.', 'baskerville-ai-security'); ?><br><br>
 									<strong><?php esc_html_e('Use this when:', 'baskerville-ai-security'); ?></strong><br>
 									• <?php esc_html_e('Your site is experiencing a DDoS or bot attack', 'baskerville-ai-security'); ?><br>
 									• <?php esc_html_e('You see unusual traffic patterns', 'baskerville-ai-security'); ?><br>
@@ -3931,14 +4066,80 @@ class Baskerville_Admin {
 				</table>
 			</div>
 
-			<?php submit_button(); ?>
 		</form>
 
-		<!-- Turnstile Widget Test -->
+		<!-- Clear Pass Cache -->
+		<div class="baskerville-form-container">
+			<h3 class="baskerville-section-title"><?php esc_html_e('Pass Cache', 'baskerville-ai-security'); ?></h3>
+			<p class="description">
+				<?php esc_html_e('When a visitor passes the challenge, their browser cookie and IP are cached server-side for 24 hours. This button invalidates all existing passes — both browser cookies and server cache. After clicking, close the incognito window completely and open a new one to test.', 'baskerville-ai-security'); ?>
+			</p>
+			<button type="button" id="baskerville-clear-pass-cache" class="button button-secondary">
+				<?php esc_html_e('Invalidate All Challenge Passes', 'baskerville-ai-security'); ?>
+			</button>
+			<span id="baskerville-clear-pass-result" style="margin-left:10px;"></span>
+			<script>
+			document.getElementById('baskerville-clear-pass-cache').addEventListener('click', function() {
+				var btn = this;
+				var result = document.getElementById('baskerville-clear-pass-result');
+				btn.disabled = true;
+				result.textContent = <?php echo wp_json_encode(__('Clearing...', 'baskerville-ai-security')); ?>;
+				var fd = new FormData();
+				fd.append('action', 'baskerville_clear_pass_cache');
+				fd.append('_wpnonce', <?php echo wp_json_encode(wp_create_nonce('baskerville_clear_pass_cache')); ?>);
+				fetch(ajaxurl, { method: 'POST', body: fd, credentials: 'same-origin' })
+					.then(function(r) { return r.json(); })
+					.then(function(data) {
+						btn.disabled = false;
+						result.textContent = data.success ? data.data : <?php echo wp_json_encode(__('Error clearing cache', 'baskerville-ai-security')); ?>;
+					})
+					.catch(function() {
+						btn.disabled = false;
+						result.textContent = <?php echo wp_json_encode(__('Request failed', 'baskerville-ai-security')); ?>;
+					});
+			});
+			</script>
+		</div>
+
+		<!-- Widget Test -->
 		<div class="baskerville-form-container">
 			<h3 class="baskerville-section-title"><?php esc_html_e('Widget Test', 'baskerville-ai-security'); ?></h3>
 
-			<?php if (empty($site_key)): ?>
+			<?php if ($challenge_provider === 'altcha'): ?>
+
+				<p><?php esc_html_e('The Altcha PoW widget should appear below and solve automatically:', 'baskerville-ai-security'); ?></p>
+
+				<div id="altcha-test-container" class="baskerville-test-container">
+					<?php // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Altcha widget JS; can be self-hosted ?>
+					<script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"></script>
+					<altcha-widget
+						challengeurl="<?php echo esc_url(home_url('/?baskerville_altcha_challenge=1')); ?>"
+						name="altcha-test"
+						auto="onload"
+					></altcha-widget>
+				</div>
+
+				<div id="altcha-test-status" class="baskerville-test-status"></div>
+
+				<script>
+				(function() {
+					var w = document.querySelector('#altcha-test-container altcha-widget');
+					if (!w) return;
+					w.addEventListener('statechange', function(ev) {
+						var statusDiv = document.getElementById('altcha-test-status');
+						if (!statusDiv || !ev.detail) return;
+						if (ev.detail.state === 'verified') {
+							statusDiv.className = 'baskerville-test-status success';
+							statusDiv.innerHTML = '<strong class="baskerville-test-success-text"><?php echo esc_js(__('Altcha widget is working!', 'baskerville-ai-security')); ?></strong>';
+						} else if (ev.detail.state === 'error') {
+							statusDiv.className = 'baskerville-test-status error';
+							statusDiv.innerHTML = '<strong class="baskerville-test-error-text"><?php echo esc_js(__('Altcha error. Check browser console.', 'baskerville-ai-security')); ?></strong>';
+						}
+					});
+				})();
+				</script>
+
+			<?php elseif (empty($site_key)): ?>
 				<div class="baskerville-warning-box">
 					<strong><?php esc_html_e('Site Key not configured', 'baskerville-ai-security'); ?></strong><br>
 					<?php esc_html_e('Enter your Turnstile Site Key above and save to test the widget.', 'baskerville-ai-security'); ?>
@@ -4029,6 +4230,12 @@ class Baskerville_Admin {
 			$timeseries = $this->get_timeseries_data($hours);
 			$turnstile_data = $this->get_turnstile_timeseries_data($hours);
 			$key_metrics = $this->get_key_metrics($hours);
+			$ai_bots_data = $this->stats->get_ai_bots_timeseries($hours);
+
+			// Compute AI bot totals directly from timeseries for summary metric
+			$ai_total_verified   = array_sum(array_column($timeseries, 'verified_ai_bot_count'));
+			$ai_total_unverified = array_sum(array_column($timeseries, 'ai_bot_unverified_count'));
+			$ai_total_ua_only    = array_sum(array_column($timeseries, 'ai_bot_count'));
 			?>
 
 			<!-- Key Metrics -->
@@ -4091,6 +4298,23 @@ class Baskerville_Admin {
 				</div>
 			</div>
 
+			<!-- AI Bots Metric Card -->
+			<div class="baskerville-key-metrics" style="margin-top: 12px;">
+				<div class="baskerville-metric-card" style="flex: 1 1 100%; max-width: 100%;">
+					<div class="baskerville-metric-header">
+						<span class="baskerville-metric-label"><?php esc_html_e('AI Bot Visits', 'baskerville-ai-security'); ?></span>
+						<span class="baskerville-metric-value" style="color:#9333ea;"><?php echo esc_html(number_format($ai_total_verified + $ai_total_unverified + $ai_total_ua_only)); ?></span>
+					</div>
+					<div class="baskerville-metric-subtext">
+						<span style="color:#16a34a;">&#10003; <?php esc_html_e('IP verified', 'baskerville-ai-security'); ?>: <strong><?php echo esc_html(number_format($ai_total_verified)); ?></strong></span>
+						&nbsp;&nbsp;
+						<span style="color:#ea580c;">&#9888; <?php esc_html_e('AI Spoofers', 'baskerville-ai-security'); ?>: <strong><?php echo esc_html(number_format($ai_total_unverified)); ?></strong></span>
+						&nbsp;&nbsp;
+						<span style="color:#9333ea;">? <?php esc_html_e('UA only', 'baskerville-ai-security'); ?>: <strong><?php echo esc_html(number_format($ai_total_ua_only)); ?></strong></span>
+					</div>
+				</div>
+			</div>
+
 			<div class="baskerville-charts-container">
 				<div class="baskerville-chart-card">
 					<canvas id="baskervilleHumAutoBar"></canvas>
@@ -4110,6 +4334,20 @@ class Baskerville_Admin {
 				</div>
 			</div>
 
+			<!-- AI Bots by Company (verified) -->
+			<div class="baskerville-charts-container">
+				<div class="baskerville-chart-card" style="flex: 1 1 100%; max-width: 100%;">
+					<canvas id="aiBotsChart"></canvas>
+				</div>
+			</div>
+
+			<!-- AI Bots — Unverified / Spoofers -->
+			<div class="baskerville-charts-container">
+				<div class="baskerville-chart-card" style="flex: 1 1 100%; max-width: 100%;">
+					<canvas id="aiBotsUnverifiedChart"></canvas>
+				</div>
+			</div>
+
 			<!-- Turnstile Precision Charts -->
 			<div class="baskerville-charts-container">
 				<div class="baskerville-chart-card">
@@ -4126,11 +4364,31 @@ class Baskerville_Admin {
 			</div>
 
 			<?php if (is_array($timeseries)):
-				wp_add_inline_script('baskerville-admin', 'window.baskervilleAnalyticsData = ' . wp_json_encode(array(
+				$ts_json = wp_json_encode(array(
 					'timeseries' => $timeseries,
 					'turnstile'  => $turnstile_data,
 					'hours'      => absint($hours),
-				)) . ';', 'before');
+				));
+				wp_add_inline_script('baskerville-admin', 'window.baskervilleAnalyticsData = ' . $ts_json . ';', 'before');
+				// DEBUG: log first timeseries row to verify data structure
+				wp_add_inline_script('baskerville-admin', '
+(function(){
+	var d = window.baskervilleAnalyticsData;
+	if (!d || !d.timeseries || !d.timeseries.length) { console.warn("[Baskerville] baskervilleAnalyticsData missing or empty timeseries"); return; }
+	var first = d.timeseries[0];
+	var totals = d.timeseries.reduce(function(acc, i) {
+		acc.ai_bot += (i.ai_bot_count || 0);
+		acc.mismatch += (i.ai_bot_unverified_count || 0);
+		acc.verified += (i.verified_ai_bot_count || 0);
+		return acc;
+	}, {ai_bot:0, mismatch:0, verified:0});
+	console.log("[Baskerville] timeseries rows:", d.timeseries.length, "| first row keys:", Object.keys(first).join(","));
+	console.log("[Baskerville] AI bot totals from timeseries:", totals);
+})();
+', 'before');
+			endif;
+			if (!empty($ai_bots_data['companies']) || !empty($ai_bots_data['spoofers'])):
+				wp_add_inline_script('baskerville-admin', 'window.baskervilleAIBotData = ' . wp_json_encode($ai_bots_data) . ';', 'before');
 			endif; ?>
 	<?php
 		} catch (Exception $e) {
@@ -5146,6 +5404,94 @@ done
 	 * Direct database queries are required for real-time AJAX feed.
 	 * Caching is not applicable for live data updates.
 	 *
+	/**
+	 * Flush page caches from common WordPress caching plugins.
+	 * Called automatically when Under Attack Mode is enabled.
+	 */
+	private function flush_page_caches() {
+		// WP Rocket
+		if (function_exists('rocket_clean_domain')) {
+			rocket_clean_domain();
+		}
+		// W3 Total Cache
+		if (function_exists('w3tc_flush_all')) {
+			w3tc_flush_all();
+		}
+		// WP Super Cache
+		if (function_exists('wp_cache_clear_cache')) {
+			wp_cache_clear_cache();
+		}
+		// LiteSpeed Cache
+		if (class_exists('LiteSpeed_Cache_API') && method_exists('LiteSpeed_Cache_API', 'purge_all')) {
+			LiteSpeed_Cache_API::purge_all();
+		}
+		// WP Fastest Cache
+		if (isset($GLOBALS['wp_fastest_cache']) && method_exists($GLOBALS['wp_fastest_cache'], 'deleteCache')) {
+			$GLOBALS['wp_fastest_cache']->deleteCache(true);
+		}
+		// Autoptimize
+		if (class_exists('autoptimizeCache') && method_exists('autoptimizeCache', 'clearall')) {
+			autoptimizeCache::clearall();
+		}
+		// Comet Cache / ZenCache
+		if (class_exists('comet_cache') && method_exists('comet_cache', 'clear')) {
+			comet_cache::clear();
+		}
+		// Swift Performance
+		if (class_exists('Swift_Performance_Cache') && method_exists('Swift_Performance_Cache', 'clear_all_cache')) {
+			Swift_Performance_Cache::clear_all_cache();
+		}
+		// Generic WordPress hooks that some plugins listen to
+		do_action('baskerville_flush_cache');
+		do_action('cachify_flush_cache');
+		if (function_exists('wp_cache_flush')) {
+			wp_cache_flush(); // WordPress object cache
+		}
+	}
+
+	/**
+	 * AJAX: Clear challenge pass cache (server-side IP cache, not browser cookies).
+	 * Allows admins to re-test the challenge without waiting 24 hours.
+	 */
+	public function ajax_clear_pass_cache() {
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(esc_html__('Permission denied.', 'baskerville-ai-security'));
+		}
+		if (!wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'] ?? '')), 'baskerville_clear_pass_cache')) {
+			wp_send_json_error(esc_html__('Security check failed.', 'baskerville-ai-security'));
+		}
+
+		$core = new Baskerville_Core();
+
+		// Store invalidation timestamp — has_pass_cookie() rejects cookies issued before this
+		update_option('baskerville_pass_invalidated_at', time(), false);
+
+		// Also clear the server-side file/APCu cache for all IPs
+		if ($core->fc_has_apcu()) {
+			$info = apcu_cache_info(false);
+			if (!empty($info['cache_list'])) {
+				foreach ($info['cache_list'] as $entry) {
+					$k = $entry['info'] ?? '';
+					// Key format: baskerville:turnstile_pass:{ip_with_dots_as_underscores}
+					if (strpos($k, 'baskerville:turnstile_pass:') !== false) {
+						apcu_delete($k);
+					}
+				}
+			}
+		}
+
+		// Always clear the admin's own IP entry (covers file-cache installs too)
+		$admin_ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+		if (!empty($admin_ip)) {
+			$core->fc_delete("turnstile_pass:{$admin_ip}");
+		}
+
+		wp_send_json_success(
+			esc_html__('Done. All challenge passes invalidated. Close the incognito window completely and open a new one to test.', 'baskerville-ai-security')
+		);
+	}
+
+	/**
 	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_feed() {
@@ -5162,20 +5508,14 @@ done
 					t1.event_type, t1.block_reason
 			 FROM " . esc_sql($table) . " t1
 			 INNER JOIN (
-				 SELECT ip, MAX(created_at) as max_created
+				 SELECT ip, MAX(id) as max_id
 				 FROM " . esc_sql($table) . "
-				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot')
+				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'verified_ai_bot', 'bot')
 				    OR (score >= 50 AND classification NOT IN ('verified_bot', 'verified_ai_bot'))
 				    OR (block_reason IS NOT NULL AND block_reason != '')
-				    OR event_type = 'ts_fail'
+				    OR event_type IN ('ts_fail', 'ac_fail')
 				 GROUP BY ip
-			 ) t2 ON t1.ip = t2.ip AND t1.created_at = t2.max_created
-			 WHERE (
-			    t1.classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'bot')
-			    OR (t1.score >= 50 AND t1.classification NOT IN ('verified_bot', 'verified_ai_bot'))
-			    OR (t1.block_reason IS NOT NULL AND t1.block_reason != '')
-			    OR t1.event_type = 'ts_fail'
-			 )
+			 ) t2 ON t1.id = t2.max_id
 			 ORDER BY t1.created_at DESC
 			 LIMIT %d",
 			30

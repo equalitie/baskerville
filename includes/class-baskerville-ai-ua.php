@@ -29,12 +29,34 @@ class Baskerville_AI_UA {
     ];
 
     /**
-     * Companies that verify their crawlers via reverse DNS rather than published IP ranges.
-     * Key = company name (as returned by get_ai_bot_company()).
-     * Value = array of allowed PTR hostname suffixes.
+     * Companies that verify via reverse DNS (no public IP-range JSON).
+     * Key   = company name (as returned by get_ai_bot_company()).
+     * Value = [
+     *   'suffixes' => PTR hostname suffixes that confirm the company,
+     *   'cidrs'    => fallback static CIDR list when PTR lookup fails/is missing.
+     *                 (CIDRs are stable allocations owned by the company; safe to hardcode.)
+     * ]
      */
     private const RDNS_VERIFIED_COMPANIES = [
-        'Meta' => ['.facebook.com', '.fbscan.com'],
+        'Meta' => [
+            'suffixes' => ['.facebook.com', '.fbscan.com'],
+            'cidrs'    => [
+                // Meta / Facebook AS32934 — primary data-center IPv6 block
+                '2a03:2880::/32',
+                // Meta older IPv6 ranges
+                '2620:0:1c00::/40',
+                '2620:0:1c10::/40',
+                '2620:0:1c18::/40',
+                // Meta IPv4 ranges
+                '66.220.144.0/20',
+                '69.63.176.0/20',
+                '173.252.64.0/18',
+                '31.13.24.0/21',
+                '31.13.64.0/18',
+                '31.13.96.0/19',
+                '204.15.20.0/22',
+            ],
+        ],
     ];
 
     public function __construct(Baskerville_Core $core) {
@@ -57,7 +79,7 @@ class Baskerville_AI_UA {
             'bot', 'spider', 'crawl', 'slurp',
             'googlebot', 'bingbot', 'baiduspider', 'yandexbot', 'duckduckbot',
             'sogou', 'exabot', 'seznambot', 'petalbot', 'applebot',
-            'facebookexternalhit', 'facebookcatalog', 'twitterbot', 'linkedinbot',
+            'facebookexternalhit', 'facebookcatalog', 'facebookbot', 'facebot', 'twitterbot', 'linkedinbot',
             'pinterestbot', 'whatsapp', 'telegrambot', 'slackbot', 'discordbot',
             'ahrefsbot', 'semrushbot', 'mj12bot', 'dotbot', 'uptimerobot',
             'structured-data',
@@ -109,8 +131,7 @@ class Baskerville_AI_UA {
             'meta-externalagent',    // Meta AI training crawler
             'meta-externalfetcher',  // Meta fetching agent
             'meta-webindexer',       // Meta web indexer
-            'facebookbot',           // Facebook AI research
-            'facebot',               // Meta legacy
+            // facebookbot and facebot are link-preview crawlers, not AI crawlers — verified via FCrDNS Meta only for meta-externalagent
 
             // Amazon / AWS
             'amazonbot',             // Amazon AI research
@@ -211,8 +232,6 @@ class Baskerville_AI_UA {
             'meta-externalagent'      => 'Meta',
             'meta-externalfetcher'    => 'Meta',
             'meta-webindexer'         => 'Meta',
-            'facebookbot'             => 'Meta',
-            'facebot'                 => 'Meta',
 
             // Amazon
             'amazonbot'               => 'Amazon',
@@ -298,6 +317,11 @@ class Baskerville_AI_UA {
      * Check whether $ip falls within a CIDR range (IPv4 or IPv6).
      */
     private function ip_in_cidr(string $ip, string $cidr): bool {
+        // Normalize IPv4-mapped IPv6 (::ffff:1.2.3.4) to plain IPv4
+        if (preg_match('/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i', $ip, $m)) {
+            $ip = $m[1];
+        }
+
         $parts  = explode('/', $cidr, 2);
         $range  = $parts[0];
         $prefix = isset($parts[1]) ? (int) $parts[1] : -1;
@@ -342,29 +366,84 @@ class Baskerville_AI_UA {
      * @param string   $ip              Visitor IP
      * @param string[] $allowed_suffixes e.g. ['.facebook.com', '.fbscan.com']
      */
+    /**
+     * Build the PTR lookup hostname for an IP.
+     * For IPv4: standard in-addr.arpa form.
+     * For IPv6: expand to full 32 hex digits, reverse nibble by nibble, append ip6.arpa.
+     * Returns empty string on invalid input.
+     */
+    private function ip_to_ptr_host(string $ip): string {
+        $bin = @inet_pton($ip);
+        if ($bin === false) return '';
+
+        if (strlen($bin) === 4) {
+            // IPv4
+            return implode('.', array_reverse(explode('.', $ip))) . '.in-addr.arpa';
+        }
+
+        // IPv6: expand to 32 hex nibbles, reverse, join with dots
+        $hex     = bin2hex($bin);                       // 32 hex chars
+        $nibbles = str_split($hex, 1);                  // ['2','a','0','3',...]
+        $reversed = array_reverse($nibbles);
+        return implode('.', $reversed) . '.ip6.arpa';
+    }
+
     private function verify_by_rdns(string $ip, array $allowed_suffixes): bool {
         $cache_key = 'ai_rdns_' . substr(md5($ip), 0, 12);
         $cached    = $this->core->fc_get($cache_key);
         if ($cached !== null) return (bool) $cached;
 
-        $result   = false;
-        $hostname = @gethostbyaddr($ip);
+        $result = false;
 
-        if ($hostname !== false && $hostname !== $ip) {
+        // Use dns_get_record() for PTR lookup — more reliable than gethostbyaddr() for IPv6
+        $ptr_host = $this->ip_to_ptr_host($ip);
+        $hostname = '';
+        if ($ptr_host !== '') {
+            $ptr_records = @dns_get_record($ptr_host, DNS_PTR);
+            if (is_array($ptr_records) && !empty($ptr_records)) {
+                $hostname = $ptr_records[0]['target'] ?? '';
+            }
+        }
+
+        // Fallback to gethostbyaddr for systems where dns_get_record PTR fails
+        if ($hostname === '') {
+            $h = @gethostbyaddr($ip);
+            if ($h !== false && $h !== $ip) {
+                $hostname = $h;
+            }
+        }
+
+        if ($hostname !== '') {
             foreach ($allowed_suffixes as $suffix) {
                 if (substr($hostname, -strlen($suffix)) === $suffix) {
-                    // Forward-confirm: hostname must resolve back to the same IP.
-                    $forward = @gethostbynamel($hostname);
-                    if (is_array($forward) && in_array($ip, $forward, true)) {
-                        $result = true;
+                    // Forward-confirm: resolve A + AAAA, normalize via inet_pton for IPv6 comparison
+                    $ip_bin = @inet_pton($ip);
+                    foreach (['A', 'AAAA'] as $type) {
+                        $records = @dns_get_record($hostname, constant('DNS_' . $type));
+                        if (is_array($records)) {
+                            foreach ($records as $rec) {
+                                $addr     = $rec['ip'] ?? $rec['ipv6'] ?? null;
+                                if ($addr === null) continue;
+                                $addr_bin = @inet_pton($addr);
+                                if ($ip_bin !== false && $addr_bin !== false && $ip_bin === $addr_bin) {
+                                    $result = true;
+                                    break 2;
+                                }
+                            }
+                        }
                     }
-                    wpsec_log(sprintf(
+                    error_log(sprintf(
                         '[AiBotVerificator] rDNS %s → %s | forward match: %s',
                         $ip, $hostname, $result ? 'yes' : 'no'
                     ));
                     break;
                 }
             }
+        }
+
+        if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+            error_log(sprintf('[AiBotVerificator] verify_by_rdns %s ptr=%s host=%s result=%s',
+                $ip, $ptr_host, $hostname, $result ? 'true' : 'false'));
         }
 
         $this->core->fc_set($cache_key, $result, 15 * MINUTE_IN_SECONDS);
@@ -417,20 +496,20 @@ class Baskerville_AI_UA {
                 'user-agent' => 'BaskervillePlugin/1.0',
             ]);
             if (is_wp_error($response)) {
-                wpsec_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
+                error_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $body = wp_remote_retrieve_body($response);
             $data = json_decode($body, true);
             if (!is_array($data)) {
-                wpsec_log("[AiBotVerificator] {$name}: invalid JSON");
+                error_log("[AiBotVerificator] {$name}: invalid JSON");
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $prefixes      = $this->parse_ai_prefixes($data);
             $result[$name] = $prefixes;
-            wpsec_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
+            error_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
         }
 
         $this->core->fc_set('ai_ip_ranges', $result, HOUR_IN_SECONDS);
@@ -728,6 +807,10 @@ class Baskerville_AI_UA {
         if (!$is_nonbrowser_client && strlen(trim($ua_lower)) < 6) { $is_nonbrowser_client = true; }
 
         $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+        // Normalize IPv4-mapped IPv6 to plain IPv4
+        if (preg_match('/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i', $ip, $m)) {
+            $ip = $m[1];
+        }
         $vc = $this->verify_crawler_ip($ip, $user_agent);
 
         // Check if verified crawlers should be allowed (default: true)
@@ -806,12 +889,33 @@ class Baskerville_AI_UA {
             }
             // rDNS-verified companies (e.g. Meta — no published IP range JSON)
             if (isset(self::RDNS_VERIFIED_COMPANIES[$company])) {
-                $allowed = self::RDNS_VERIFIED_COMPANIES[$company];
-                if ($this->verify_by_rdns($ip, $allowed)) {
+                $entry    = self::RDNS_VERIFIED_COMPANIES[$company];
+                $suffixes = $entry['suffixes'] ?? [];
+                $cidrs    = $entry['cidrs']    ?? [];
+
+                // 1) Try FCrDNS (PTR → suffix + forward match)
+                $rdns_ok = $this->verify_by_rdns($ip, $suffixes);
+
+                // 2) Fallback: check hardcoded static CIDRs for this company.
+                //    PTR records may not exist for all IPs (e.g. Meta often has no PTR
+                //    for /32 host addresses in 2a03:2880::/32).  Since CIDRs are
+                //    owned by the company, an IP match is as trustworthy as FCrDNS.
+                $cidr_ok = false;
+                if (!$rdns_ok && !empty($cidrs)) {
+                    foreach ($cidrs as $cidr) {
+                        if ($this->ip_in_cidr($ip, $cidr)) {
+                            $cidr_ok = true;
+                            break;
+                        }
+                    }
+                }
+
+                if ($rdns_ok || $cidr_ok) {
+                    $method = $rdns_ok ? 'rDNS' : 'static CIDR';
                     return [
                         'classification' => 'verified_ai_bot',
-                        /* translators: %s: AI bot company name */
-                        'reason'         => sprintf( __( 'Verified AI bot by rDNS (%s)', 'baskerville-ai-security' ), $company ),
+                        /* translators: %1$s: AI bot company name, %2$s: verification method */
+                        'reason'         => sprintf( __( 'Verified AI bot by %2$s (%1$s)', 'baskerville-ai-security' ), $company, $method ),
                         'risk_score'     => 0,
                         'details'        => [
                             'ip_verified_as' => $company,
@@ -821,7 +925,7 @@ class Baskerville_AI_UA {
                         ],
                     ];
                 }
-                // rDNS failed — company is known to verify via rDNS, so IP mismatch is suspicious
+                // Both rDNS and static CIDR failed — suspicious
                 return [
                     'classification' => 'ai_bot_unverified',
                     /* translators: %s: AI bot company name */
