@@ -79,6 +79,8 @@ class Baskerville_Admin {
 				'turnstileFailed'      => __( 'TURNSTILE FAILED', 'baskerville-ai-security' ),
 				'altchaFailed'         => __( 'ALTCHA FAILED', 'baskerville-ai-security' ),
 				'challengeFailed'      => __( 'CHALLENGE FAILED', 'baskerville-ai-security' ),
+				'loginFormFailed'      => __( 'LOGIN BLOCKED', 'baskerville-ai-security' ),
+				'loginFormPassed'      => __( 'LOGIN PASSED', 'baskerville-ai-security' ),
 				'banned'               => __( 'BANNED', 'baskerville-ai-security' ),
 				'detected'             => __( 'DETECTED', 'baskerville-ai-security' ),
 				'unknownBot'           => __( 'Unknown Bot', 'baskerville-ai-security' ),
@@ -92,6 +94,9 @@ class Baskerville_Admin {
 				'ipUnknown'            => __( 'IP UNKNOWN', 'baskerville-ai-security' ),
 				'failedTurnstile'      => __( 'Failed Cloudflare Turnstile challenge', 'baskerville-ai-security' ),
 				'failedAltcha'         => __( 'Failed Altcha PoW challenge', 'baskerville-ai-security' ),
+				'failedLoginForm'      => __( 'Failed login form Altcha check', 'baskerville-ai-security' ),
+				'passedLoginForm'      => __( 'Passed login form Altcha check', 'baskerville-ai-security' ),
+				'loginForm'            => __( 'LOGIN FORM', 'baskerville-ai-security' ),
 				'noReason'             => __( 'No reason', 'baskerville-ai-security' ),
 				'score'                => __( 'score', 'baskerville-ai-security' ),
 				'banReason'            => __( 'Ban reason', 'baskerville-ai-security' ),
@@ -1996,6 +2001,39 @@ class Baskerville_Admin {
 			'challenge_rate' => $challenge_rate,
 			'pass_rate'      => $pass_rate,
 		];
+	}
+
+	/**
+	 * Get login/registration/comment form Altcha protection stats.
+	 * Uses lf_pass / lf_fail event types logged by Baskerville_Altcha.
+	 */
+	private function get_login_protection_stats($hours = 24) {
+		global $wpdb;
+		$table  = $wpdb->prefix . 'baskerville_stats';
+		$cutoff = gmdate('Y-m-d H:i:s', time() - $hours * 3600);
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$row = $wpdb->get_row($wpdb->prepare(
+			"SELECT
+				SUM(CASE WHEN event_type = 'lf_fail' THEN 1 ELSE 0 END) AS fail_count,
+				SUM(CASE WHEN event_type = 'lf_pass' THEN 1 ELSE 0 END) AS pass_count
+			FROM %i
+			WHERE event_type IN ('lf_fail', 'lf_pass')
+			AND timestamp_utc >= %s",
+			$table,
+			$cutoff
+		), ARRAY_A);
+
+		$fails  = (int) ($row['fail_count'] ?? 0);
+		$passes = (int) ($row['pass_count'] ?? 0);
+		$total  = $fails + $passes;
+
+		return array(
+			'fails'      => $fails,
+			'passes'     => $passes,
+			'total'      => $total,
+			'block_rate' => $total > 0 ? round(($fails * 100.0) / $total, 1) : 0,
+		);
 	}
 
 	private function get_country_stats($hours = 24) {
@@ -4231,6 +4269,7 @@ class Baskerville_Admin {
 			$turnstile_data = $this->get_turnstile_timeseries_data($hours);
 			$key_metrics = $this->get_key_metrics($hours);
 			$ai_bots_data = $this->stats->get_ai_bots_timeseries($hours);
+			$login_stats = $this->get_login_protection_stats($hours);
 
 			// Compute AI bot totals directly from timeseries for summary metric
 			$ai_total_verified   = array_sum(array_column($timeseries, 'verified_ai_bot_count'));
@@ -4348,7 +4387,7 @@ class Baskerville_Admin {
 				</div>
 			</div>
 
-			<!-- Turnstile Precision Charts -->
+			<!-- Turnstile / Altcha Firewall Precision Charts -->
 			<div class="baskerville-charts-container">
 				<div class="baskerville-chart-card">
 					<canvas id="baskervilleTurnstileBar"></canvas>
@@ -4360,6 +4399,26 @@ class Baskerville_Admin {
 					<div class="baskerville-precision-stats">
 						<div id="turnstileStats"></div>
 					</div>
+				</div>
+			</div>
+
+			<!-- Login Form Protection Stats -->
+			<div class="baskerville-charts-container">
+				<div class="baskerville-chart-card baskerville-chart-card-centered">
+					<h3 class="baskerville-precision-title"><?php esc_html_e('Login Protection', 'baskerville-ai-security'); ?></h3>
+					<?php if ($login_stats['total'] === 0): ?>
+						<p class="baskerville-text-muted"><?php esc_html_e('No login form challenges recorded', 'baskerville-ai-security'); ?></p>
+					<?php else: ?>
+						<div class="baskerville-precision-value"><?php echo esc_html(number_format($login_stats['fails'])); ?></div>
+						<p class="baskerville-precision-subtitle"><?php esc_html_e('Login attempts blocked (bots caught)', 'baskerville-ai-security'); ?></p>
+						<div class="baskerville-precision-stats">
+							<div>
+								<span><?php esc_html_e('Blocked:', 'baskerville-ai-security'); ?> <strong><?php echo esc_html(number_format($login_stats['fails'])); ?></strong></span><br>
+								<span><?php esc_html_e('Passed:', 'baskerville-ai-security'); ?> <strong><?php echo esc_html(number_format($login_stats['passes'])); ?></strong></span><br>
+								<span><?php esc_html_e('Block rate:', 'baskerville-ai-security'); ?> <strong><?php echo esc_html($login_stats['block_rate']); ?>%</strong></span>
+							</div>
+						</div>
+					<?php endif; ?>
 				</div>
 			</div>
 
@@ -5513,7 +5572,7 @@ done
 				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'verified_ai_bot', 'bot')
 				    OR (score >= 50 AND classification NOT IN ('verified_bot', 'verified_ai_bot'))
 				    OR (block_reason IS NOT NULL AND block_reason != '')
-				    OR event_type IN ('ts_fail', 'ac_fail')
+				    OR event_type IN ('ts_fail', 'ac_fail', 'lf_fail', 'lf_pass')
 				 GROUP BY ip
 			 ) t2 ON t1.id = t2.max_id
 			 ORDER BY t1.created_at DESC

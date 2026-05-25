@@ -31,10 +31,11 @@ class Baskerville_REST {
      */
     private function check_api_rate_limit() {
         $options = get_option('baskerville_settings', array());
+        $master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
         $rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
 
-        if (!$rate_limit_enabled) {
-            return null; // Rate limiting disabled
+        if (!$master_enabled || !$rate_limit_enabled) {
+            return null; // Master switch or rate limiting disabled
         }
 
         $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
