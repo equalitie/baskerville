@@ -53,13 +53,21 @@ jQuery(document).ready(function($) {
 			var timeAgo = getTimeAgo(event.created_at);
 			var isTurnstileFail = event.event_type === 'ts_fail';
 			var isAltchaFail    = event.event_type === 'ac_fail';
+			var isLoginFail     = event.event_type === 'lf_fail';
+			var isLoginPass     = event.event_type === 'lf_pass';
 			var isChallengeFail = isTurnstileFail || isAltchaFail;
 			var displayLabel = isTurnstileFail ? i18n.turnstileFailed
 				: isAltchaFail ? i18n.altchaFailed
+				: isLoginFail ? i18n.loginFormFailed
+				: isLoginPass ? i18n.loginFormPassed
 				: event.classification.toUpperCase().replace(/_/g, ' ');
 
 			var banBadge = '';
-			if (isChallengeFail) {
+			if (isLoginFail) {
+				banBadge = '<span class="baskerville-badge baskerville-badge-challenge-failed">' + i18n.challengeFailed + '</span>';
+			} else if (isLoginPass) {
+				banBadge = '<span class="baskerville-badge baskerville-badge-detected">' + i18n.loginFormPassed + '</span>';
+			} else if (isChallengeFail) {
 				banBadge = '<span class="baskerville-badge baskerville-badge-challenge-failed">' + i18n.challengeFailed + '</span>';
 			} else if (event.is_banned) {
 				banBadge = '<span class="baskerville-badge baskerville-badge-banned">' + i18n.banned + '</span>';
@@ -108,6 +116,12 @@ jQuery(document).ready(function($) {
 					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
 					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
 				}
+			} else if (isLoginFail || isLoginPass) {
+				detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-turnstile">' + i18n.loginForm + '</span>';
+				if (event.ua) {
+					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
+				}
 			} else if (isAiClass) {
 				if (event.event_type === 'honeypot') {
 					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-honeypot">' + i18n.honeypot + '</span>';
@@ -133,6 +147,8 @@ jQuery(document).ready(function($) {
 			var countryName = event.country_code ? getCountryName(event.country_code) : '';
 			var reasonText = isTurnstileFail ? i18n.failedTurnstile
 				: isAltchaFail ? i18n.failedAltcha
+				: isLoginFail ? i18n.failedLoginForm
+				: isLoginPass ? i18n.passedLoginForm
 				: (event.reason || i18n.noReason);
 			item.html(
 				'<span class="feed-icon">' + icon + '</span> ' +
@@ -176,6 +192,8 @@ jQuery(document).ready(function($) {
 	}
 
 	function getEventIcon(classification, eventType) {
+		if (eventType === 'lf_fail') return '\u{1f512}';        // 🔒
+		if (eventType === 'lf_pass') return '\u{1f513}';        // 🔓
 		if (eventType === 'ts_fail' || eventType === 'ac_fail') return '\u{1f6e1}\ufe0f';
 		if (eventType === 'honeypot') return '\u{1f36f}';
 		if (classification === 'verified_ai_bot')  return '\u2705';       // ✅
@@ -187,6 +205,8 @@ jQuery(document).ready(function($) {
 	}
 
 	function getEventColor(classification, eventType) {
+		if (eventType === 'lf_fail') return '#dc2626'; // red
+		if (eventType === 'lf_pass') return '#16a34a'; // green
 		if (eventType === 'ts_fail' || eventType === 'ac_fail') return '#dc2626';
 		if (classification === 'verified_ai_bot')   return '#16a34a'; // green
 		if (classification === 'ai_bot_unverified') return '#ea580c'; // orange-red
