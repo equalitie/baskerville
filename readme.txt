@@ -125,6 +125,19 @@ Statistics are automatically deleted after the retention period you configure (d
 * Consider adding disclosure to your site's privacy policy
 
 == Changelog ==
+= 1.0.4 =
+* Altcha PoW challenge support — self-hosted, privacy-friendly, works out of the box
+* Altcha widget on login, registration and comment forms
+* Login form protection stats in Analytics dashboard
+* AI crawlers IP verification via published IP ranges and reverse DNS
+* AI spoofers detection — crawlers pretending to be legitimate AI bots with mismatched IP
+* Expanded AI company coverage
+* Fix: Meta crawlers (meta-externalagent) incorrectly flagged as spoofers on IPs without PTR records
+* Fix: Master switch OFF now correctly disables all blocking including honeypot and form challenges
+
+= 1.0.3 =
+* Deflect GEO IP support
+* JS burst counter fix (static files excluded)
 
 = 1.0.2 =
 * Replaced hardcoded Ajax/REST paths with wp_doing_ajax(), REST_REQUEST and rest_get_url_prefix().
