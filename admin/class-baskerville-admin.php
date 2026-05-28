@@ -5505,6 +5505,7 @@ done
 		}
 		// Generic WordPress hooks that some plugins listen to
 		do_action('baskerville_flush_cache');
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Cachify's public flush action; not our hook to rename.
 		do_action('cachify_flush_cache');
 		if (function_exists('wp_cache_flush')) {
 			wp_cache_flush(); // WordPress object cache
