@@ -4148,8 +4148,11 @@ class Baskerville_Admin {
 				<p><?php esc_html_e('The Altcha PoW widget should appear below and solve automatically:', 'baskerville-ai-security'); ?></p>
 
 				<div id="altcha-test-container" class="baskerville-test-container">
-					<?php // phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Altcha widget JS; can be self-hosted ?>
-					<script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"></script>
+					<?php
+					// type="module" is added by Baskerville_Altcha::add_module_type() filter on the 'altcha-widget' handle
+					wp_register_script('altcha-widget', BASKERVILLE_PLUGIN_URL . 'assets/js/altcha.min.js', array(), BASKERVILLE_VERSION, false);
+					wp_print_scripts('altcha-widget');
+					?>
 					<altcha-widget
 						challengeurl="<?php echo esc_url(home_url('/?baskerville_altcha_challenge=1')); ?>"
 						name="altcha-test"
@@ -5502,6 +5505,7 @@ done
 		}
 		// Generic WordPress hooks that some plugins listen to
 		do_action('baskerville_flush_cache');
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Cachify's public flush action; not our hook to rename.
 		do_action('cachify_flush_cache');
 		if (function_exists('wp_cache_flush')) {
 			wp_cache_flush(); // WordPress object cache
