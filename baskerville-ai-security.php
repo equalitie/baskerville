@@ -103,6 +103,7 @@ add_action('plugins_loaded', function () {
 		// (WP Super Cache, W3TC, Comet Cache, etc.)
 		// Does NOT help if advanced-cache.php already served the page.
 		if (!isset($_COOKIE['baskerville_pass'])) {
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- WordPress-wide convention read by W3TC, WP Super Cache, Comet Cache, etc.
 			if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
 		}
 	}
