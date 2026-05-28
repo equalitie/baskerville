@@ -442,16 +442,20 @@ class Baskerville_AI_UA {
                             }
                         }
                     }
-                    error_log(sprintf(
-                        '[AiBotVerificator] rDNS %s → %s | forward match: %s',
-                        $ip, $hostname, $result ? 'yes' : 'no'
-                    ));
+                    if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+                        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
+                        error_log(sprintf(
+                            '[AiBotVerificator] rDNS %s → %s | forward match: %s',
+                            $ip, $hostname, $result ? 'yes' : 'no'
+                        ));
+                    }
                     break;
                 }
             }
         }
 
         if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+            // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
             error_log(sprintf('[AiBotVerificator] verify_by_rdns %s ptr=%s host=%s result=%s',
                 $ip, $ptr_host, $hostname, $result ? 'true' : 'false'));
         }
@@ -506,20 +510,29 @@ class Baskerville_AI_UA {
                 'user-agent' => 'BaskervillePlugin/1.0',
             ]);
             if (is_wp_error($response)) {
-                error_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
+                if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
+                    error_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
+                }
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $body = wp_remote_retrieve_body($response);
             $data = json_decode($body, true);
             if (!is_array($data)) {
-                error_log("[AiBotVerificator] {$name}: invalid JSON");
+                if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
+                    error_log("[AiBotVerificator] {$name}: invalid JSON");
+                }
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $prefixes      = $this->parse_ai_prefixes($data);
             $result[$name] = $prefixes;
-            error_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
+            if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+                // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
+                error_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
+            }
         }
 
         $this->core->fc_set('ai_ip_ranges', $result, HOUR_IN_SECONDS);
