@@ -3,7 +3,7 @@
  * Plugin Name: Baskerville AI Security
  * Plugin URI: https://wordpress.org/plugins/baskerville-ai-security/
  * Description: Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
- * Version: 1.0.3
+ * Version: 1.0.4
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * Author: eQualitie
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BASKERVILLE_VERSION', '1.0.3');
+define('BASKERVILLE_VERSION', '1.0.4');
 define('BASKERVILLE_PLUGIN_FILE', __FILE__);
 define('BASKERVILLE_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('BASKERVILLE_PLUGIN_URL',  plugin_dir_url(__FILE__));
