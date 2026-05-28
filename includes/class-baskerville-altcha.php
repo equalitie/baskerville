@@ -9,7 +9,7 @@ if (!defined('ABSPATH')) {
  *
  * Self-hosted, privacy-friendly proof-of-work challenge (MIT licensed).
  * No external API calls — verification is done locally in PHP.
- * Widget JS loaded from jsDelivr CDN (or can be self-hosted in assets/js/).
+ * Widget JS is bundled locally in assets/js/altcha.min.js.
  *
  * Protocol:
  *   1. Server generates: salt + secret_number → challenge = SHA-256(salt+number), signature = HMAC(challenge)
@@ -372,11 +372,9 @@ class Baskerville_Altcha {
 			<meta name="robots" content="noindex, nofollow">
 			<title><?php echo esc_html__('Security Check', 'baskerville-ai-security') . ' - ' . esc_html($site_name); ?></title>
 			<?php
-			// phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent -- Altcha widget JS; can be self-hosted by copying altcha.min.js to assets/js/
-			// type="module" is required: altcha.min.js is an ES module
-			?>
-			<script type="module" src="https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js"></script>
-			<?php
+			// type="module" is added by add_module_type() filter on the 'altcha-widget' handle
+			wp_register_script('altcha-widget', plugins_url('assets/js/altcha.min.js', BASKERVILLE_PLUGIN_FILE), array(), BASKERVILLE_VERSION, false);
+			wp_print_scripts('altcha-widget');
 			wp_register_style('baskerville-challenge', plugins_url('assets/css/challenge.css', BASKERVILLE_PLUGIN_FILE), array(), BASKERVILLE_VERSION);
 			wp_print_styles('baskerville-challenge');
 			?>
@@ -539,14 +537,12 @@ class Baskerville_Altcha {
 	}
 
 	public function enqueue_altcha_script() {
-		// phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent
-		wp_enqueue_script('altcha-widget', 'https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js', array(), '1.0', true);
+		wp_enqueue_script('altcha-widget', plugins_url('assets/js/altcha.min.js', BASKERVILLE_PLUGIN_FILE), array(), BASKERVILLE_VERSION, true);
 	}
 
 	public function maybe_enqueue_frontend_script() {
 		if (is_singular() && comments_open()) {
-			// phpcs:ignore PluginCheck.CodeAnalysis.EnqueuedResourceOffloading.OffloadedContent
-			wp_enqueue_script('altcha-widget', 'https://cdn.jsdelivr.net/npm/altcha/dist/altcha.min.js', array(), '1.0', true);
+			wp_enqueue_script('altcha-widget', plugins_url('assets/js/altcha.min.js', BASKERVILLE_PLUGIN_FILE), array(), BASKERVILLE_VERSION, true);
 		}
 	}
 
