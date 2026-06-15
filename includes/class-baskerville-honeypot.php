@@ -122,9 +122,10 @@ class Baskerville_Honeypot {
 
 		// Get ban settings to determine block_reason
 		$options = get_option('baskerville_settings', array());
+		$master_enabled         = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
 		$bot_protection_enabled = !isset($options['bot_protection_enabled']) || $options['bot_protection_enabled'];
-		$honeypot_ban_enabled = isset($options['honeypot_ban']) ? (bool)$options['honeypot_ban'] : true;
-		$block_reason = ($bot_protection_enabled && $honeypot_ban_enabled) ? 'honeypot-triggered' : null;
+		$honeypot_ban_enabled   = isset($options['honeypot_ban']) ? (bool)$options['honeypot_ban'] : true;
+		$block_reason = ($master_enabled && $bot_protection_enabled && $honeypot_ban_enabled) ? 'honeypot-triggered' : null;
 
 		// Log as AI bot
 		$cookie_id = $this->core->get_cookie_id();
@@ -152,7 +153,7 @@ class Baskerville_Honeypot {
 		// ));
 
 		// Ban if enabled (default: 24 hours)
-		if ($bot_protection_enabled && $honeypot_ban_enabled) {
+		if ($master_enabled && $bot_protection_enabled && $honeypot_ban_enabled) {
 			$ban_ttl = (int)get_option('baskerville_honeypot_ban_ttl', 86400); // 24 hours default
 			$this->core->fc_set("ban:{$ip}", [
 				'reason' => 'honeypot',

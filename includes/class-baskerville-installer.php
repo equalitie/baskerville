@@ -18,10 +18,6 @@ class Baskerville_Installer {
 			$stats->maybe_upgrade_schema();
 		}
 
-		// Pay-per-crawl tables
-		$pay_storage = new Baskerville_Pay_Storage($core);
-		$pay_storage->create_tables();
-
 		// Default options (don't overwrite if already exist)
 		if (get_option('baskerville_retention_days') === false) {
 			add_option('baskerville_retention_days', BASKERVILLE_DEFAULT_RETENTION_DAYS);
@@ -29,8 +25,8 @@ class Baskerville_Installer {
 		if (get_option('baskerville_cookie_secret') === false) {
 			add_option('baskerville_cookie_secret', bin2hex(random_bytes(32)));
 		}
-		if (get_option('baskerville_grant_secret') === false) {
-			add_option('baskerville_grant_secret', bin2hex(random_bytes(32)));
+		if (get_option('baskerville_altcha_hmac_key') === false) {
+			add_option('baskerville_altcha_hmac_key', bin2hex(random_bytes(32)), '', 'no');
 		}
 
 		if (get_option('baskerville_nocookie_window_sec') === false)  add_option('baskerville_nocookie_window_sec', 60);
@@ -61,20 +57,6 @@ class Baskerville_Installer {
 			$settings['log_mode'] = 'database'; // Database logging by default
 			$needs_update = true;
 		}
-		// Pay-per-crawl defaults
-		if (!isset($settings['pay_enabled'])) {
-			$settings['pay_enabled'] = false;
-			$needs_update = true;
-		}
-		if (!isset($settings['pay_mode'])) {
-			$settings['pay_mode'] = 'off';
-			$needs_update = true;
-		}
-		if (!isset($settings['pay_ai_threshold'])) {
-			$settings['pay_ai_threshold'] = 70;
-			$needs_update = true;
-		}
-
 		if ($needs_update) {
 			update_option('baskerville_settings', $settings);
 		}
@@ -97,11 +79,6 @@ class Baskerville_Installer {
 		// Cron for old log file cleanup (daily)
 		if (!wp_next_scheduled('baskerville_cleanup_log_files')) {
 			wp_schedule_event(time(), 'daily', 'baskerville_cleanup_log_files');
-		}
-
-		// Cron for pay challenge cleanup (daily)
-		if (!wp_next_scheduled('baskerville_cleanup_pay_challenges')) {
-			wp_schedule_event(time(), 'daily', 'baskerville_cleanup_pay_challenges');
 		}
 
 		// Cron for weekly Deflect GeoIP database update
@@ -183,7 +160,6 @@ class Baskerville_Installer {
 		wp_clear_scheduled_hook('baskerville_process_log_files');
 		wp_clear_scheduled_hook('baskerville_cleanup_log_files');
 		wp_clear_scheduled_hook('baskerville_update_deflect_geoip');
-		wp_clear_scheduled_hook('baskerville_cleanup_pay_challenges');
 
 		// Clean up rewrite rules
 		flush_rewrite_rules();

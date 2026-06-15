@@ -52,10 +52,22 @@ jQuery(document).ready(function($) {
 			var color = getEventColor(event.classification, event.event_type);
 			var timeAgo = getTimeAgo(event.created_at);
 			var isTurnstileFail = event.event_type === 'ts_fail';
-			var displayLabel = isTurnstileFail ? i18n.turnstileFailed : event.classification.toUpperCase().replace('_', ' ');
+			var isAltchaFail    = event.event_type === 'ac_fail';
+			var isLoginFail     = event.event_type === 'lf_fail';
+			var isLoginPass     = event.event_type === 'lf_pass';
+			var isChallengeFail = isTurnstileFail || isAltchaFail;
+			var displayLabel = isTurnstileFail ? i18n.turnstileFailed
+				: isAltchaFail ? i18n.altchaFailed
+				: isLoginFail ? i18n.loginFormFailed
+				: isLoginPass ? i18n.loginFormPassed
+				: event.classification.toUpperCase().replace(/_/g, ' ');
 
 			var banBadge = '';
-			if (isTurnstileFail) {
+			if (isLoginFail) {
+				banBadge = '<span class="baskerville-badge baskerville-badge-challenge-failed">' + i18n.challengeFailed + '</span>';
+			} else if (isLoginPass) {
+				banBadge = '<span class="baskerville-badge baskerville-badge-detected">' + i18n.loginFormPassed + '</span>';
+			} else if (isChallengeFail) {
 				banBadge = '<span class="baskerville-badge baskerville-badge-challenge-failed">' + i18n.challengeFailed + '</span>';
 			} else if (event.is_banned) {
 				banBadge = '<span class="baskerville-badge baskerville-badge-banned">' + i18n.banned + '</span>';
@@ -64,7 +76,8 @@ jQuery(document).ready(function($) {
 			}
 
 			var companyBadge = '';
-			if (event.classification === 'ai_bot') {
+			var isAiClass = event.classification === 'ai_bot' || event.classification === 'ai_bot_unverified' || event.classification === 'verified_ai_bot';
+			if (isAiClass) {
 				var companyName = null;
 				var reasonMatch = event.reason && event.reason.match(/\(([^)]+)\)$/);
 				if (reasonMatch) {
@@ -97,19 +110,31 @@ jQuery(document).ready(function($) {
 					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
 					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
 				}
-			} else if (event.classification === 'ai_bot') {
+			} else if (isAltchaFail) {
+				detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-turnstile">' + i18n.altcha + '</span>';
+				if (event.ua) {
+					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
+				}
+			} else if (isLoginFail || isLoginPass) {
+				detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-turnstile">' + i18n.loginForm + '</span>';
+				if (event.ua) {
+					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
+				}
+			} else if (isAiClass) {
 				if (event.event_type === 'honeypot') {
 					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-honeypot">' + i18n.honeypot + '</span>';
-					if (event.ua) {
-						truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-						userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
-					}
+				} else if (event.classification === 'verified_ai_bot') {
+					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-verified">' + i18n.ipVerified + '</span>';
+				} else if (event.classification === 'ai_bot_unverified') {
+					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-spoof">' + i18n.ipMismatch + '</span>';
 				} else {
-					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-useragent">' + i18n.userAgent + '</span>';
-					if (event.ua) {
-						truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
-						userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
-					}
+					detectionBadge = '<span class="baskerville-badge baskerville-badge-sm baskerville-badge-useragent">' + i18n.ipUnknown + '</span>';
+				}
+				if (event.ua) {
+					truncatedUA = event.ua.length > 100 ? event.ua.substring(0, 100) + '...' : event.ua;
+					userAgentInfo = '<br><span class="baskerville-feed-ua">' + i18n.ua + ' ' + truncatedUA + '</span>';
 				}
 			} else {
 				if (isUserAgentBased && event.ua) {
@@ -120,7 +145,11 @@ jQuery(document).ready(function($) {
 
 			var item = $('<div class="live-feed-item"></div>');
 			var countryName = event.country_code ? getCountryName(event.country_code) : '';
-			var reasonText = isTurnstileFail ? i18n.failedTurnstile : (event.reason || i18n.noReason);
+			var reasonText = isTurnstileFail ? i18n.failedTurnstile
+				: isAltchaFail ? i18n.failedAltcha
+				: isLoginFail ? i18n.failedLoginForm
+				: isLoginPass ? i18n.passedLoginForm
+				: (event.reason || i18n.noReason);
 			item.html(
 				'<span class="feed-icon">' + icon + '</span> ' +
 				'<strong style="color: ' + color + ';">' + displayLabel + '</strong>' +
@@ -163,8 +192,12 @@ jQuery(document).ready(function($) {
 	}
 
 	function getEventIcon(classification, eventType) {
-		if (eventType === 'ts_fail') return '\u{1f6e1}\ufe0f';
+		if (eventType === 'lf_fail') return '\u{1f512}';        // 🔒
+		if (eventType === 'lf_pass') return '\u{1f513}';        // 🔓
+		if (eventType === 'ts_fail' || eventType === 'ac_fail') return '\u{1f6e1}\ufe0f';
 		if (eventType === 'honeypot') return '\u{1f36f}';
+		if (classification === 'verified_ai_bot')  return '\u2705';       // ✅
+		if (classification === 'ai_bot_unverified') return '\u{1f916}\u26a0\ufe0f'; // 🤖⚠️
 		if (classification === 'ai_bot') return '\u{1f916}';
 		if (classification === 'bad_bot') return '\u{1f534}';
 		if (classification === 'bot') return '\u{1f7e1}';
@@ -172,7 +205,11 @@ jQuery(document).ready(function($) {
 	}
 
 	function getEventColor(classification, eventType) {
-		if (eventType === 'ts_fail') return '#dc2626';
+		if (eventType === 'lf_fail') return '#dc2626'; // red
+		if (eventType === 'lf_pass') return '#16a34a'; // green
+		if (eventType === 'ts_fail' || eventType === 'ac_fail') return '#dc2626';
+		if (classification === 'verified_ai_bot')   return '#16a34a'; // green
+		if (classification === 'ai_bot_unverified') return '#ea580c'; // orange-red
 		if (classification === 'ai_bot') return '#9333ea';
 		if (classification === 'bad_bot') return '#dc2626';
 		if (classification === 'bot') return '#f59e0b';

@@ -3,7 +3,7 @@
  * Plugin Name: Baskerville AI Security
  * Plugin URI: https://wordpress.org/plugins/baskerville-ai-security/
  * Description: Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
- * Version: 1.0.3
+ * Version: 1.0.4
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * Author: eQualitie
@@ -14,7 +14,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BASKERVILLE_VERSION', '1.0.3');
+define('BASKERVILLE_VERSION', '1.0.4');
 define('BASKERVILLE_PLUGIN_FILE', __FILE__);
 define('BASKERVILLE_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('BASKERVILLE_PLUGIN_URL',  plugin_dir_url(__FILE__));
@@ -31,11 +31,7 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-honeypot.php'
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
-require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-storage.php';
-require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-grant.php';
-require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-verifier.php';
-require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-paywall.php';
-require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-rest.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-altcha.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
 // Add custom cron intervals
@@ -57,9 +53,60 @@ add_action('plugins_loaded', function () {
 	$aiua  = new Baskerville_AI_UA($core);       // AI_UA should receive $core in constructor
 	$stats = new Baskerville_Stats($core, $aiua); // Stats receives Core and AI_UA
 
-	// Cloudflare Turnstile - must be created BEFORE firewall for borderline challenge
-	$turnstile = new Baskerville_Turnstile($core, $stats);
+	// Challenge provider (Altcha by default, Cloudflare Turnstile as option)
+	$options            = get_option('baskerville_settings', array());
+	$challenge_provider = isset($options['challenge_provider']) ? $options['challenge_provider'] : 'altcha';
+	if ($challenge_provider === 'cloudflare_turnstile') {
+		$turnstile = new Baskerville_Turnstile($core, $stats);
+	} else {
+		$turnstile = new Baskerville_Altcha($core, $stats);
+	}
 	$GLOBALS['baskerville_turnstile'] = $turnstile;
+
+	// Cache integration: when Under Attack Mode is ON, configure cache plugins to
+	// create separate cache variants per baskerville_pass cookie.
+	// - Visitors WITH baskerville_pass  → served from cache (fast, already verified)
+	// - Visitors WITHOUT baskerville_pass → cache miss → PHP runs → challenge fires
+	// This keeps caching working for verified users while new visitors always hit PHP.
+	if (!empty($options['turnstile_under_attack'])) {
+		// WP Rocket: vary cache by cookie presence/value
+		add_filter('rocket_cache_dynamic_cookies', function( $cookies ) {
+			$cookies[] = 'baskerville_pass';
+			return $cookies;
+		});
+		// WP Rocket: also reject caching for requests WITHOUT the pass
+		// (baskerville_pass absent = no cache file to serve = PHP runs)
+		add_filter('rocket_cache_accept_cookies', function( $cookies ) {
+			$cookies[] = 'baskerville_pass';
+			return $cookies;
+		});
+		// W3 Total Cache: vary cache by cookie
+		add_filter('w3tc_cache_key_cookies', function( $cookies ) {
+			$cookies[] = 'baskerville_pass';
+			return $cookies;
+		});
+		// LiteSpeed Cache: do not cache visitors without pass
+		add_filter('litespeed_is_forced_nocache', function( $nocache ) {
+			if (!isset($_COOKIE['baskerville_pass'])) {
+				return true; // force no-cache for unchallenged visitors
+			}
+			return $nocache;
+		});
+		// SG Optimizer / SuperCacher
+		add_filter('sgo_disable_cache', function( $disable ) {
+			if (!isset($_COOKIE['baskerville_pass'])) {
+				return true;
+			}
+			return $disable;
+		});
+		// Generic: DONOTCACHEPAGE for plugins that check it post-bootstrap
+		// (WP Super Cache, W3TC, Comet Cache, etc.)
+		// Does NOT help if advanced-cache.php already served the page.
+		if (!isset($_COOKIE['baskerville_pass'])) {
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- WordPress-wide convention read by W3TC, WP Super Cache, Comet Cache, etc.
+			if (!defined('DONOTCACHEPAGE')) define('DONOTCACHEPAGE', true);
+		}
+	}
 
 	// pre-DB firewall (MUST run IMMEDIATELY, before any other hooks)
 	// This runs directly in plugins_loaded to catch requests as early as possible
@@ -79,23 +126,6 @@ add_action('plugins_loaded', function () {
 	// REST API
 	$rest = new Baskerville_REST($core, $stats, $aiua);
 	add_action('rest_api_init', [$rest, 'register_routes']);
-
-	// Pay-per-crawl (x402)
-	$pay_storage = new Baskerville_Pay_Storage($core);
-	$pay_grant   = new Baskerville_Pay_Grant($core);
-	$paywall     = new Baskerville_Paywall($core, $pay_storage, $pay_grant, $stats, $aiua);
-	add_action('template_redirect', [$paywall, 'check_paywall'], 1);
-	$paywall->init_eq402();
-
-	$pay_rest = new Baskerville_Pay_REST($core, $pay_storage, $pay_grant);
-	add_action('rest_api_init', [$pay_rest, 'register_routes']);
-
-	// Cleanup expired pay challenges (daily cron)
-	add_action('baskerville_cleanup_pay_challenges', function () use ($pay_storage) {
-		$options = get_option('baskerville_settings', []);
-		$ttl = (int) ($options['pay_challenge_ttl'] ?? 3600);
-		$pay_storage->cleanup_expired($ttl);
-	});
 
 	// Honeypot for AI bot detection
 	$honeypot = new Baskerville_Honeypot($core, $stats, $aiua);

@@ -27,7 +27,8 @@ class Baskerville_Turnstile {
 
 	public function __construct($core = null, $stats = null) {
 		$options = get_option('baskerville_settings', array());
-		$this->enabled = isset($options['turnstile_enabled']) ? (bool) $options['turnstile_enabled'] : false;
+		$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+		$this->enabled = $master_enabled && (isset($options['turnstile_enabled']) ? (bool) $options['turnstile_enabled'] : false);
 		$this->site_key = isset($options['turnstile_site_key']) ? $options['turnstile_site_key'] : '';
 		$this->secret_key = isset($options['turnstile_secret_key']) ? $options['turnstile_secret_key'] : '';
 		$this->challenge_borderline = isset($options['turnstile_challenge_borderline']) ? (bool) $options['turnstile_challenge_borderline'] : false;
@@ -188,8 +189,15 @@ class Baskerville_Turnstile {
 		// This handles the case where CDN strips baskerville_pass cookie
 		if ($this->core) {
 			$ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
-			if (!empty($ip) && $this->core->fc_get("turnstile_pass:{$ip}")) {
-				return true;
+			if (!empty($ip)) {
+				$cached_ts = $this->core->fc_get("turnstile_pass:{$ip}");
+				if ($cached_ts) {
+					// Respect admin-triggered invalidation
+					$invalidated_at = (int) get_option('baskerville_pass_invalidated_at', 0);
+					if ($invalidated_at === 0 || (int) $cached_ts >= $invalidated_at) {
+						return true;
+					}
+				}
 			}
 		}
 
@@ -221,6 +229,12 @@ class Baskerville_Turnstile {
 
 		// Check if expired (24 hours)
 		if (time() - $timestamp > 86400) {
+			return false;
+		}
+
+		// Reject cookies issued before admin cleared the pass cache
+		$invalidated_at = (int) get_option('baskerville_pass_invalidated_at', 0);
+		if ($invalidated_at > 0 && $timestamp < $invalidated_at) {
 			return false;
 		}
 

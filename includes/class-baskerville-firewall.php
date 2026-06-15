@@ -34,8 +34,57 @@ class Baskerville_Firewall
 		$k   = "blocklog:{$ip}:{$sig}";
 		if ($this->core->fc_get($k)) return; // already logged recently
 		$this->core->fc_set($k, 1, $gate_ttl);
+		// Also claim the shared AI-log gate so botvisit_once won't duplicate this entry
+		$cls = $classification['classification'] ?? '';
+		if (in_array($cls, ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'], true)) {
+			$this->core->fc_set("ailog:{$ip}", 1, $gate_ttl);
+		}
 		$this->insert_block_row($ip, $evaluation, $classification, $ua, $reason);
 	}
+
+	/* ===== One-shot DB logging gate for allowed AI bot visits ===== */
+	private function botvisit_once(string $ip, array $classification, string $ua, int $gate_ttl = 3600): void {
+		$cls = $classification['classification'] ?? '';
+		$k   = "ailog:{$ip}"; // shared gate with blocklog to prevent duplicates
+		if ($this->core->fc_get($k)) return; // already logged recently
+		$this->core->fc_set($k, 1, $gate_ttl);
+		$this->insert_ai_bot_visit_row($ip, $classification, $ua);
+	}
+
+	/**
+	 * Insert an AI bot visit row (not a block) for analytics.
+	 *
+	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
+	 */
+	private function insert_ai_bot_visit_row(string $ip, array $classification, string $ua): void {
+		global $wpdb;
+		$table     = $wpdb->prefix . 'baskerville_stats';
+		$cookie_id = $this->core->get_cookie_id() ?: '';
+		$visit_key = $this->stats->make_visit_key($ip, $cookie_id);
+		$country   = $this->core->get_country_by_ip($ip);
+
+		$wpdb->insert(
+			$table,
+			[
+				'visit_key'             => $visit_key,
+				'ip'                    => $ip,
+				'country_code'          => $country,
+				'baskerville_id'        => $cookie_id,
+				'timestamp_utc'         => current_time('mysql', true),
+				'score'                 => 0,
+				'classification'        => (string)($classification['classification'] ?? 'ai_bot'),
+				'user_agent'            => $ua,
+				'evaluation_json'       => '{}',
+				'score_reasons'         => '',
+				'classification_reason' => (string)($classification['reason'] ?? ''),
+				'block_reason'          => '',
+				'event_type'            => 'ai_bot',
+				'had_fp'                => 0,
+			],
+			['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%d']
+		);
+	}
+	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
 	/**
 	 * Insert block event row into database.
@@ -156,6 +205,10 @@ class Baskerville_Firewall
 
 	public function pre_db_firewall(): void {
 		$ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
+		// Normalize IPv4-mapped IPv6 (::ffff:x.x.x.x) to plain IPv4
+		if (preg_match('/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i', $ip, $m)) {
+			$ip = $m[1];
+		}
 
 		if ($ip === '') return;
 
@@ -191,12 +244,16 @@ class Baskerville_Firewall
 		$is_turnstile_page = (
 			strpos($request_uri, '/baskerville-challenge') !== false ||
 			strpos($request_uri, '/baskerville-verify') !== false ||
+			strpos($request_uri, '/baskerville-altcha-challenge') !== false ||
 			strpos($request_uri, 'baskerville_challenge') !== false ||
 			strpos($request_uri, 'baskerville_verify') !== false ||
+			strpos($request_uri, 'baskerville_altcha_challenge') !== false ||
 			strpos($query_string, 'baskerville_challenge') !== false ||
 			strpos($query_string, 'baskerville_verify') !== false ||
+			strpos($query_string, 'baskerville_altcha_challenge') !== false ||
 			filter_has_var(INPUT_GET, 'baskerville_challenge') ||
 			filter_has_var(INPUT_GET, 'baskerville_verify') ||
+			filter_has_var(INPUT_GET, 'baskerville_altcha_challenge') ||
 			filter_has_var(INPUT_POST, 'baskerville_verify')
 		);
 
@@ -307,8 +364,7 @@ class Baskerville_Firewall
 
 		// AI Bot Company Blocking Check
 		$ai_bot_control_enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
-		$ai_bot_mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
-		if ($ai_bot_control_enabled && $ai_bot_mode !== 'allow_all') {
+		if ($ai_bot_control_enabled) {
 			$ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
 			$headers = [
 				'accept'          => sanitize_text_field(wp_unslash($_SERVER['HTTP_ACCEPT'] ?? '')),
@@ -319,47 +375,68 @@ class Baskerville_Firewall
 			];
 
 			$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
+			$cls     = $classification['classification'] ?? '';
+			$company = $classification['details']['company'] ?? $this->aiua->get_ai_bot_company($ua);
 
-			// Check if this is an AI bot
-			if (isset($classification['classification']) && $classification['classification'] === 'ai_bot') {
-				$company = $this->aiua->get_ai_bot_company($ua);
+			// ── IP-mismatch block (independent of main mode) ───────────────────
+			// Bots that claim to be Anthropic/OpenAI/Google but come from an
+			// unrecognised IP are likely scrapers spoofing AI bot user agents.
+			if ($cls === 'ai_bot_unverified') {
+				$block_unverified = !isset($options['block_ai_bot_unverified']) || $options['block_ai_bot_unverified'];
+				if ($block_unverified) {
+					$evaluation   = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
+					$reason       = 'ai-bot-ip-mismatch:' . $company;
+					$ttl          = (int) get_option('baskerville_ban_ttl_sec', 600);
+					$this->set_ban($ip, $reason, $ttl, [
+						'score' => (int)($evaluation['score'] ?? 0),
+						'cls'   => 'ai-bot-ip-mismatch',
+					]);
+					$this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
+					$this->send_403_and_exit([
+						'reason' => $reason,
+						'score'  => $evaluation['score'] ?? null,
+						'cls'    => 'ai-bot-ip-mismatch',
+						'until'  => time() + $ttl,
+					]);
+				}
+				// block_ai_bot_unverified is off → fall through to main mode below
+			}
+
+			// ── Main mode block (allow_all / block_all / blacklist / whitelist) ─
+			$ai_bot_mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
+			$ai_classifications = ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'];
+			if ($ai_bot_mode !== 'allow_all' && in_array($cls, $ai_classifications, true)) {
 				$should_block = false;
 				$reason_prefix = '';
 
 				if ($ai_bot_mode === 'block_all') {
-					// Block all AI bots mode: block ALL AI bots regardless of company
-					$should_block = true;
+					$should_block  = true;
 					$reason_prefix = 'ai-bot-block-all';
 				} elseif ($ai_bot_mode === 'whitelist') {
-					// Whitelist mode: block if company is NOT in the list
 					$company_list_str = isset($options['whitelist_ai_companies']) ? $options['whitelist_ai_companies'] : '';
 					if (!empty($company_list_str)) {
 						$whitelist_companies = array_map('trim', explode(',', $company_list_str));
-						$should_block = !in_array($company, $whitelist_companies, true);
+						$should_block  = !in_array($company, $whitelist_companies, true);
 						$reason_prefix = 'ai-bot-whitelist-blocked';
 					}
 				} elseif ($ai_bot_mode === 'blacklist') {
-					// Blacklist mode: block if company IS in the list
 					$company_list_str = isset($options['blacklist_ai_companies']) ? $options['blacklist_ai_companies'] : '';
 					if (!empty($company_list_str)) {
 						$blacklist_companies = array_map('trim', explode(',', $company_list_str));
-						$should_block = in_array($company, $blacklist_companies, true);
+						$should_block  = in_array($company, $blacklist_companies, true);
 						$reason_prefix = 'ai-bot-blacklist-blocked';
 					}
 				}
 
 				if ($should_block) {
 					$evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
-					$reason = "{$reason_prefix}:{$company}";
-					$ttl = (int) get_option('baskerville_ban_ttl_sec', 600);
-
+					$reason     = "{$reason_prefix}:{$company}";
+					$ttl        = (int) get_option('baskerville_ban_ttl_sec', 600);
 					$this->set_ban($ip, $reason, $ttl, [
 						'score' => (int)($evaluation['score'] ?? 0),
 						'cls'   => 'ai-bot-banned',
 					]);
 					$this->blocklog_once($ip, $reason, $evaluation, $classification, $ua);
-
-					// Block AI bot
 					$this->send_403_and_exit([
 						'reason' => $reason,
 						'score'  => $evaluation['score'] ?? null,
@@ -367,6 +444,13 @@ class Baskerville_Firewall
 						'until'  => time() + $ttl,
 					]);
 				}
+			}
+
+			// Log allowed AI bot visits for analytics (1 visit per IP+UA per hour)
+			// Return early so regular bot detection doesn't also score and log this request.
+			if (in_array($cls, ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'], true)) {
+				$this->botvisit_once($ip, $classification, $ua);
+				return;
 			}
 		}
 
@@ -475,11 +559,23 @@ class Baskerville_Firewall
 		$classification = $this->aiua->classify_client(['fingerprint' => []], ['headers' => $headers]);
 		$risk           = (int)($evaluation['score'] ?? 0);
 
-		// Turnstile challenge for borderline bot scores (BEFORE burst protection)
-		// This gives borderline visitors a chance to prove they're human instead of getting 403
+		// Challenge check (Under Attack Mode / borderline scores)
 		if (isset($GLOBALS['baskerville_turnstile'])) {
-			$turnstile = $GLOBALS['baskerville_turnstile'];
+			$turnstile      = $GLOBALS['baskerville_turnstile'];
 			$baskerville_id = $this->core->get_cookie_id();
+
+			if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG && !headers_sent()) {
+				$ip_cache_val   = $this->core->fc_get("turnstile_pass:{$ip}");
+				$invalidated_at = (int) get_option('baskerville_pass_invalidated_at', 0);
+				$options_dbg    = get_option('baskerville_settings', []);
+				header('X-Bsk-Under-Attack: '   . (empty($options_dbg['turnstile_under_attack']) ? '0' : '1'));
+				header('X-Bsk-Altcha-Enabled: ' . (empty($options_dbg['altcha_enabled']) ? '0' : '1'));
+				header('X-Bsk-Pass-Cookie: '    . (isset($_COOKIE['baskerville_pass']) ? '1' : '0'));
+				header('X-Bsk-Pass-Cache: '     . ($ip_cache_val ? (int)$ip_cache_val : '0'));
+				header('X-Bsk-Invalidated-At: ' . $invalidated_at);
+				header('X-Bsk-Challenge-Provider: ' . ($options_dbg['challenge_provider'] ?? 'altcha'));
+				header('X-Bsk-Should-Challenge: '   . ($turnstile->should_challenge($risk, $baskerville_id) ? '1' : '0'));
+			}
 
 			if ($turnstile->should_challenge($risk, $baskerville_id)) {
 				$turnstile->redirect_to_challenge();

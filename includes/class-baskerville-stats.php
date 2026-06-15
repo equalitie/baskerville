@@ -478,12 +478,14 @@ class Baskerville_Stats
                     COUNT(*) AS total_visits,
                     SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
-                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
-                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
-                    AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score
+                    SUM(CASE WHEN classification='ai_bot'            THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification='ai_bot_unverified' THEN 1 ELSE 0 END) AS ai_bot_unverified_count,
+                    SUM(CASE WHEN classification='verified_ai_bot'   THEN 1 ELSE 0 END) AS verified_ai_bot_count,
+                    SUM(CASE WHEN classification='bot'               THEN 1 ELSE 0 END) AS bot_count,
+                    SUM(CASE WHEN classification='verified_bot'      THEN 1 ELSE 0 END) AS verified_bot_count,
+                    AVG(CASE WHEN had_fp=1 THEN score END)           AS avg_score
                   FROM " . esc_sql($table_name) . "
-                  WHERE event_type IN ('page','fp')
+                  WHERE event_type IN ('page','fp','ai_bot','block')
                     AND timestamp_utc >= %s
                   GROUP BY time_slot
                   ORDER BY time_slot ASC",
@@ -494,24 +496,28 @@ class Baskerville_Stats
 
         $out = [];
         foreach ($results ?: [] as $r) {
-            $total    = (int)$r['total_visits'];
-            $human    = (int)$r['human_count'];
-            $bad      = (int)$r['bad_bot_count'];
-            $ai       = (int)$r['ai_bot_count'];
-            $bot      = (int)$r['bot_count'];
-            $verified = (int)$r['verified_bot_count'];
-            $botsum   = $bad + $ai + $bot + $verified;
+            $total       = (int)$r['total_visits'];
+            $human       = (int)$r['human_count'];
+            $bad         = (int)$r['bad_bot_count'];
+            $ai          = (int)$r['ai_bot_count'];
+            $ai_unver    = (int)$r['ai_bot_unverified_count'];
+            $ai_ver      = (int)$r['verified_ai_bot_count'];
+            $bot         = (int)$r['bot_count'];
+            $verified    = (int)$r['verified_bot_count'];
+            $botsum      = $bad + $ai + $ai_unver + $ai_ver + $bot + $verified;
 
             $out[] = [
-                'time'                => $r['time_slot'],
-                'total_visits'        => $total,
-                'human_count'         => $human,
-                'bad_bot_count'       => $bad,
-                'ai_bot_count'        => $ai,
-                'bot_count'           => $bot,
-                'verified_bot_count'  => $verified,
-                'bot_percentage'      => $total ? round($botsum * 100 / $total, 1) : 0,
-                'avg_score'           => round((float)$r['avg_score'], 1),
+                'time'                     => $r['time_slot'],
+                'total_visits'             => $total,
+                'human_count'              => $human,
+                'bad_bot_count'            => $bad,
+                'ai_bot_count'             => $ai,
+                'ai_bot_unverified_count'  => $ai_unver,
+                'verified_ai_bot_count'    => $ai_ver,
+                'bot_count'                => $bot,
+                'verified_bot_count'       => $verified,
+                'bot_percentage'           => $total ? round($botsum * 100 / $total, 1) : 0,
+                'avg_score'                => round((float)$r['avg_score'], 1),
             ];
         }
         return $out;
@@ -543,12 +549,14 @@ class Baskerville_Stats
                     COUNT(*) AS total_visits,
                     SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
-                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
-                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
-                    AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score
+                    SUM(CASE WHEN classification='ai_bot'            THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification='ai_bot_unverified' THEN 1 ELSE 0 END) AS ai_bot_unverified_count,
+                    SUM(CASE WHEN classification='verified_ai_bot'   THEN 1 ELSE 0 END) AS verified_ai_bot_count,
+                    SUM(CASE WHEN classification='bot'               THEN 1 ELSE 0 END) AS bot_count,
+                    SUM(CASE WHEN classification='verified_bot'      THEN 1 ELSE 0 END) AS verified_bot_count,
+                    AVG(CASE WHEN had_fp=1 THEN score END)           AS avg_score
                   FROM %i
-                  WHERE event_type IN ('page','fp')
+                  WHERE event_type IN ('page','fp','ai_bot','block')
                     AND timestamp_utc >= %s",
                 $table,
                 $cutoff
@@ -557,23 +565,27 @@ class Baskerville_Stats
         ) ?: [];
 
         $total = (int)($row['total_visits'] ?? 0);
-        $bots  = (int)($row['bad_bot_count'] ?? 0)
-               + (int)($row['ai_bot_count']  ?? 0)
-               + (int)($row['bot_count']     ?? 0)
-               + (int)($row['verified_bot_count'] ?? 0);
+        $bots  = (int)($row['bad_bot_count']          ?? 0)
+               + (int)($row['ai_bot_count']            ?? 0)
+               + (int)($row['ai_bot_unverified_count'] ?? 0)
+               + (int)($row['verified_ai_bot_count']   ?? 0)
+               + (int)($row['bot_count']               ?? 0)
+               + (int)($row['verified_bot_count']      ?? 0);
         $hum   = (int)($row['human_count'] ?? 0);
 
         return [
-            'total_visits'     => $total,
-            'human_count'      => $hum,
-            'human_percentage' => $total ? round($hum * 100 / $total, 1) : 0,
-            'bad_bot_count'    => (int)($row['bad_bot_count'] ?? 0),
-            'ai_bot_count'     => (int)($row['ai_bot_count'] ?? 0),
-            'bot_count'        => (int)($row['bot_count'] ?? 0),
-            'bot_total'        => $bots,
-            'bot_percentage'   => $total ? round($bots * 100 / $total, 1) : 0,
-            'avg_score'        => round((float)($row['avg_score'] ?? 0), 1),
-            'hours'            => $hours,
+            'total_visits'            => $total,
+            'human_count'             => $hum,
+            'human_percentage'        => $total ? round($hum * 100 / $total, 1) : 0,
+            'bad_bot_count'           => (int)($row['bad_bot_count']          ?? 0),
+            'ai_bot_count'            => (int)($row['ai_bot_count']            ?? 0),
+            'ai_bot_unverified_count' => (int)($row['ai_bot_unverified_count'] ?? 0),
+            'verified_ai_bot_count'   => (int)($row['verified_ai_bot_count']   ?? 0),
+            'bot_count'               => (int)($row['bot_count']               ?? 0),
+            'bot_total'               => $bots,
+            'bot_percentage'          => $total ? round($bots * 100 / $total, 1) : 0,
+            'avg_score'               => round((float)($row['avg_score'] ?? 0), 1),
+            'hours'                   => $hours,
         ];
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
@@ -602,14 +614,16 @@ class Baskerville_Stats
                     COUNT(DISTINCT ip) unique_ips,
                     SUM(CASE WHEN classification='human'        THEN 1 ELSE 0 END) AS human_count,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_count,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_count,
-                    SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_count,
-                    SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_count,
-                    AVG(CASE WHEN had_fp=1 THEN score END)      AS avg_score,
+                    SUM(CASE WHEN classification='ai_bot'            THEN 1 ELSE 0 END) AS ai_bot_count,
+                    SUM(CASE WHEN classification='ai_bot_unverified' THEN 1 ELSE 0 END) AS ai_bot_unverified_count,
+                    SUM(CASE WHEN classification='verified_ai_bot'   THEN 1 ELSE 0 END) AS verified_ai_bot_count,
+                    SUM(CASE WHEN classification='bot'               THEN 1 ELSE 0 END) AS bot_count,
+                    SUM(CASE WHEN classification='verified_bot'      THEN 1 ELSE 0 END) AS verified_bot_count,
+                    AVG(CASE WHEN had_fp=1 THEN score END)           AS avg_score,
                     MIN(timestamp_utc) first_record,
                     MAX(timestamp_utc) last_record
                   FROM %i
-                  WHERE event_type IN ('page','fp')
+                  WHERE event_type IN ('page','fp','ai_bot','block')
                     AND timestamp_utc >= %s",
                 $table,
                 $cutoff
@@ -619,25 +633,29 @@ class Baskerville_Stats
         if (!$row) return [];
 
         $total = (int)$row['total_visits'];
-        $bots  = (int)($row['bad_bot_count'] ?? 0)
-               + (int)($row['ai_bot_count']  ?? 0)
-               + (int)($row['bot_count']     ?? 0)
-               + (int)($row['verified_bot_count'] ?? 0);
+        $bots  = (int)($row['bad_bot_count']          ?? 0)
+               + (int)($row['ai_bot_count']            ?? 0)
+               + (int)($row['ai_bot_unverified_count'] ?? 0)
+               + (int)($row['verified_ai_bot_count']   ?? 0)
+               + (int)($row['bot_count']               ?? 0)
+               + (int)($row['verified_bot_count']      ?? 0);
 
         return [
-            'total_visits'     => $total,
-            'unique_ips'       => (int)$row['unique_ips'],
-            'human_count'      => (int)$row['human_count'],
-            'human_percentage' => $total ? round($row['human_count'] * 100 / $total, 1) : 0,
-            'bad_bot_count'    => (int)$row['bad_bot_count'],
-            'ai_bot_count'     => (int)$row['ai_bot_count'],
-            'bot_count'        => (int)$row['bot_count'],
-            'bot_total'        => $bots,
-            'bot_percentage'   => $total ? round($bots * 100 / $total, 1) : 0,
-            'avg_score'        => round((float)$row['avg_score'], 1),
-            'retention_days'   => $days,
-            'first_record'     => $row['first_record'],
-            'last_record'      => $row['last_record'],
+            'total_visits'            => $total,
+            'unique_ips'              => (int)$row['unique_ips'],
+            'human_count'             => (int)$row['human_count'],
+            'human_percentage'        => $total ? round($row['human_count'] * 100 / $total, 1) : 0,
+            'bad_bot_count'           => (int)$row['bad_bot_count'],
+            'ai_bot_count'            => (int)$row['ai_bot_count'],
+            'ai_bot_unverified_count' => (int)($row['ai_bot_unverified_count'] ?? 0),
+            'verified_ai_bot_count'   => (int)($row['verified_ai_bot_count']   ?? 0),
+            'bot_count'               => (int)$row['bot_count'],
+            'bot_total'               => $bots,
+            'bot_percentage'          => $total ? round($bots * 100 / $total, 1) : 0,
+            'avg_score'               => round((float)$row['avg_score'], 1),
+            'retention_days'          => $days,
+            'first_record'            => $row['first_record'],
+            'last_record'             => $row['last_record'],
         ];
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
@@ -669,10 +687,10 @@ class Baskerville_Stats
                     ) AS time_slot,
                     COUNT(*) AS total_blocks,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_blocks,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_blocks,
+                    SUM(CASE WHEN classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified') THEN 1 ELSE 0 END) AS ai_bot_blocks,
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
-                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
                   FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s
@@ -724,10 +742,10 @@ class Baskerville_Stats
                 "SELECT
                     COUNT(*) AS total_blocks,
                     SUM(CASE WHEN classification='bad_bot'      THEN 1 ELSE 0 END) AS bad_bot_blocks,
-                    SUM(CASE WHEN classification='ai_bot'       THEN 1 ELSE 0 END) AS ai_bot_blocks,
+                    SUM(CASE WHEN classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified') THEN 1 ELSE 0 END) AS ai_bot_blocks,
                     SUM(CASE WHEN classification='bot'          THEN 1 ELSE 0 END) AS bot_blocks,
                     SUM(CASE WHEN classification='verified_bot' THEN 1 ELSE 0 END) AS verified_bot_blocks,
-                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
+                    SUM(CASE WHEN classification NOT IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot') THEN 1 ELSE 0 END) AS other_blocks
                   FROM %i
                   WHERE event_type='block'
                     AND timestamp_utc >= %s",
@@ -861,7 +879,7 @@ class Baskerville_Stats
                 "SELECT
                     LEAST(FLOOR(score / %d), %d) AS b,
                     SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END) AS human_count,
-                    SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
+                    SUM(CASE WHEN classification IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot','verified_bot') THEN 1 ELSE 0 END) AS automated_count,
                     COUNT(*) AS total_count
                   FROM %i
                   WHERE event_type IN ('page','fp')
@@ -890,8 +908,8 @@ class Baskerville_Stats
           SELECT
             SUM(CASE WHEN classification='human' THEN score ELSE 0 END)        AS human_sum,
             SUM(CASE WHEN classification='human' THEN 1 ELSE 0 END)            AS human_n,
-            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN score ELSE 0 END) AS auto_sum,
-            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','bot','verified_bot') THEN 1 ELSE 0 END)     AS auto_n
+            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot','verified_bot') THEN score ELSE 0 END) AS auto_sum,
+            SUM(CASE WHEN classification IN ('bad_bot','ai_bot','ai_bot_unverified','verified_ai_bot','bot','verified_bot') THEN 1 ELSE 0 END)     AS auto_n
           FROM " . esc_sql($table) . "
           WHERE event_type IN ('page','fp') AND had_fp=1 AND timestamp_utc >= %s
         ", $cutoff), ARRAY_A) ?: ['human_sum'=>0,'human_n'=>0,'auto_sum'=>0,'auto_n'=>0];
@@ -927,7 +945,7 @@ class Baskerville_Stats
                     COUNT(DISTINCT ip) AS unique_ips,
                     COUNT(*) AS events
                   FROM %i
-                  WHERE classification='ai_bot'
+                  WHERE classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified')
                     AND timestamp_utc >= %s
                   GROUP BY user_agent
                   ORDER BY unique_ips DESC, events DESC",
@@ -942,7 +960,7 @@ class Baskerville_Stats
             $wpdb->prepare(
                 "SELECT COUNT(DISTINCT ip)
                   FROM %i
-                  WHERE classification='ai_bot'
+                  WHERE classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified')
                     AND timestamp_utc >= %s",
                 $table,
                 $cutoff
@@ -989,12 +1007,11 @@ class Baskerville_Stats
             // Simplified query - just get timestamp and user_agent, group in PHP
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT timestamp_utc, user_agent
+                    "SELECT timestamp_utc, user_agent, classification
                      FROM {$wpdb->prefix}baskerville_stats
-                     WHERE classification = %s
+                     WHERE classification IN ('ai_bot','verified_ai_bot','ai_bot_unverified')
                        AND timestamp_utc >= %s
                      ORDER BY timestamp_utc ASC",
-                    'ai_bot',
                     $cutoff
                 ),
                 ARRAY_A
@@ -1008,8 +1025,9 @@ class Baskerville_Stats
                 $rows = [];
             }
 
-            // Group by company and time slot in PHP
-            $companies_data = [];
+            // Group by company and time slot in PHP — split verified vs unverified
+            $verified_data   = []; // classification = 'verified_ai_bot'
+            $unverified_data = []; // classification = 'ai_bot' or 'ai_bot_unverified'
             $slot_seconds = $slot_minutes * 60;
 
             foreach ($rows as $row) {
@@ -1017,49 +1035,63 @@ class Baskerville_Stats
                     continue;
                 }
 
-                $company = $this->aiua->get_ai_bot_company($row['user_agent']);
+                $company   = $this->aiua->get_ai_bot_company($row['user_agent']);
                 $timestamp = strtotime($row['timestamp_utc']);
 
                 if ($timestamp === false) {
                     continue;
                 }
 
-                // Round to slot
                 $slot_timestamp = floor($timestamp / $slot_seconds) * $slot_seconds;
-                $time_slot = gmdate('Y-m-d H:i:s', $slot_timestamp);
+                $time_slot      = gmdate('Y-m-d H:i:s', $slot_timestamp);
 
-                if (!isset($companies_data[$company])) {
-                    $companies_data[$company] = [];
+                if ($row['classification'] === 'verified_ai_bot') {
+                    if (!isset($verified_data[$company][$time_slot])) {
+                        $verified_data[$company][$time_slot] = 0;
+                    }
+                    $verified_data[$company][$time_slot]++;
+                } else {
+                    // ai_bot_unverified or ai_bot — group by company name (spoofers/unknown)
+                    if (!isset($unverified_data[$company][$time_slot])) {
+                        $unverified_data[$company][$time_slot] = 0;
+                    }
+                    $unverified_data[$company][$time_slot]++;
                 }
-                if (!isset($companies_data[$company][$time_slot])) {
-                    $companies_data[$company][$time_slot] = 0;
-                }
-                $companies_data[$company][$time_slot]++;
             }
 
             // Generate all time slots
             $start_time = strtotime($cutoff);
             $start_slot = floor($start_time / $slot_seconds) * $slot_seconds;
-            $end_time = time();
+            $end_time   = time();
             $time_slots = [];
             for ($t = $start_slot; $t <= $end_time; $t += $slot_seconds) {
                 $time_slots[] = gmdate('Y-m-d H:i:s', $t);
             }
 
-            // Build series data for each company
-            $series = [];
-            foreach ($companies_data as $company => $data) {
+            // Build series arrays
+            $verified_series   = [];
+            foreach ($verified_data as $company => $data) {
                 $counts = [];
                 foreach ($time_slots as $slot) {
                     $counts[] = isset($data[$slot]) ? $data[$slot] : 0;
                 }
-                $series[$company] = $counts;
+                $verified_series[$company] = $counts;
+            }
+
+            $unverified_series = [];
+            foreach ($unverified_data as $company => $data) {
+                $counts = [];
+                foreach ($time_slots as $slot) {
+                    $counts[] = isset($data[$slot]) ? $data[$slot] : 0;
+                }
+                $unverified_series[$company] = $counts;
             }
 
             return [
-                'hours' => $hours,
-                'time_slots' => $time_slots,
-                'companies' => $series,
+                'hours'        => $hours,
+                'time_slots'   => $time_slots,
+                'companies'    => $verified_series,   // verified_ai_bot only
+                'spoofers'     => $unverified_series, // ai_bot_unverified + ai_bot
                 'slot_minutes' => $slot_minutes,
             ];
 

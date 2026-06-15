@@ -184,98 +184,120 @@
                     return hours + ':' + minutes;
                 });
 
-                // Company colors
+                // Company colors — each company gets a distinct hue
                 var companyColors = {
-                    'OpenAI': '#10a37f',
-                    'Anthropic': '#d4a574',
-                    'Google': '#4285f4',
-                    'Meta': '#0668e1',
-                    'ByteDance': '#fe2c55',
-                    'Amazon': '#ff9900',
-                    'Baidu': '#2932e1',
-                    'Perplexity': '#6366f1',
-                    'Cohere': '#7c3aed',
-                    'Common Crawl': '#9ca3af',
-                    'Huawei': '#e91e63',
-                    'Unknown': '#6b7280',
-                    'Generic': '#9ca3af'
+                    'OpenAI':        '#10a37f',
+                    'Anthropic':     '#c96442',
+                    'Google':        '#4285f4',
+                    'Meta':          '#1877f2',
+                    'ByteDance':     '#fe2c55',
+                    'Amazon':        '#e47911',
+                    'Baidu':         '#2932e1',
+                    'Perplexity':    '#6366f1',
+                    'Mistral':       '#f59e0b',
+                    'Cohere':        '#7c3aed',
+                    'DeepSeek':      '#0ea5e9',
+                    'Microsoft':     '#00a4ef',
+                    'DuckDuckGo':    '#de5833',
+                    'Common Crawl':  '#64748b',
+                    'Huawei':        '#e91e63',
+                    'Unknown':       '#6b7280',
+                    'Generic':       '#9ca3af'
                 };
 
-                // Prepare datasets
-                var datasets = [];
-                Object.keys(data.companies).forEach(function(company) {
-                    datasets.push({
-                        label: company,
-                        data: data.companies[company],
-                        backgroundColor: companyColors[company] || '#9ca3af',
-                        borderColor: companyColors[company] || '#9ca3af',
-                        borderWidth: 1
-                    });
-                });
+                // Fallback palette for companies not in the map above
+                var fallbackPalette = [
+                    '#06b6d4','#84cc16','#f97316','#a855f7','#14b8a6',
+                    '#f43f5e','#8b5cf6','#22c55e','#eab308','#3b82f6'
+                ];
+                var fallbackIdx = 0;
 
-                // Create chart
-                var ctx = document.getElementById('aiBotsChart').getContext('2d');
-                new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: datasets
-                    },
-                    options: {
+                function hexToRgba(hex, alpha) {
+                    var r = parseInt(hex.slice(1,3), 16);
+                    var g = parseInt(hex.slice(3,5), 16);
+                    var b = parseInt(hex.slice(5,7), 16);
+                    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+                }
+
+                function buildDatasets(seriesObj) {
+                    var ds = [];
+                    Object.keys(seriesObj).forEach(function(company) {
+                        var baseColor = companyColors[company];
+                        if (!baseColor) {
+                            baseColor = fallbackPalette[fallbackIdx % fallbackPalette.length];
+                            fallbackIdx++;
+                            companyColors[company] = baseColor;
+                        }
+                        ds.push({
+                            label: company,
+                            data: seriesObj[company],
+                            backgroundColor: hexToRgba(baseColor, 0.85),
+                            borderColor: baseColor,
+                            borderWidth: 1
+                        });
+                    });
+                    return ds;
+                }
+
+                function makeChartOptions(titleText) {
+                    return {
                         responsive: true,
                         maintainAspectRatio: true,
-                        interaction: {
-                            mode: 'index',
-                            intersect: false
-                        },
+                        interaction: { mode: 'index', intersect: false },
                         scales: {
-                            x: {
-                                stacked: true,
-                                title: {
-                                    display: true,
-                                    text: i18n.timeUtc
-                                },
-                                ticks: {
-                                    maxRotation: 45,
-                                    minRotation: 45
-                                }
-                            },
-                            y: {
-                                stacked: true,
-                                beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: i18n.hits
-                                }
-                            }
+                            x: { stacked: true, title: { display: true, text: i18n.timeUtc }, ticks: { maxRotation: 45, minRotation: 45 } },
+                            y: { stacked: true, beginAtZero: true, title: { display: true, text: i18n.hits } }
                         },
                         plugins: {
-                            title: {
-                                display: true,
-                                text: i18n.aiBotHitsLast + ' ' + data.hours + 'h',
-                                font: {
-                                    size: 16,
-                                    weight: 'bold'
-                                }
-                            },
-                            legend: {
-                                display: true,
-                                position: 'bottom'
-                            },
+                            title: { display: true, text: titleText, font: { size: 16, weight: 'bold' } },
+                            legend: { display: true, position: 'bottom' },
                             tooltip: {
                                 callbacks: {
                                     footer: function(items) {
                                         var total = 0;
-                                        items.forEach(function(item) {
-                                            total += item.parsed.y;
-                                        });
+                                        items.forEach(function(i) { total += i.parsed.y; });
                                         return 'Total: ' + total;
                                     }
                                 }
                             }
                         }
-                    }
-                });
+                    };
+                }
+
+                // Chart 1: Verified AI bots by company
+                var verifiedCompanies = data.companies || {};
+                if (Object.keys(verifiedCompanies).length > 0 && document.getElementById('aiBotsChart')) {
+                    new Chart(document.getElementById('aiBotsChart').getContext('2d'), {
+                        type: 'bar',
+                        data: { labels: labels, datasets: buildDatasets(verifiedCompanies) },
+                        options: makeChartOptions(i18n.aiBotHitsLast + ' ' + data.hours + 'h')
+                    });
+                } else if (document.getElementById('aiBotsChart')) {
+                    document.getElementById('aiBotsChart').parentElement.innerHTML =
+                        '<p class="baskerville-no-data" style="text-align:center;padding:20px;">No verified AI bot visits in this period</p>';
+                }
+
+                // Chart 2: Unverified / spoofers by company
+                var spooferCompanies = data.spoofers || {};
+                if (Object.keys(spooferCompanies).length > 0 && document.getElementById('aiBotsUnverifiedChart')) {
+                    var spooferDatasets = buildDatasets(spooferCompanies);
+                    // Desaturate: all spoofer bars use orange-red palette
+                    spooferDatasets.forEach(function(ds, idx) {
+                        var spooferPalette = ['#ea580c','#dc2626','#b45309','#7c3aed','#0369a1','#15803d','#c026d3','#0e7490','#a16207','#be123c'];
+                        var c = spooferPalette[idx % spooferPalette.length];
+                        ds.backgroundColor = hexToRgba(c, 0.75);
+                        ds.borderColor = c;
+                    });
+                    new Chart(document.getElementById('aiBotsUnverifiedChart').getContext('2d'), {
+                        type: 'bar',
+                        data: { labels: labels, datasets: spooferDatasets },
+                        options: makeChartOptions('Unverified AI Bot UAs (Spoofers) — last ' + data.hours + 'h')
+                    });
+                } else if (document.getElementById('aiBotsUnverifiedChart')) {
+                    document.getElementById('aiBotsUnverifiedChart').parentElement.innerHTML =
+                        '<p class="baskerville-no-data" style="text-align:center;padding:20px;">No unverified AI bot visits in this period</p>';
+                }
+
             })();
         }
 
@@ -431,7 +453,9 @@
                 var labels = timeseries.map(function(i) { return fmtHHMM(i.time); });
                 var humans = timeseries.map(function(i) { return i.human_count || 0; });
                 var automated = timeseries.map(function(i) {
-                    return (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.bot_count||0) + (i.verified_bot_count||0);
+                    // verified_bot (Googlebot/Bingbot) and verified_ai_bot are legitimate crawlers —
+                    // exclude them from the "automated threat" count
+                    return (i.bad_bot_count||0) + (i.ai_bot_count||0) + (i.ai_bot_unverified_count||0) + (i.bot_count||0);
                 });
 
                 var totalHumans = humans.reduce(function(a,b) { return a+b; }, 0);
@@ -498,15 +522,29 @@
                 });
 
                 // Bot types data
-                var badBots = timeseries.map(function(i) { return i.bad_bot_count || 0; });
-                var aiBots = timeseries.map(function(i) { return i.ai_bot_count || 0; });
-                var bots = timeseries.map(function(i) { return i.bot_count || 0; });
-                var verifiedBots = timeseries.map(function(i) { return i.verified_bot_count || 0; });
+                var badBots         = timeseries.map(function(i) { return i.bad_bot_count            || 0; });
+                var aiBots          = timeseries.map(function(i) { return i.ai_bot_count             || 0; });
+                var aiBotsUnverified= timeseries.map(function(i) { return i.ai_bot_unverified_count  || 0; });
+                var aiBotsVerified  = timeseries.map(function(i) { return i.verified_ai_bot_count    || 0; });
+                var bots            = timeseries.map(function(i) { return i.bot_count                || 0; });
+                var verifiedBots    = timeseries.map(function(i) { return i.verified_bot_count       || 0; });
 
-                var totalBadBots = badBots.reduce(function(a,b) { return a+b; }, 0);
-                var totalAiBots = aiBots.reduce(function(a,b) { return a+b; }, 0);
-                var totalBots = bots.reduce(function(a,b) { return a+b; }, 0);
-                var totalVerifiedBots = verifiedBots.reduce(function(a,b) { return a+b; }, 0);
+                var totalBadBots          = badBots.reduce(function(a,b) { return a+b; }, 0);
+                var totalAiBots           = aiBots.reduce(function(a,b) { return a+b; }, 0);
+                var totalAiBotsUnverified = aiBotsUnverified.reduce(function(a,b) { return a+b; }, 0);
+                var totalAiBotsVerified   = aiBotsVerified.reduce(function(a,b) { return a+b; }, 0);
+                var totalBots             = bots.reduce(function(a,b) { return a+b; }, 0);
+                var totalVerifiedBots     = verifiedBots.reduce(function(a,b) { return a+b; }, 0);
+
+                // DEBUG: log AI bot totals to help diagnose missing bars
+                console.log('[Baskerville] Bot Types totals:', {
+                    bad_bots: totalBadBots,
+                    ai_bot_ua_only: totalAiBots,
+                    ai_bot_ip_mismatch: totalAiBotsUnverified,
+                    ai_bot_ip_verified: totalAiBotsVerified,
+                    other_bots: totalBots,
+                    verified_crawlers: totalVerifiedBots
+                });
 
                 // 3) Stacked Bar: Bot Types
                 new Chart(document.getElementById('baskervilleBotTypesBar').getContext('2d'), {
@@ -514,10 +552,12 @@
                     data: {
                         labels: labels,
                         datasets: [
-                            { label: i18n.badBots, data: badBots, stack: 'bots', backgroundColor: '#F44336' },
-                            { label: i18n.aiBots, data: aiBots, stack: 'bots', backgroundColor: '#9C27B0' },
-                            { label: i18n.otherBots, data: bots, stack: 'bots', backgroundColor: '#FF9800' },
-                            { label: i18n.verifiedCrawlers, data: verifiedBots, stack: 'bots', backgroundColor: '#2196F3' }
+                            { label: i18n.badBots,             data: badBots,          stack: 'bots', backgroundColor: '#F44336' },
+                            { label: i18n.aiBotsUnverified,    data: aiBotsUnverified, stack: 'bots', backgroundColor: '#EA580C' },
+                            { label: i18n.aiBots,              data: aiBots,           stack: 'bots', backgroundColor: '#9C27B0' },
+                            { label: i18n.aiBotsVerified,      data: aiBotsVerified,   stack: 'bots', backgroundColor: '#16A34A' },
+                            { label: i18n.otherBots,           data: bots,             stack: 'bots', backgroundColor: '#FF9800' },
+                            { label: i18n.verifiedCrawlers,    data: verifiedBots,     stack: 'bots', backgroundColor: '#2196F3' }
                         ]
                     },
                     options: {
@@ -533,7 +573,7 @@
                                 callbacks: {
                                     afterBody: function(items) {
                                         var idx = items[0].dataIndex;
-                                        var total = (badBots[idx]||0) + (aiBots[idx]||0) + (bots[idx]||0) + (verifiedBots[idx]||0);
+                                        var total = (badBots[idx]||0) + (aiBots[idx]||0) + (aiBotsUnverified[idx]||0) + (bots[idx]||0);
                                         return [i18n.totalBots + ' ' + total];
                                     }
                                 }
@@ -546,8 +586,8 @@
                 new Chart(document.getElementById('baskervilleBotTypesPie').getContext('2d'), {
                     type: 'pie',
                     data: {
-                        labels: [i18n.badBots, i18n.aiBots, i18n.otherBots, i18n.verifiedCrawlers],
-                        datasets: [{ data: [totalBadBots, totalAiBots, totalBots, totalVerifiedBots], backgroundColor: ['#F44336', '#9C27B0', '#FF9800', '#2196F3'] }]
+                        labels: [i18n.badBots, i18n.aiBotsUnverified, i18n.aiBots, i18n.aiBotsVerified, i18n.otherBots, i18n.verifiedCrawlers],
+                        datasets: [{ data: [totalBadBots, totalAiBotsUnverified, totalAiBots, totalAiBotsVerified, totalBots, totalVerifiedBots], backgroundColor: ['#F44336', '#EA580C', '#9C27B0', '#16A34A', '#FF9800', '#2196F3'] }]
                     },
                     options: {
                         responsive: true, maintainAspectRatio: true,
@@ -558,7 +598,7 @@
                                 callbacks: {
                                     label: function(ctx) {
                                         var v = ctx.parsed || 0;
-                                        var sum = totalBadBots + totalAiBots + totalBots + totalVerifiedBots || 1;
+                                        var sum = totalBadBots + totalAiBotsUnverified + totalAiBots + totalAiBotsVerified + totalBots + totalVerifiedBots || 1;
                                         var pct = Math.round((v*100)/sum);
                                         return ' ' + ctx.label + ': ' + v + ' (' + pct + '%)';
                                     }
