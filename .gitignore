@@ -1,0 +1,29 @@
+# Deployment and internal docs
+deployment.md
+
+# IDE and system files
+.idea/
+.claude/
+.DS_Store
+*.swp
+*.swo
+
+# Test files
+test-*.php
+bot-detector*.js
+bot-score-*.html
+
+# Build artifacts
+*.zip
+build-plugin.sh
+
+# Temporary files
+ab
+done
+sleep
+with_plugin.txt
+without_plugin.txt
+
+# Composer (if not using vendor in release)
+composer.json
+composer.lock

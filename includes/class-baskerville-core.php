@@ -73,6 +73,19 @@ class Baskerville_Core {
         return $secret;
     }
 
+    /** Secret for signing grant tokens (pay-per-crawl) */
+    public function grant_secret(): string {
+        if (defined('BASKERVILLE_GRANT_SECRET') && BASKERVILLE_GRANT_SECRET) {
+            return BASKERVILLE_GRANT_SECRET;
+        }
+        $secret = (string) get_option('baskerville_grant_secret', '');
+        if (!$secret) {
+            $secret = bin2hex(random_bytes(32));
+            update_option('baskerville_grant_secret', $secret, true);
+        }
+        return $secret;
+    }
+
     /** Sign the main cookie: include ip_key in HMAC */
     private function sign_cookie(string $token, int $ts, string $ipk): string {
         return hash_hmac('sha256', $token . '.' . $ts . '.' . $ipk, $this->cookie_secret());
