@@ -5,10 +5,13 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Pay-per-crawl policy engine.
+ * Pay-per-crawl policy engine — X402 V2 / Coinbase facilitator.
  *
  * Hooked at template_redirect priority 1 (after log_page_visit at 0).
- * Checks grant -> checks ai_score -> returns 402 or allows.
+ * Flow:
+ *   1. Check BV1 grant token (subsequent requests after payment)
+ *   2. Check PAYMENT-SIGNATURE header → verify + settle via Coinbase → issue BV1 grant
+ *   3. Check ai_score → return 402 if above threshold
  */
 class Baskerville_Paywall {
 
@@ -17,6 +20,18 @@ class Baskerville_Paywall {
 	private Baskerville_Pay_Grant $grant;
 	private Baskerville_Stats $stats;
 	private Baskerville_AI_UA $aiua;
+
+	// USDC contract addresses per CAIP-2 network
+	private const USDC_CONTRACTS = [
+		'eip155:137'   => '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', // Polygon mainnet
+		'eip155:84532' => '0x036CbD53842c5426634e7929541eC2318f3dCF7e', // Base Sepolia testnet
+	];
+
+	// Network slug → CAIP-2
+	private const NETWORK_MAP = [
+		'polygon'      => 'eip155:137',
+		'base-sepolia' => 'eip155:84532',
+	];
 
 	public function __construct(
 		Baskerville_Core $core,
@@ -32,26 +47,21 @@ class Baskerville_Paywall {
 		$this->aiua    = $aiua;
 	}
 
-	/**
-	 * Register the /eq402 test route (rewrite rule + query var + handler).
-	 */
+	// -------------------------------------------------------------------------
+	// /eq402 test route
+	// -------------------------------------------------------------------------
+
 	public function init_eq402(): void {
 		add_action('init', [$this, 'register_eq402_route']);
 		add_filter('query_vars', [$this, 'add_eq402_query_var']);
 		add_action('template_redirect', [$this, 'handle_eq402'], -1);
 	}
 
-	/**
-	 * Add baskerville_eq402 to allowed query vars.
-	 */
 	public function add_eq402_query_var(array $vars): array {
 		$vars[] = 'baskerville_eq402';
 		return $vars;
 	}
 
-	/**
-	 * Register rewrite rule: /eq402 → index.php?baskerville_eq402=1
-	 */
 	public function register_eq402_route(): void {
 		add_rewrite_rule(
 			'^eq402/?$',
@@ -62,23 +72,20 @@ class Baskerville_Paywall {
 
 	/**
 	 * Handle /eq402 requests — always behind paywall (no ai_score check).
-	 * Runs at template_redirect priority -1 (before check_paywall at 1).
 	 */
 	public function handle_eq402(): void {
 		if (!get_query_var('baskerville_eq402')) {
 			return;
 		}
 
-		// Prevent caching plugins (WP-Super-Cache, etc.) from caching this page
 		if (!defined('DONOTCACHEPAGE')) {
 			define('DONOTCACHEPAGE', true);
 		}
 
-		$options = get_option('baskerville_settings', []);
-
-		// Quick exits — pay must be enabled and in test or enforce mode
+		$options     = get_option('baskerville_settings', []);
 		$pay_enabled = !empty($options['pay_enabled']);
 		$pay_mode    = $options['pay_mode'] ?? 'off';
+
 		if (!$pay_enabled || !in_array($pay_mode, ['enforce', 'test'], true)) {
 			status_header(503);
 			nocache_headers();
@@ -90,7 +97,7 @@ class Baskerville_Paywall {
 		$canonical_url = $this->canonical_url();
 		$method        = strtoupper(sanitize_text_field(wp_unslash($_SERVER['REQUEST_METHOD'] ?? 'GET')));
 
-		// Check grant token (Authorization header, ?grant= query param, or cookie)
+		// Check BV1 grant (subsequent requests)
 		$grant_token = $this->get_grant_token();
 		if ($grant_token) {
 			$payload = $this->grant->validate($grant_token, $canonical_url, $method);
@@ -98,42 +105,83 @@ class Baskerville_Paywall {
 				$this->render_eq402_success($payload, $options);
 				exit;
 			}
-			// Debug: grant was present but invalid
-			if (!headers_sent()) {
-				header('X-Eq402-Debug-Canonical: ' . $canonical_url);
-				header('X-Eq402-Debug-Has-Auth: true');
-				header('X-Eq402-Debug-Token-Prefix: ' . substr($grant_token, 0, 30));
-			}
-		} else {
-			if (!headers_sent()) {
-				header('X-Eq402-Debug-Canonical: ' . $canonical_url);
-				header('X-Eq402-Debug-Has-Auth: false');
+		}
+
+		// Check X402 PAYMENT-SIGNATURE
+		$payment_sig = $this->get_payment_signature();
+		if ($payment_sig) {
+			$requirements = $this->build_payment_requirements($canonical_url, $options);
+			$verify       = $this->verify_x402_payment($payment_sig, $requirements, $options);
+
+			if (!empty($verify['isValid'])) {
+				$tx_hash = $verify['transaction'] ?? '';
+
+				// Double-spend prevention: reject if this tx was already redeemed
+				if ($tx_hash && $this->storage->receipt_exists($tx_hash)) {
+					$this->send_402($canonical_url, 0, $options);
+					exit;
+				}
+
+				$settle = $this->settle_x402_payment($payment_sig, $requirements, $options);
+
+				if (!empty($settle['success'])) {
+					$tx_hash = $settle['transaction'] ?? $tx_hash;
+
+					// Record receipt to prevent replay
+					if ($tx_hash) {
+						$this->storage->insert_receipt([
+							'tx_hash'        => $tx_hash,
+							'req_id'         => 'x402',
+							'amount'         => $requirements['amount'] ?? '0',
+							'currency'       => 'USDC',
+							'network'        => $requirements['network'] ?? '',
+							'wallet_address' => $requirements['payTo'] ?? '',
+							'asset_type'     => 'erc20',
+							'token_contract' => $requirements['asset'] ?? '',
+							'raw_json'       => (string) wp_json_encode($settle),
+						]);
+					}
+
+					$grant_ttl  = (int) ($options['pay_grant_ttl'] ?? 900);
+					$grant_data = $this->grant->mint('x402', $canonical_url, $grant_ttl);
+					$token      = $grant_data['grant'];
+
+					$this->set_grant_cookie($token, $canonical_url, $grant_ttl);
+
+					if (!headers_sent()) {
+						header('X-PAYMENT-RESPONSE: ' . base64_encode(wp_json_encode([
+							'success'     => true,
+							'transaction' => $tx_hash,
+							'network'     => $settle['network'] ?? '',
+							'payer'       => $settle['payer'] ?? '',
+						])));
+						header('Baskerville-Grant: ' . $token);
+					}
+
+					$payload = ['exp' => time() + $grant_ttl, 'url' => $canonical_url, 'req_id' => ''];
+					$this->render_eq402_success($payload, $options, $settle);
+					exit;
+				}
 			}
 		}
 
-		// Always send 402 — no ai_score check
+		// Always 402 for /eq402
 		$this->send_402($canonical_url, 100, $options);
 		exit;
 	}
 
-	/**
-	 * Render the /eq402 congratulations page after successful payment.
-	 */
-	private function render_eq402_success(array $grant_payload, array $options): void {
+	private function render_eq402_success(array $grant_payload, array $options, array $settle = []): void {
 		$amount   = $options['pay_price'] ?? '0.10';
-		$currency = $options['pay_currency'] ?? 'USDC';
+		$currency = 'USDC';
 		$ttl      = (int) ($options['pay_grant_ttl'] ?? 900);
 		$exp      = (int) ($grant_payload['exp'] ?? 0);
 		$url      = $grant_payload['url'] ?? '';
-
-		// Reconstruct token prefix for display (truncated)
-		$req_id = $grant_payload['req_id'] ?? '';
+		$tx       = $settle['transaction'] ?? '';
+		$payer    = $settle['payer'] ?? '';
 
 		status_header(200);
 		nocache_headers();
 		header('Content-Type: text/html; charset=utf-8');
-
-		$expires_at = gmdate('c', $exp);
 		?>
 <!DOCTYPE html>
 <html lang="en">
@@ -146,32 +194,39 @@ class Baskerville_Paywall {
 		h1 { color: #2e7d32; }
 		dl { line-height: 1.8; }
 		dt { font-weight: bold; }
-		dd { margin-left: 20px; }
+		dd { margin-left: 20px; word-break: break-all; }
 	</style>
 </head>
 <body>
 	<h1>Congratulations!</h1>
-	<p>You successfully paid to access this page via the Baskerville x402 paywall.</p>
+	<p>You successfully paid to access this page via the Baskerville X402 paywall.</p>
 	<dl>
 		<dt>Amount paid</dt>
 		<dd><?php echo esc_html($amount . ' ' . $currency); ?></dd>
 		<dt>Grant TTL</dt>
 		<dd><?php echo esc_html($ttl); ?> seconds</dd>
 		<dt>Expires at</dt>
-		<dd><?php echo esc_html($expires_at); ?></dd>
-		<dt>Request ID</dt>
-		<dd><?php echo esc_html($req_id); ?></dd>
+		<dd><?php echo $exp ? esc_html(gmdate('c', $exp)) : 'n/a'; ?></dd>
 		<dt>Canonical URL</dt>
 		<dd><?php echo esc_html($url); ?></dd>
+		<?php if ($tx): ?>
+		<dt>Transaction</dt>
+		<dd><?php echo esc_html($tx); ?></dd>
+		<?php endif; ?>
+		<?php if ($payer): ?>
+		<dt>Payer</dt>
+		<dd><?php echo esc_html($payer); ?></dd>
+		<?php endif; ?>
 	</dl>
 </body>
 </html>
 		<?php
 	}
 
-	/**
-	 * Main paywall check — hooked to template_redirect at priority 1.
-	 */
+	// -------------------------------------------------------------------------
+	// Main paywall check
+	// -------------------------------------------------------------------------
+
 	public function check_paywall(): void {
 		$options = get_option('baskerville_settings', []);
 
@@ -195,23 +250,88 @@ class Baskerville_Paywall {
 			return;
 		}
 
-		// 2. Check path against protected_paths
-		$uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '/'));
+		$uri  = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '/'));
 		$path = wp_parse_url($uri, PHP_URL_PATH) ?: '/';
 
 		if (!$this->path_matches($path, $options)) {
 			return;
 		}
 
-		// 3. Check grant token (Authorization header, ?grant= query param, or cookie)
 		$canonical_url = $this->canonical_url();
-		$grant_token   = $this->get_grant_token();
 
+		// 2. Check BV1 grant token (subsequent requests after payment)
+		$grant_token = $this->get_grant_token();
 		if ($grant_token) {
 			$payload = $this->grant->validate($grant_token, $canonical_url, $method);
 			if ($payload !== null) {
-				return; // Valid grant — allow access
+				return;
 			}
+		}
+
+		// 3. Check X402 PAYMENT-SIGNATURE header
+		$payment_sig = $this->get_payment_signature();
+		if ($payment_sig) {
+			$requirements = $this->build_payment_requirements($canonical_url, $options);
+			$verify       = $this->verify_x402_payment($payment_sig, $requirements, $options);
+
+			if (!empty($verify['isValid'])) {
+				$tx_hash = $verify['transaction'] ?? '';
+
+				// Double-spend prevention: reject if this tx was already redeemed
+				if ($tx_hash && $this->storage->receipt_exists($tx_hash)) {
+					if ($pay_mode === 'enforce') {
+						$this->send_402($canonical_url, 0, $options);
+						exit;
+					}
+					return;
+				}
+
+				$settle = $this->settle_x402_payment($payment_sig, $requirements, $options);
+
+				if (!empty($settle['success'])) {
+					$tx_hash = $settle['transaction'] ?? $tx_hash;
+
+					// Record receipt to prevent replay
+					if ($tx_hash) {
+						$this->storage->insert_receipt([
+							'tx_hash'        => $tx_hash,
+							'req_id'         => 'x402',
+							'amount'         => $requirements['amount'] ?? '0',
+							'currency'       => 'USDC',
+							'network'        => $requirements['network'] ?? '',
+							'wallet_address' => $requirements['payTo'] ?? '',
+							'asset_type'     => 'erc20',
+							'token_contract' => $requirements['asset'] ?? '',
+							'raw_json'       => (string) wp_json_encode($settle),
+						]);
+					}
+
+					$grant_ttl  = (int) ($options['pay_grant_ttl'] ?? 900);
+					$grant_data = $this->grant->mint('x402', $canonical_url, $grant_ttl);
+					$token      = $grant_data['grant'];
+
+					$this->set_grant_cookie($token, $canonical_url, $grant_ttl);
+
+					if (!headers_sent()) {
+						header('X-PAYMENT-RESPONSE: ' . base64_encode(wp_json_encode([
+							'success'     => true,
+							'transaction' => $tx_hash,
+							'network'     => $settle['network'] ?? '',
+							'payer'       => $settle['payer'] ?? '',
+						])));
+						header('Baskerville-Grant: ' . $token);
+					}
+
+					return; // Allow access
+				}
+			}
+
+			// Payment signature present but invalid — always 402 in enforce mode
+			if ($pay_mode === 'enforce') {
+				$this->send_402($canonical_url, 0, $options);
+				exit;
+			}
+			return;
 		}
 
 		// 4. Get ai_score
@@ -223,7 +343,7 @@ class Baskerville_Paywall {
 			return;
 		}
 
-		// 6. Observe mode — add header but don't block
+		// 6. Observe mode
 		if ($pay_mode === 'observe') {
 			if (!headers_sent()) {
 				header('Baskerville-Paywall: would-402');
@@ -231,40 +351,240 @@ class Baskerville_Paywall {
 			return;
 		}
 
-		// 7. Enforce mode — generate challenge and return 402
+		// 7. Enforce mode
 		if ($pay_mode === 'enforce') {
 			$this->send_402($canonical_url, $ai_score, $options);
 			exit;
 		}
 	}
 
+	// -------------------------------------------------------------------------
+	// X402 helpers
+	// -------------------------------------------------------------------------
+
 	/**
-	 * Check if request path matches any protected path pattern.
+	 * Read PAYMENT-SIGNATURE (X402 V2) or X-PAYMENT (X402 V1 legacy) header.
 	 */
-	private function path_matches(string $path, array $options): bool {
-		$patterns_raw = $options['pay_protected_paths'] ?? '/*';
-		$lines = array_filter(array_map('trim', explode("\n", $patterns_raw)));
+	private function get_payment_signature(): ?string {
+		$sig = isset($_SERVER['HTTP_PAYMENT_SIGNATURE'])
+			? sanitize_text_field(wp_unslash($_SERVER['HTTP_PAYMENT_SIGNATURE']))
+			: '';
+		if ($sig) return $sig;
 
-		if (empty($lines)) {
-			return true; // No patterns = match all
-		}
-
-		foreach ($lines as $pattern) {
-			if (fnmatch($pattern, $path)) {
-				return true;
-			}
-		}
-
-		return false;
+		$sig = isset($_SERVER['HTTP_X_PAYMENT'])
+			? sanitize_text_field(wp_unslash($_SERVER['HTTP_X_PAYMENT']))
+			: '';
+		return $sig ?: null;
 	}
 
 	/**
-	 * Extract grant token from Authorization header, query param, or cookie.
+	 * Build X402 payment requirements object for a URL.
+	 */
+	private function build_payment_requirements(string $canonical_url, array $options): array {
+		$price   = $options['pay_price'] ?? '0.10';
+		$network = $options['pay_network'] ?? 'polygon';
+		$wallet  = $options['pay_wallet_address'] ?? '';
+
+		$caip2 = self::NETWORK_MAP[$network] ?? 'eip155:137';
+		$asset = self::USDC_CONTRACTS[$caip2] ?? self::USDC_CONTRACTS['eip155:137'];
+
+		// USDC has 6 decimals: 0.10 USDC = 100000 atomic units
+		$amount = (string) (int) round(floatval($price) * 1000000);
+
+		return [
+			'scheme'            => 'exact',
+			'network'           => $caip2,
+			'asset'             => $asset,
+			'amount'            => $amount,
+			'payTo'             => $wallet,
+			'maxTimeoutSeconds' => 60,
+			'extra'             => [
+				'assetTransferMethod' => 'eip3009',
+				'name'                => 'USD Coin',
+				'version'             => '2',
+			],
+		];
+	}
+
+	/**
+	 * Send X402 V2 response with PAYMENT-REQUIRED header.
+	 */
+	private function send_402(string $canonical_url, int $ai_score, array $options): void {
+		$requirements = $this->build_payment_requirements($canonical_url, $options);
+
+		$payment_required = [
+			'x402Version' => 2,
+			'resource'    => [
+				'url'         => $canonical_url,
+				'description' => 'Content access requires payment',
+				'mimeType'    => 'text/html',
+			],
+			'accepts'     => [$requirements],
+		];
+
+		status_header(402);
+		nocache_headers();
+		header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true);
+		header('Vary: Authorization, Cookie', false);
+		header('Content-Type: application/json');
+		header('PAYMENT-REQUIRED: ' . base64_encode(wp_json_encode($payment_required)));
+		header('Baskerville-Reason: ai_score=' . $ai_score . ';policy=paywall');
+
+		echo wp_json_encode([
+			'error'           => 'payment_required',
+			'x402Version'     => 2,
+			'paymentRequired' => $payment_required,
+		]);
+	}
+
+	/**
+	 * Verify X402 payment with Coinbase facilitator.
+	 */
+	private function verify_x402_payment(string $payment_sig_b64, array $requirements, array $options): array {
+		$payment_payload = json_decode(base64_decode($payment_sig_b64), true);
+		if (!is_array($payment_payload)) {
+			return ['isValid' => false, 'invalidReason' => 'malformed_header'];
+		}
+
+		$key_id   = $options['pay_cdp_key_id'] ?? '';
+		$priv_key = $options['pay_cdp_private_key'] ?? '';
+
+		if (!$key_id || !$priv_key) {
+			error_log('Baskerville verify_x402_payment: CDP credentials not configured');
+			return ['isValid' => false, 'invalidReason' => 'no_cdp_credentials'];
+		}
+
+		$path = '/platform/v2/x402/verify';
+		$jwt  = $this->generate_cdp_jwt($key_id, $priv_key, 'POST', $path);
+
+		if (!$jwt) {
+			return ['isValid' => false, 'invalidReason' => 'jwt_generation_failed'];
+		}
+
+		$response = wp_remote_post('https://api.cdp.coinbase.com' . $path, [
+			'headers' => [
+				'Content-Type'  => 'application/json',
+				'Authorization' => 'Bearer ' . $jwt,
+			],
+			'body'    => wp_json_encode([
+				'x402Version'         => 2,
+				'paymentPayload'      => $payment_payload,
+				'paymentRequirements' => $requirements,
+			]),
+			'timeout' => 10,
+		]);
+
+		if (is_wp_error($response)) {
+			error_log('Baskerville verify_x402: facilitator unreachable — ' . $response->get_error_message());
+			return ['isValid' => false, 'invalidReason' => 'facilitator_unreachable'];
+		}
+
+		$body   = wp_remote_retrieve_body($response);
+		$status = wp_remote_retrieve_response_code($response);
+		error_log('Baskerville verify_x402: Coinbase status=' . $status . ' body=' . $body);
+
+		$result = json_decode($body, true);
+		return is_array($result) ? $result : ['isValid' => false, 'invalidReason' => 'invalid_response'];
+	}
+
+	/**
+	 * Settle X402 payment with Coinbase facilitator (executes on-chain transfer).
+	 */
+	private function settle_x402_payment(string $payment_sig_b64, array $requirements, array $options): array {
+		$payment_payload = json_decode(base64_decode($payment_sig_b64), true);
+		if (!is_array($payment_payload)) {
+			return ['success' => false];
+		}
+
+		$key_id   = $options['pay_cdp_key_id'] ?? '';
+		$priv_key = $options['pay_cdp_private_key'] ?? '';
+
+		$path = '/platform/v2/x402/settle';
+		$jwt  = $this->generate_cdp_jwt($key_id, $priv_key, 'POST', $path);
+
+		if (!$jwt) {
+			return ['success' => false];
+		}
+
+		$response = wp_remote_post('https://api.cdp.coinbase.com' . $path, [
+			'headers' => [
+				'Content-Type'  => 'application/json',
+				'Authorization' => 'Bearer ' . $jwt,
+			],
+			'body'    => wp_json_encode([
+				'x402Version'         => 2,
+				'paymentPayload'      => $payment_payload,
+				'paymentRequirements' => $requirements,
+			]),
+			'timeout' => 15,
+		]);
+
+		if (is_wp_error($response)) {
+			return ['success' => false];
+		}
+
+		$result = json_decode(wp_remote_retrieve_body($response), true);
+		return is_array($result) ? $result : ['success' => false];
+	}
+
+	/**
+	 * Generate CDP EdDSA JWT for API authentication.
 	 *
-	 * Checks in order:
-	 * 1. Authorization: Bearer BV1.xxx header
-	 * 2. ?grant=BV1.xxx query parameter (CDN-friendly: unique URL bypasses cache)
-	 * 3. baskerville_grant cookie (set by verify endpoint)
+	 * CDP Secret API keys use Ed25519 (EdDSA). The privateKey field in the JSON
+	 * is a base64-encoded 64-byte Ed25519 signing key (seed || public key).
+	 *
+	 * @see https://docs.cdp.coinbase.com/api-reference/authentication
+	 * @return string JWT on success, empty string on failure.
+	 */
+	private function generate_cdp_jwt(string $key_id, string $priv_key_b64, string $method, string $path): string {
+		$key_bytes = base64_decode($priv_key_b64, true);
+		if ($key_bytes === false || strlen($key_bytes) !== 64) {
+			error_log('Baskerville generate_cdp_jwt: invalid key — expected 64-byte base64 Ed25519 key, got ' . strlen((string) $key_bytes) . ' bytes');
+			return '';
+		}
+
+		$header = $this->core->b64u_enc((string) wp_json_encode([
+			'alg'   => 'EdDSA',
+			'typ'   => 'JWT',
+			'kid'   => $key_id,
+			'nonce' => bin2hex(random_bytes(16)),
+		]));
+
+		$now = time();
+		$payload = $this->core->b64u_enc((string) wp_json_encode([
+			'sub' => $key_id,
+			'iss' => 'cdp',
+			'nbf' => $now,
+			'exp' => $now + 120,
+			'uri' => $method . ' api.cdp.coinbase.com' . $path,
+		]));
+
+		$signing_input = $header . '.' . $payload;
+
+		$signature = sodium_crypto_sign_detached($signing_input, $key_bytes);
+
+		return $signing_input . '.' . $this->core->b64u_enc($signature);
+	}
+
+	// -------------------------------------------------------------------------
+	// Grant helpers
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Set baskerville_grant cookie after successful payment.
+	 */
+	private function set_grant_cookie(string $token, string $canonical_url, int $ttl): void {
+		setcookie('baskerville_grant', $token, [
+			'expires'  => time() + $ttl,
+			'path'     => wp_parse_url($canonical_url, PHP_URL_PATH) ?: '/',
+			'secure'   => is_ssl(),
+			'httponly' => true,
+			'samesite' => 'Lax',
+		]);
+	}
+
+	/**
+	 * Extract BV1 grant token from Authorization header, query param, or cookie.
 	 */
 	private function get_grant_token(): ?string {
 		// 1. Authorization: Bearer header
@@ -272,7 +592,6 @@ class Baskerville_Paywall {
 			? sanitize_text_field(wp_unslash($_SERVER['HTTP_AUTHORIZATION']))
 			: '';
 
-		// Fallback for CGI/FastCGI
 		if (!$auth && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
 			$auth = sanitize_text_field(wp_unslash($_SERVER['REDIRECT_HTTP_AUTHORIZATION']));
 		}
@@ -284,7 +603,7 @@ class Baskerville_Paywall {
 			}
 		}
 
-		// 2. Query parameter ?grant=BV1.xxx (CDN cache-bust)
+		// 2. Query parameter ?grant=BV1.xxx
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		if (isset($_GET['grant'])) {
 			// phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -305,18 +624,27 @@ class Baskerville_Paywall {
 		return null;
 	}
 
-	/**
-	 * Extract Bearer token from Authorization header.
-	 *
-	 * @deprecated Use get_grant_token() instead.
-	 */
-	private function get_auth_header(): ?string {
-		return $this->get_grant_token();
+	// -------------------------------------------------------------------------
+	// Shared helpers
+	// -------------------------------------------------------------------------
+
+	private function path_matches(string $path, array $options): bool {
+		$patterns_raw = $options['pay_protected_paths'] ?? '/*';
+		$lines = array_filter(array_map('trim', explode("\n", $patterns_raw)));
+
+		if (empty($lines)) {
+			return true;
+		}
+
+		foreach ($lines as $pattern) {
+			if (fnmatch($pattern, $path)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
-	/**
-	 * Compute AI score for the current request.
-	 */
 	private function get_ai_score(): int {
 		$headers = [
 			'user_agent'      => sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? '')),
@@ -327,23 +655,17 @@ class Baskerville_Paywall {
 			'remote_addr'     => sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? '')),
 		];
 
-		// Score from server-side headers (no JS fingerprint)
 		$evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
-		$score = (int) ($evaluation['score'] ?? 0);
+		$score      = (int) ($evaluation['score'] ?? 0);
 
-		// Also check if there's a FP cookie score (take max)
 		$fp_data = $this->core->read_fp_cookie();
 		if ($fp_data !== null) {
-			$fp_score = (int) ($fp_data['sc'] ?? 0);
-			$score = max($score, $fp_score);
+			$score = max($score, (int) ($fp_data['sc'] ?? 0));
 		}
 
 		return $score;
 	}
 
-	/**
-	 * Build the canonical URL for the current request.
-	 */
 	private function canonical_url(): string {
 		$scheme = (is_ssl() || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https'))
 			? 'https' : 'http';
@@ -352,85 +674,5 @@ class Baskerville_Paywall {
 		$path = wp_parse_url($uri, PHP_URL_PATH) ?: '/';
 
 		return $scheme . '://' . $host . $path;
-	}
-
-	/**
-	 * Generate 402 response with challenge.
-	 */
-	private function send_402(string $canonical_url, int $ai_score, array $options): void {
-		$nonce     = $this->core->b64u_enc(random_bytes(16));
-		$day       = wp_date('Y-m-d');
-		$origin    = home_url();
-		$req_id    = $this->core->b64u_enc(
-			hash('sha256', $origin . '|' . $canonical_url . '|' . $day . '|' . $nonce, true)
-		);
-
-		$price           = $options['pay_price'] ?? '0.10';
-		$currency        = $options['pay_currency'] ?? 'USDC';
-		$network         = $options['pay_network'] ?? 'polygon';
-		$wallet          = $options['pay_wallet_address'] ?? '';
-		$asset_type      = $options['pay_asset_type'] ?? 'erc20';
-		$token_contract  = $options['pay_token_contract'] ?? '';
-		$token_decimals  = (int) ($options['pay_token_decimals'] ?? 6);
-		$grant_ttl       = (int) ($options['pay_grant_ttl'] ?? 900);
-		$ip              = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
-
-		// Store challenge
-		$this->storage->insert_challenge([
-			'req_id'         => $req_id,
-			'canonical_url'  => $canonical_url,
-			'price'          => $price,
-			'currency'       => $currency,
-			'network'        => $network,
-			'wallet_address' => $wallet,
-			'asset_type'     => $asset_type,
-			'token_contract' => $token_contract,
-			'token_decimals' => $token_decimals,
-			'ai_score'       => $ai_score,
-			'ip'             => $ip,
-			'nonce'          => $nonce,
-		]);
-
-		// Build response
-		$proof_endpoint = rest_url('baskerville/v1/payments/verify');
-
-		$body = [
-			'error'            => 'payment_required',
-			'req_id'           => $req_id,
-			'amount'           => $price,
-			'currency'         => $currency,
-			'network'          => $network,
-			'wallet'           => $wallet,
-			'asset_type'       => $asset_type,
-			'proof_endpoint'   => $proof_endpoint,
-			'grant_ttl_seconds' => $grant_ttl,
-		];
-
-		if ($asset_type === 'erc20' && $token_contract) {
-			$body['token_contract'] = $token_contract;
-			$body['token_decimals'] = $token_decimals;
-		}
-
-		// Send headers — no-store is stronger than nocache_headers() for CDN bypass
-		status_header(402);
-		nocache_headers();
-		header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true);
-		header('Vary: Authorization, Cookie', false);
-		header('Content-Type: application/json');
-		header('Baskerville-Pay: required');
-		header('Baskerville-Req-Id: ' . $req_id);
-		header('Baskerville-Price: ' . $price);
-		header('Baskerville-Currency: ' . $currency);
-		header('Baskerville-Network: ' . $network);
-		header('Baskerville-Wallet: ' . $wallet);
-		header('Baskerville-Asset-Type: ' . $asset_type);
-		if ($asset_type === 'erc20' && $token_contract) {
-			header('Baskerville-Token-Contract: ' . $token_contract);
-		}
-		header('Baskerville-Proof-Endpoint: ' . $proof_endpoint);
-		header('Baskerville-Grant-TTL: ' . $grant_ttl);
-		header('Baskerville-Reason: ai_score=' . $ai_score . ';policy=paywall');
-
-		echo wp_json_encode($body);
 	}
 }

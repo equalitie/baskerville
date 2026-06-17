@@ -920,29 +920,21 @@ class Baskerville_Admin {
 			$sanitized['pay_token_decimals'] = $existing['pay_token_decimals'];
 		}
 
-		if (isset($input['pay_verifier_type'])) {
-			$vtype = sanitize_text_field($input['pay_verifier_type']);
-			$sanitized['pay_verifier_type'] = in_array($vtype, ['stub', 'polling'], true) ? $vtype : 'stub';
-		} elseif (isset($existing['pay_verifier_type'])) {
-			$sanitized['pay_verifier_type'] = $existing['pay_verifier_type'];
-		}
-
-		if (isset($input['pay_provider'])) {
-			$sanitized['pay_provider'] = sanitize_text_field($input['pay_provider']);
-		} elseif (isset($existing['pay_provider'])) {
-			$sanitized['pay_provider'] = $existing['pay_provider'];
-		}
-
-		if (isset($input['pay_api_key'])) {
-			$sanitized['pay_api_key'] = sanitize_text_field($input['pay_api_key']);
-		} elseif (isset($existing['pay_api_key'])) {
-			$sanitized['pay_api_key'] = $existing['pay_api_key'];
-		}
-
-		if (isset($input['pay_min_confirmations'])) {
-			$sanitized['pay_min_confirmations'] = max(1, min(100, (int) $input['pay_min_confirmations']));
-		} elseif (isset($existing['pay_min_confirmations'])) {
-			$sanitized['pay_min_confirmations'] = $existing['pay_min_confirmations'];
+		// Parse CDP key JSON if provided — extract id + privateKey automatically
+		if (!empty($input['pay_cdp_key_json'])) {
+			$cdp_json = json_decode(wp_unslash($input['pay_cdp_key_json']), true);
+			if (is_array($cdp_json) && !empty($cdp_json['id']) && !empty($cdp_json['privateKey'])) {
+				$sanitized['pay_cdp_key_id']      = sanitize_text_field($cdp_json['id']);
+				$sanitized['pay_cdp_private_key'] = $cdp_json['privateKey']; // preserve PEM as-is
+			}
+		} else {
+			// Preserve existing values if no new JSON pasted
+			if (isset($existing['pay_cdp_key_id'])) {
+				$sanitized['pay_cdp_key_id'] = $existing['pay_cdp_key_id'];
+			}
+			if (isset($existing['pay_cdp_private_key'])) {
+				$sanitized['pay_cdp_private_key'] = $existing['pay_cdp_private_key'];
+			}
 		}
 
 		if (isset($input['pay_challenge_ttl'])) {
@@ -5537,10 +5529,10 @@ done
 				<th scope="row"><?php esc_html_e('Network', 'baskerville-ai-security'); ?></th>
 				<td>
 					<select name="baskerville_settings[pay_network]">
-						<option value="polygon" <?php selected($pay_network, 'polygon'); ?>>Polygon</option>
-						<option value="polygon-amoy" <?php selected($pay_network, 'polygon-amoy'); ?>>Polygon Amoy (Testnet)</option>
-						<option value="ethereum" <?php selected($pay_network, 'ethereum'); ?>>Ethereum</option>
+						<option value="polygon" <?php selected($pay_network, 'polygon'); ?>>Polygon (mainnet, USDC)</option>
+						<option value="base-sepolia" <?php selected($pay_network, 'base-sepolia'); ?>>Base Sepolia (testnet, USDC)</option>
 					</select>
+					<p class="description"><?php esc_html_e('For testing use Base Sepolia. For production use Polygon.', 'baskerville-ai-security'); ?></p>
 				</td>
 			</tr>
 			<tr>
@@ -5568,40 +5560,20 @@ done
 			</tr>
 		</table>
 
-		<h3><?php esc_html_e('Verifier', 'baskerville-ai-security'); ?></h3>
+		<h3><?php esc_html_e('Coinbase CDP Facilitator', 'baskerville-ai-security'); ?></h3>
+		<p class="description"><?php esc_html_e('Payment verification is handled by Coinbase CDP (X402 V2). Get your API key at portal.cdp.coinbase.com/api-keys/secret', 'baskerville-ai-security'); ?></p>
 		<table class="form-table" role="presentation">
 			<tr>
-				<th scope="row"><?php esc_html_e('Verifier Type', 'baskerville-ai-security'); ?></th>
+				<th scope="row"><?php esc_html_e('CDP API Key JSON', 'baskerville-ai-security'); ?></th>
 				<td>
-					<select name="baskerville_settings[pay_verifier_type]">
-						<option value="stub" <?php selected($pay_verifier_type, 'stub'); ?>><?php esc_html_e('Stub (demo, accepts demo_ tx hashes)', 'baskerville-ai-security'); ?></option>
-						<option value="polling" <?php selected($pay_verifier_type, 'polling'); ?>><?php esc_html_e('Polling (real RPC verification)', 'baskerville-ai-security'); ?></option>
-					</select>
-				</td>
-			</tr>
-			<tr>
-				<th scope="row"><?php esc_html_e('RPC Provider', 'baskerville-ai-security'); ?></th>
-				<td>
-					<select name="baskerville_settings[pay_provider]">
-						<option value="" <?php selected($pay_provider, ''); ?>><?php esc_html_e('Default (public RPC)', 'baskerville-ai-security'); ?></option>
-						<option value="alchemy" <?php selected($pay_provider, 'alchemy'); ?>>Alchemy</option>
-						<option value="infura" <?php selected($pay_provider, 'infura'); ?>>Infura</option>
-						<option value="ankr" <?php selected($pay_provider, 'ankr'); ?>>Ankr</option>
-					</select>
-					<p class="description"><?php esc_html_e('Only used when verifier type is "polling".', 'baskerville-ai-security'); ?></p>
-				</td>
-			</tr>
-			<tr>
-				<th scope="row"><?php esc_html_e('API Key', 'baskerville-ai-security'); ?></th>
-				<td>
-					<input type="text" name="baskerville_settings[pay_api_key]" value="<?php echo esc_attr($pay_api_key); ?>" class="regular-text code">
-					<p class="description"><?php esc_html_e('API key for the selected RPC provider (optional for public RPCs).', 'baskerville-ai-security'); ?></p>
-				</td>
-			</tr>
-			<tr>
-				<th scope="row"><?php esc_html_e('Min Confirmations', 'baskerville-ai-security'); ?></th>
-				<td>
-					<input type="number" name="baskerville_settings[pay_min_confirmations]" value="<?php echo esc_attr($pay_min_conf); ?>" min="1" max="100" class="baskerville-input-md">
+					<textarea name="baskerville_settings[pay_cdp_key_json]" rows="4" class="large-text code" placeholder="Paste the contents of your cdp_api_key.json file here..."></textarea>
+					<p class="description"><?php esc_html_e('Paste the entire contents of your CDP API key JSON file. Parsed and saved automatically — do not share this page.', 'baskerville-ai-security'); ?></p>
+					<?php if (!empty($options['pay_cdp_key_id'])): ?>
+					<p class="description" style="color:#2e7d32;">
+						&#10003; <?php esc_html_e('Key configured:', 'baskerville-ai-security'); ?>
+						<code><?php echo esc_html($options['pay_cdp_key_id']); ?></code>
+					</p>
+					<?php endif; ?>
 				</td>
 			</tr>
 		</table>

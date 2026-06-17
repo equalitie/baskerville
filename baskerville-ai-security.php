@@ -32,6 +32,10 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-altcha.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-storage.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-grant.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-pay-rest.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-paywall.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
 // Add custom cron intervals
@@ -166,6 +170,16 @@ add_action('plugins_loaded', function () {
 			wp_trigger_error( '', sprintf( esc_html__( 'Baskerville: Deflect GeoIP update error: %s', 'baskerville-ai-security' ), $e->getMessage() ), E_USER_WARNING );
 		}
 	});
+
+	// Pay-per-crawl (X402)
+	$pay_storage = new Baskerville_Pay_Storage($core);
+	$pay_grant   = new Baskerville_Pay_Grant($core);
+	$paywall     = new Baskerville_Paywall($core, $pay_storage, $pay_grant, $stats, $aiua);
+	$paywall->init_eq402();
+	add_action('template_redirect', [$paywall, 'check_paywall'], 1);
+
+	$pay_rest = new Baskerville_Pay_REST($core, $pay_storage, $pay_grant);
+	add_action('rest_api_init', [$pay_rest, 'register_routes']);
 
 	// admin
 	if (is_admin()) {
