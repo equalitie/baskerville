@@ -568,6 +568,39 @@ class Baskerville_Core {
     }
 
     /**
+     * Get ASN org string for an IP (e.g. "CLOUDFLARENET (AS13335)").
+     * Uses Deflect GeoIP ASN database with 7-day cache.
+     * @param string $ip
+     * @return string|null
+     */
+    public function get_asn_by_ip( $ip ) {
+        if ( empty( $ip ) ) return null;
+
+        $cache_key = "asn:{$ip}";
+        $cached    = $this->fc_get( $cache_key );
+        if ( $cached !== null ) {
+            return $cached === '' ? null : $cached;
+        }
+
+        $asn = null;
+        try {
+            if ( ! class_exists( 'Baskerville_Deflect_GeoIP' ) ) {
+                $class_file = BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-deflect-geoip.php';
+                if ( file_exists( $class_file ) ) require_once $class_file;
+            }
+            if ( class_exists( 'Baskerville_Deflect_GeoIP' ) ) {
+                $deflect = new Baskerville_Deflect_GeoIP();
+                $asn     = $deflect->lookup_asn( $ip );
+            }
+        } catch ( \Throwable $e ) {
+            $asn = null;
+        }
+
+        $this->fc_set( $cache_key, $asn ?? '', 7 * 86400 );
+        return $asn;
+    }
+
+    /**
      * Lookup country code using Deflect GeoIP database
      * @param string $ip
      * @return string|null
