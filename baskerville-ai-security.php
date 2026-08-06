@@ -32,6 +32,7 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-altcha.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-cloud.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
 // Add custom cron intervals
@@ -39,6 +40,10 @@ add_filter('cron_schedules', function($schedules) {
 	$schedules['baskerville_1min'] = array(
 		'interval' => 60, // 1 minute in seconds
 		'display'  => __('Every Minute (Baskerville)', 'baskerville-ai-security')
+	);
+	$schedules['baskerville_5min'] = array(
+		'interval' => 300, // 5 minutes in seconds
+		'display'  => __('Every 5 Minutes (Baskerville)', 'baskerville-ai-security')
 	);
 	$schedules['baskerville_weekly'] = array(
 		'interval' => 604800, // 7 days in seconds
@@ -133,6 +138,10 @@ add_action('plugins_loaded', function () {
 
 	// Initialize Turnstile hooks (object already created before firewall)
 	$turnstile->init();
+
+	// Baskerville Cloud: LLM incident analysis
+	$cloud = new Baskerville_Cloud( $stats );
+	add_action( 'baskerville_cloud_analyze', [ $cloud, 'maybe_analyze' ] );
 
 	// periodic statistics cleanup
 	add_action('baskerville_cleanup_stats', [$stats, 'cleanup_old_stats']);
