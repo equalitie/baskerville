@@ -216,6 +216,44 @@ Mode stored in transient (`baskerville_no_cookie_mode`, TTL 15 min, auto-renewed
 
 ---
 
+## Automatic IP Block (Pre-LLM)
+
+When attack is concentrated in a small number of IPs, block them deterministically
+before sending to LLM — no tokens wasted on pure list processing.
+
+**Trigger condition:**
+- Top N IPs account for > 80% of attack traffic in the last 30 min
+- AND N <= 50 (concentrated attack, not distributed botnet)
+
+**Logic (runs in plugin before payload assembly):**
+
+```sql
+SELECT ip, COUNT(*) as cnt
+FROM wp_baskerville_stats
+WHERE timestamp_utc >= [cutoff]
+  AND event_type IN ('page','fp','block')
+GROUP BY ip
+HAVING cnt > [per_ip_threshold]
+ORDER BY cnt DESC
+LIMIT 50
+```
+
+If condition met → block those IPs immediately via firewall cache (TTL 2h).
+Add to payload as metadata only (LLM does not decide):
+
+```json
+"auto_blocked_ips": {
+  "count": 8,
+  "pct_of_attack_traffic": 84.2,
+  "action": "blocked"
+}
+```
+
+LLM is informed but does not receive the raw IP list. LLM then focuses on
+ASN/country/fingerprint patterns for the remaining distributed traffic.
+
+---
+
 ## IP Overlap with Previous Incidents
 
 When building the payload, the plugin queries:
