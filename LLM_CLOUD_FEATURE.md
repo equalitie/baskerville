@@ -246,6 +246,77 @@ This is part of Level 1 — no extra API calls, just richer prompt.
 
 ---
 
+## Session Tracking
+
+The plugin has no native session concept — `wp_baskerville_stats` stores individual requests.
+To enable Level 2 LLM analysis, sessions are tracked in a separate table.
+
+### Session Definition
+
+- **Normal session**: grouped by `(ip, baskerville_id)` — cookie identifies the browser
+- **Primary session**: `baskerville_id IS NULL` — visitor never returned a cookie
+  - Only processed/sent to LLM when `request_count >= 5`
+  - If cookie appears later (e.g. on 6th request) → merge into normal session, set `had_primary = 1`
+
+### wp_baskerville_sessions table
+
+```sql
+id             BIGINT AUTO_INCREMENT
+ip             VARCHAR(45)
+baskerville_id VARCHAR(100) NULL      -- NULL = primary session
+is_primary     TINYINT(1)             -- 1 = no cookie returned
+had_primary    TINYINT(1) DEFAULT 0   -- was primary before cookie arrived
+request_count  INT DEFAULT 0
+url_sequence   JSON                   -- last 20 URLs: [{url, ts_ms}, ...]
+intervals_ms   JSON                   -- computed on DB import from timestamps
+avg_score      FLOAT DEFAULT 0
+top_factors    JSON                   -- accumulated [{factor, count}, ...]
+country_code   VARCHAR(2)
+asn            VARCHAR(128)
+user_agent     TEXT
+started_at     DATETIME
+last_seen_at   DATETIME
+PRIMARY KEY (id)
+UNIQUE KEY session_key (ip, baskerville_id)  -- baskerville_id NULL = primary
+KEY last_seen_at (last_seen_at)
+KEY is_primary (is_primary)
+KEY avg_score (avg_score)
+```
+
+### File Buffer → DB Import (Variant 1)
+
+Session data is buffered to file for performance (same pattern as visit stats):
+
+**On each request** → append one JSON line to `sessions-YYYY-MM-DD.log`:
+```json
+{
+  "ip": "1.2.3.4",
+  "baskerville_id": "abc123",
+  "url": "/about/",
+  "ts_ms": 1754567890123,
+  "score": 58,
+  "top_factor": "webdriver",
+  "country_code": "SG",
+  "asn": "ALIBABA-US (AS45102)",
+  "user_agent": "Mozilla/5.0 ..."
+}
+```
+
+**Cron every 1 min** → `process_session_log_files()`:
+1. Read log lines, group by `(ip, baskerville_id)`
+2. Sort each group by `ts_ms`, compute `intervals_ms` as diffs
+3. UPSERT into `wp_baskerville_sessions`:
+   - Append URLs to `url_sequence` (keep last 20)
+   - Append intervals
+   - Increment `request_count`
+   - Update `avg_score`, `last_seen_at`, `top_factors`
+4. Primary session merge: if `baskerville_id` now present but `is_primary` row exists for same IP → merge rows, set `had_primary = 1`
+
+**Session TTL**: 30 minutes of inactivity → session closed.
+Cleanup cron runs daily, removes sessions with `last_seen_at < NOW() - 30 MIN` that are already processed.
+
+---
+
 ## Two Levels of LLM Analysis
 
 ### Level 1 — Cluster / Incident Analysis (async, no latency)
@@ -254,31 +325,61 @@ Triggered by traffic or decision spike. Aggregated payload → LLM → incident 
 
 ### Level 2 — Session-Level Analysis (async, one-visit delay)
 
-For borderline sessions (score 40–70), the plugin sends the individual session for a second opinion.
+For borderline sessions (avg_score 40–70), using data from `wp_baskerville_sessions`.
 
+**Selection criteria for LLM submission:**
+- `avg_score BETWEEN 40 AND 70`
+- Normal sessions: any `request_count`
+- Primary sessions: `request_count >= 5` only (less = not enough signal)
+- Not already submitted in last 30 min (debounce per session)
+
+**Grouping strategy — avoid drowning in data:**
+Sessions are clustered by `(top_factor, country_code, asn)` before submission.
+Top 5 clusters → 1 representative session each → 5 LLM calls per cron cycle max.
+
+**Flow:**
 ```
-First visit — borderline score
-  → Show Altcha/Turnstile challenge (buys time)
-  → Async: send session data to API for LLM analysis
-  → LLM verdict saved to cache (keyed by IP)
+Cron every 5 min:
+  → Select top 5 borderline session clusters
+  → For each: POST /v1/analyze/session → { job_id }
+  → Store job_ids in wp_options
 
-Second visit from same IP
-  → Read cache → apply LLM verdict immediately
+Next cron:
+  → Poll job results
+  → Verdict (block/challenge/allow) stored per (ip, baskerville_id)
+  → Applied on next request from that IP via firewall cache
 ```
 
-Session data sent:
+**On first visit with borderline score:**
+- Show Altcha challenge (buys time while async analysis runs)
+- Bots that return get LLM verdict applied immediately from cache
+
+**Session data sent per cluster representative:**
 ```json
 {
   "country": "SG",
   "asn": "ALIBABA-US (AS45102)",
   "user_agent": "Mozilla/5.0 ...",
-  "score": 58,
-  "top_factors": [...],
-  "signals": { "webdriver": false, "http1": true, "lang_mismatch": true }
+  "avg_score": 58,
+  "request_count": 12,
+  "is_primary": false,
+  "had_primary": true,
+  "url_sequence": [
+    { "url": "/", "ts_ms": 0 },
+    { "url": "/wp-login.php", "ts_ms": 312 },
+    { "url": "/wp-login.php", "ts_ms": 608 }
+  ],
+  "intervals_ms": [312, 296, 289, 301],
+  "interval_cv": 0.02,
+  "top_factors": [
+    { "factor": "webdriver", "count": 8 },
+    { "factor": "http1_protocol", "count": 12 }
+  ],
+  "cluster_size": 340
 }
 ```
 
-No raw IPs sent even for session analysis.
+No raw IPs sent. `cluster_size` tells LLM how many sessions this pattern represents.
 
 ---
 
@@ -353,23 +454,31 @@ Aggregated attack data across install base (opt-in):
 - License key auth (stub, no billing yet)
 - Incident lifecycle: detect → analyze → apply → close
 - Actions: block_country, block_asn, block_useragent, raise_threshold
-- No-cookie attack mode (auto-detect, challenge or hard block)
-- IP overlap with previous incidents
+- No-cookie attack mode: auto-detect, Altcha (< 10x spike) or hard 403 (≥ 10x)
+- IP overlap with previous incidents (90-day lookback)
 - UA analysis via LLM prompt
-- Async job system (fire-and-forget + polling)
+- Async job system: fire-and-forget POST → job_id, poll every 2 min
 - wp_baskerville_incidents + wp_baskerville_reports tables
 - Report shown in admin dashboard
+- **Session tracking**: wp_baskerville_sessions, file buffer → DB import every 1 min
+  - Normal sessions: (ip, baskerville_id)
+  - Primary sessions: no cookie, min 5 requests before processing
+  - Merge primary → normal when cookie appears, flag had_primary=1
+  - 30 min TTL, cap 20 URLs with timestamps, intervals computed on import
+- **Level 2 LLM**: borderline sessions (score 40–70), top 5 clusters per cycle
+  - Cluster by (top_factor, country_code, asn) → 1 representative per cluster
+  - Verdict cached per session, applied on next request
 
-**V2 — Session Analysis:**
-- Session-level LLM second opinion for borderline scores
-- Verdict cached per IP, applied on return visits
+**V2 — Enhanced:**
 - Email delivery of incident reports
-- Redis job store for persistence
-
-**V3 — Enhanced:**
+- Redis job store for persistence across restarts
 - Tool calling: backend requests additional SQL from plugin mid-analysis
-- Cross-site threat intelligence (opt-in)
 - Stripe billing integration
+
+**V3 — Cross-site Intelligence:**
+- Opt-in aggregated threat sharing across install base
+- Pre-warn sites about known attacking ASNs/IPs
+- Campaign attribution across targets
 
 **V4 — Self-hosted:**
 - Accept any OpenAI-compatible endpoint (Ollama, private LLM)
