@@ -1,19 +1,22 @@
 # Baskerville WordPress Plugin
 
-A WordPress security plugin with GeoIP-based access control, AI-powered bot detection, Cloudflare Turnstile integration, and advanced fingerprinting.
+A WordPress security plugin with AI bot detection, GeoIP access control, CAPTCHA challenge, and optional AI cloud analysis. Free, open source, works out of the box.
 
 ## Features
 
 - 🛡️ **AI-Powered Bot Detection** - Classification of bots vs. humans with configurable thresholds
-- 🌍 **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist)
-- 🔍 **Browser Fingerprinting** - Advanced client-side fingerprinting with Canvas, WebGL, Audio
-- ☁️ **Cloudflare Turnstile** - CAPTCHA challenge for borderline bot scores with precision analytics
+- 🤖 **AI Spoofer Detection** - Catches bots that fake legitimate AI crawler User-Agents (GPTBot, ClaudeBot, etc.) by verifying their IP ranges against published ASN data
+- 🌍 **GeoIP Access Control** - Block or allow traffic by country, multiple data sources, works out of the box
+- 🔍 **Browser Fingerprinting** - Advanced client-side fingerprinting with Canvas, WebGL, Audio and other environment signals; bot score 0–100
+- ☁️ **CAPTCHA Challenge** - Built-in challenge system, no third-party account or API key required
 - 🍯 **Honeypot Detection** - Hidden links to catch AI crawlers
-- 📊 **Traffic Analytics** - Real-time statistics, live feed, and Turnstile precision metrics
-- ⚡ **Performance Optimized** - Minimal overhead (~1ms with page cache, ~30-50ms without)
-- 🔐 **IP Whitelist** - Bypass firewall for trusted IPs
-- 🚀 **Caching** - APCu + file-based caching for GeoIP lookups
+- 📊 **Live Traffic Feed** - Real-time visual dashboard showing every request, score, and decision as it happens
+- 🔒 **High-Risk Page Protection** - Login, registration, and comment pages hardened automatically
+- 🔐 **Per-Provider Bot Rules** - Allow Googlebot, block GPTBot, challenge everything in between; custom allowlist for trusted bots
+- ⚡ **Near-Zero Latency** - Firewall runs entirely from local cache (APCu or file), ~1ms overhead with page cache active. LLM analysis is fully asynchronous — no visitor ever waits for an AI call
+- 🚀 **No Configuration Required** - Sensible defaults protect from the moment the plugin is activated
 - 🚨 **Under Attack Mode** - Emergency mode to challenge all visitors
+- 🔐 **IP Whitelist** - Bypass firewall for trusted IPs
 
 ## Building
 
@@ -208,18 +211,20 @@ opcache.validate_timestamps=0 # Production only
 Baskerville with **File Logging** adds **5% overhead** while providing:
 - ✅ GeoIP-based access control
 - ✅ AI-powered bot detection with configurable thresholds
-- ✅ Cloudflare Turnstile for borderline cases
+- ✅ AI spoofer detection (IP range verification)
+- ✅ Per-provider AI bot rules (OpenAI, Meta, Google, and others)
+- ✅ Altcha built-in CAPTCHA or Cloudflare Turnstile for borderline cases
 - ✅ Honeypot detection for AI crawlers
-- ✅ Advanced fingerprinting
-- ✅ Real-time traffic analytics with precision metrics
+- ✅ Real-time traffic feed and analytics
 - ✅ Rate limiting & ban management
+- ✅ Optional AI cloud analysis (nightly watchdog, natural language queries)
 
 **Recommendations**:
 - ✅ Use **File Logging** mode for production (default)
 - ✅ Enable page caching (WP Super Cache, etc.)
 - ✅ Install APCu if available (10x faster cache)
 - ✅ Whitelist monitoring/testing IPs
-- ✅ Configure Turnstile for borderline scores (40-70)
+- ✅ Configure challenge range for borderline scores (40-70)
 - ✅ Set Instant Ban Threshold for high-risk visitors (e.g., 85)
 
 ---
@@ -268,9 +273,12 @@ baskerville/
 │   ├── class-baskerville-core.php       # Core functions, caching, GeoIP
 │   ├── class-baskerville-firewall.php   # Firewall logic, blocking rules
 │   ├── class-baskerville-ai-ua.php      # AI bot detection & classification
+│   ├── class-baskerville-ai-bots.php    # Known AI bot registry & spoofer detection
+│   ├── class-baskerville-cloud.php      # AI cloud integration (watchdog, query, actions)
 │   ├── class-baskerville-stats.php      # Analytics & database logging
 │   ├── class-baskerville-rest.php       # REST API for fingerprinting
 │   ├── class-baskerville-turnstile.php  # Cloudflare Turnstile integration
+│   ├── class-baskerville-altcha.php     # Altcha built-in CAPTCHA
 │   └── class-baskerville-honeypot.php   # Honeypot for AI crawler detection
 ├── assets/
 │   ├── js/baskerville.js                # Frontend fingerprinting script

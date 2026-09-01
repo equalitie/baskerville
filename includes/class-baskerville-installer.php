@@ -18,6 +18,13 @@ class Baskerville_Installer {
 			$stats->maybe_upgrade_schema();
 		}
 
+		// Cloud tables: snapshots, daily rollup, incidents, reports
+		$cloud = new Baskerville_Cloud( $stats );
+		$cloud->create_snapshots_table();
+		$cloud->create_daily_table();
+		$cloud->create_incidents_table();
+		$cloud->create_reports_table();
+
 		// Default options (don't overwrite if already exist)
 		if (get_option('baskerville_retention_days') === false) {
 			add_option('baskerville_retention_days', BASKERVILLE_DEFAULT_RETENTION_DAYS);
@@ -84,6 +91,21 @@ class Baskerville_Installer {
 		// Cron for weekly Deflect GeoIP database update
 		if (!wp_next_scheduled('baskerville_update_deflect_geoip')) {
 			wp_schedule_event(time(), 'baskerville_weekly', 'baskerville_update_deflect_geoip');
+		}
+
+		// Cron for Baskerville Cloud LLM incident analysis + snapshot saving (every 5 min)
+		if (!wp_next_scheduled('baskerville_cloud_analyze')) {
+			wp_schedule_event(time(), 'baskerville_5min', 'baskerville_cloud_analyze');
+		}
+
+		// Cron for daily rollup (snapshots → wp_baskerville_daily)
+		if (!wp_next_scheduled('baskerville_daily_rollup')) {
+			wp_schedule_event(time(), 'daily', 'baskerville_daily_rollup');
+		}
+
+		// Cron for snapshot + daily cleanup
+		if (!wp_next_scheduled('baskerville_cleanup_snapshots')) {
+			wp_schedule_event(time(), 'daily', 'baskerville_cleanup_snapshots');
 		}
 
 		// Download Deflect GeoIP database on activation
@@ -160,6 +182,9 @@ class Baskerville_Installer {
 		wp_clear_scheduled_hook('baskerville_process_log_files');
 		wp_clear_scheduled_hook('baskerville_cleanup_log_files');
 		wp_clear_scheduled_hook('baskerville_update_deflect_geoip');
+		wp_clear_scheduled_hook('baskerville_cloud_analyze');
+		wp_clear_scheduled_hook('baskerville_daily_rollup');
+		wp_clear_scheduled_hook('baskerville_cleanup_snapshots');
 
 		// Clean up rewrite rules
 		flush_rewrite_rules();

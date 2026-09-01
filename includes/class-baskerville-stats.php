@@ -31,6 +31,7 @@ class Baskerville_Stats
           visit_key varchar(255) NOT NULL,
           ip varchar(45) NOT NULL,
           country_code varchar(2) NULL,
+          asn varchar(128) NULL,
           baskerville_id varchar(100) NOT NULL,
           fingerprint_hash varchar(64) NULL,
           timestamp_utc datetime NOT NULL,
@@ -53,6 +54,7 @@ class Baskerville_Stats
           UNIQUE KEY visit_key (visit_key),
           KEY ip (ip),
           KEY country_code (country_code),
+          KEY asn (asn),
           KEY baskerville_id (baskerville_id),
           KEY timestamp_utc (timestamp_utc),
           KEY classification (classification),
@@ -214,6 +216,19 @@ class Baskerville_Stats
                 $wpdb->prepare( 'CREATE INDEX country_code ON %i (country_code)', $table_name )
             );
         }
+
+        // Check and add 'asn' column with index for LLM cloud analysis.
+        $col = $wpdb->get_results(
+            $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'asn' )
+        );
+        if ( ! $col ) {
+            $wpdb->query(
+                $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN asn VARCHAR(128) NULL AFTER country_code', $table_name )
+            );
+            $wpdb->query(
+                $wpdb->prepare( 'CREATE INDEX asn ON %i (asn)', $table_name )
+            );
+        }
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
@@ -319,13 +334,15 @@ class Baskerville_Stats
         $fp_cookie = $this->core->read_fp_cookie();
         [$top_json, $top_name] = $this->extract_top_factors((array)$evaluation, $fp_cookie);
 
-        // Get country code for GeoIP analytics
+        // Get country code and ASN for GeoIP analytics
         $country_code = $this->core->get_country_by_ip($ip);
+        $asn          = $this->core->get_asn_by_ip($ip);
 
         $data = [
             'visit_key'             => $visit_key,
             'ip'                    => $ip,
             'country_code'          => $country_code,
+            'asn'                   => $asn,
             'baskerville_id'        => $baskerville_id,
             'timestamp_utc'         => current_time('mysql', true),
             'score'                 => (int)($evaluation['score'] ?? 0),
@@ -339,7 +356,7 @@ class Baskerville_Stats
             'top_factor_json'       => $top_json,
             'top_factor'            => $top_name,
         ];
-        $fmt = ['%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s','%s'];
+        $fmt = ['%s','%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s','%s'];
 
         $ok = $wpdb->insert($table_name, $data, $fmt);
         if ($ok === false) {
@@ -807,7 +824,7 @@ class Baskerville_Stats
                     AND timestamp_utc >= %s
                   GROUP BY reason
                   ORDER BY cnt DESC",
-                $atable,
+                $table,
                 $cutoff
             ),
             ARRAY_A
@@ -1177,13 +1194,15 @@ class Baskerville_Stats
         $fp_cookie = $this->core->read_fp_cookie();
         [$top_json, $top_name] = $this->extract_top_factors((array)$evaluation, $fp_cookie);
 
-        // Get country code for GeoIP analytics
+        // Get country code and ASN for GeoIP analytics
         $country_code = $this->core->get_country_by_ip($ip);
+        $asn          = $this->core->get_asn_by_ip($ip);
 
         $data = [
             'visit_key'             => $visit_key,
             'ip'                    => $ip,
             'country_code'          => $country_code,
+            'asn'                   => $asn,
             'baskerville_id'        => $baskerville_id,
             'timestamp_utc'         => current_time('mysql', true),
             'score'                 => (int)($evaluation['score'] ?? 0),

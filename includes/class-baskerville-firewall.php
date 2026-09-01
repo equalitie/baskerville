@@ -226,6 +226,32 @@ class Baskerville_Firewall
 			return;
 		}
 
+		// Cloud AI blocks — temporary pattern blocks from LLM agent (country/ASN/UA).
+		$cloud_blocks = get_transient('baskerville_cloud_blocks');
+		if (!empty($cloud_blocks)) {
+			$ua      = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
+			$country = null;
+			$now     = time();
+			foreach ($cloud_blocks as $block) {
+				if ($block['expires'] <= $now) continue;
+				$target = $block['target'];
+				switch ($block['type']) {
+					case 'block_country':
+						if ($country === null) $country = $this->core->get_country_by_ip($ip);
+						if ($country && strtoupper($country) === $target) {
+							$this->send_403_geo_and_exit(['reason' => 'cloud:block_country:' . $target, 'cls' => 'cloud-block']);
+						}
+						break;
+					case 'block_useragent':
+						if ($ua && stripos($ua, $target) !== false) {
+							$this->send_403_and_exit(['reason' => 'cloud:block_useragent:' . $target, 'cls' => 'cloud-block', 'score' => 100]);
+						}
+						break;
+					// block_asn: stored but not yet enforced (no ASN lookup in firewall path)
+				}
+			}
+		}
+
 		// Check if this is WordPress admin area or login page - always allow
 		$request_uri = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
 		$is_admin_area = (strpos($request_uri, '/wp-admin/') !== false ||

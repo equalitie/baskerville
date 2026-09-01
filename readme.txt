@@ -3,11 +3,11 @@ Contributors: equalitie, burdianov, mazhurin
 Tags: security, captcha, spam protection, firewall, anti-bot
 Requires at least: 6.2
 Tested up to: 7.0
-Stable tag: 1.0.4
+Stable tag: 1.0.5
 Requires PHP: 7.4
 License: GPL v3
 
-Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
+Advanced WordPress security plugin with AI bot detection, GeoIP access control, CAPTCHA challenge, and optional AI cloud analysis.
 
 == Description ==
 
@@ -15,15 +15,18 @@ Baskerville is a comprehensive WordPress security plugin that protects your site
 
 **Key Features:**
 
-* **AI Bot Detection** - Intelligent classification of bots vs. humans with configurable score thresholds
-* **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist modes)
-* **Cloudflare Turnstile** - CAPTCHA challenge for borderline bot scores with precision analytics
-* **Browser Fingerprinting** - Advanced client-side fingerprinting (Canvas, WebGL, Audio)
-* **Honeypot Detection** - Hidden links to catch AI crawlers
-* **Real-Time Analytics** - Live feed, traffic statistics, and Turnstile precision metrics
-* **Under Attack Mode** - Emergency mode to challenge all visitors during attacks
-* **IP Whitelist** - Bypass firewall for trusted IPs
-* **Form Protection** - Protect login, registration, and comment forms with Turnstile
+* **AI Bot Detection** - Browser fingerprint scoring (Canvas, WebGL, Audio) assigns every visitor a risk score 0–100
+* **AI Spoofer Detection** - Catches bots faking legitimate AI crawler identities (GPTBot, ClaudeBot, etc.) by verifying IP ranges against published ASN data
+* **GeoIP Access Control** - Block or allow traffic by country, built-in GeoIP with no external API required
+* **CAPTCHA Challenge** - Altcha (built-in, no account needed) or Cloudflare Turnstile (optional)
+* **Per-Provider AI Bot Rules** - Allow, challenge, or block by AI company (OpenAI, Meta, Google, and others)
+* **Honeypot Detection** - Hidden links to catch automated crawlers
+* **Live Traffic Feed** - Every request, score, classification, and decision in real time
+* **High-Risk Page Protection** - Login, registration, and comment pages hardened automatically
+* **Under Attack Mode** - Emergency mode to challenge all visitors
+* **IP Whitelist** - Trusted IPs always bypass all enforcement
+* **Near-Zero Latency** - Firewall runs from local cache (~1ms with page cache active), no outbound calls on request path
+* **AI Cloud Analysis** (optional, paid) - Nightly watchdog report and natural language query interface powered by LLM
 
 **Bot Score System:**
 
@@ -125,6 +128,15 @@ Statistics are automatically deleted after the retention period you configure (d
 * Consider adding disclosure to your site's privacy policy
 
 == Changelog ==
+= 1.0.5 =
+* AI Cloud integration: nightly AI Watchdog report in WordPress dashboard
+* AI query interface: ask questions about your traffic in plain English
+* Cloud action enforcement: LLM agent can now block by country and user agent automatically
+* Token usage tracking: see monthly AI token consumption in admin panel
+* Quick question chips in AI panel for one-click queries
+* Fix: wpsec_log() was undefined causing silent PHP fatal error in WP Cron, preventing nightly watchdog from running
+* Fix: double watchdog job submission on first run after midnight
+
 = 1.0.4 =
 * Altcha PoW challenge support — self-hosted, privacy-friendly, works out of the box
 * Altcha widget on login, registration and comment forms

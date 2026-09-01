@@ -24,7 +24,8 @@ class Baskerville_Deflect_GeoIP {
 	private const LAST_CHECK_OPTION = 'baskerville_deflect_geoip_last_check';
 
 	/** Database file path relative to wp-content/uploads */
-	private const DB_FILE = 'baskerville-geoip/countrydb.php';
+	private const DB_FILE     = 'baskerville-geoip/countrydb.php';
+	private const ASN_DB_FILE = 'baskerville-geoip/asndb.php';
 
 	/** Cached database in memory */
 	private static ?array $db_cache = null;
@@ -32,6 +33,9 @@ class Baskerville_Deflect_GeoIP {
 	/** Optimized lookup structures */
 	private static ?array $ipv4_index = null;
 	private static ?array $ipv6_index = null;
+
+	/** ASN database cache: ['ipv4' => [[start, end, org], ...], 'ipv6' => [[start_bin, end_bin, org], ...]] */
+	private static ?array $asn_cache = null;
 
 	/**
 	 * Check if deflect-geoip database is installed
@@ -100,8 +104,23 @@ class Baskerville_Deflect_GeoIP {
 		}
 
 		$version = $latest['version'];
-		$artifact = $latest['artifacts'][0];
-		$sha256 = $artifact['sha256'] ?? '';
+		$sha256  = $latest['artifacts'][0]['sha256'] ?? '';
+
+		// Find artifacts by type
+		$country_artifact = null;
+		$asn_artifact     = null;
+		foreach ( $latest['artifacts'] as $artifact ) {
+			if ( ( $artifact['type'] ?? '' ) === 'countrydb.csv.gz' ) {
+				$country_artifact = $artifact;
+			} elseif ( ( $artifact['type'] ?? '' ) === 'asndb.csv.gz' ) {
+				$asn_artifact = $artifact;
+			}
+		}
+		// Fallback: first artifact is countrydb (backward compat with old latest.json)
+		if ( ! $country_artifact ) {
+			$country_artifact = $latest['artifacts'][0];
+		}
+		$sha256 = $country_artifact['sha256'] ?? '';
 
 		// Update last check time
 		update_option(self::LAST_CHECK_OPTION, time());
@@ -120,8 +139,8 @@ class Baskerville_Deflect_GeoIP {
 			);
 		}
 
-		// Download database
-		$db_url = self::BASE_URL . '/' . $artifact['path'];
+		// Download countrydb
+		$db_url = self::BASE_URL . '/' . $country_artifact['path'];
 		$response = wp_remote_get($db_url, array('timeout' => 120));
 
 		if (is_wp_error($response)) {
@@ -160,13 +179,27 @@ class Baskerville_Deflect_GeoIP {
 			return $result;
 		}
 
+		// Download and parse asndb (non-fatal if missing)
+		if ( $asn_artifact ) {
+			$asn_url      = self::BASE_URL . '/' . $asn_artifact['path'];
+			$asn_response = wp_remote_get( $asn_url, array( 'timeout' => 120 ) );
+			if ( ! is_wp_error( $asn_response ) ) {
+				$asn_gz  = wp_remote_retrieve_body( $asn_response );
+				$asn_csv = @gzdecode( $asn_gz );
+				if ( $asn_csv !== false ) {
+					$this->parse_and_save_asn_db( $asn_csv, $version );
+				}
+			}
+		}
+
 		// Update version
 		update_option(self::VERSION_OPTION, $version);
 
 		// Clear memory cache
-		self::$db_cache = null;
+		self::$db_cache  = null;
 		self::$ipv4_index = null;
 		self::$ipv6_index = null;
+		self::$asn_cache  = null;
 
 		return array(
 			'success' => true,
@@ -548,6 +581,114 @@ class Baskerville_Deflect_GeoIP {
 	}
 
 	/**
+	 * Parse asndb CSV and save as PHP file.
+	 * Format: range_start,range_end,asn,org
+	 */
+	private function parse_and_save_asn_db( string $csv_data, string $version ): bool {
+		$lines  = explode( "\n", $csv_data );
+		$ipv4   = []; // [[start_long, end_long, org_string], ...]
+		$ipv6   = []; // [[start_bin, end_bin, org_string], ...]
+
+		// Skip header
+		if ( ! empty( $lines ) && strpos( $lines[0], 'range_start' ) !== false ) {
+			array_shift( $lines );
+		}
+
+		foreach ( $lines as $line ) {
+			$line = trim( $line );
+			if ( empty( $line ) ) continue;
+
+			$parts = explode( ',', $line, 4 );
+			if ( count( $parts ) < 4 ) continue;
+
+			[ $start, $end, $asn, $org ] = $parts;
+			$org = trim( $org );
+			$label = $org . ' (AS' . trim( $asn ) . ')';
+
+			if ( strpos( $start, ':' ) !== false ) {
+				// IPv6
+				$s = @inet_pton( trim( $start ) );
+				$e = @inet_pton( trim( $end ) );
+				if ( $s !== false && $e !== false ) {
+					$ipv6[] = [ $s, $e, $label ];
+				}
+			} else {
+				// IPv4
+				$s = ip2long( trim( $start ) );
+				$e = ip2long( trim( $end ) );
+				if ( $s !== false && $e !== false && $s >= 0 && $e >= 0 ) {
+					$ipv4[] = [ $s, $e, $label ];
+				}
+			}
+		}
+
+		// Sort by start (for binary search)
+		usort( $ipv4, fn( $a, $b ) => $a[0] <=> $b[0] );
+
+		$db_path = WP_CONTENT_DIR . '/uploads/' . self::ASN_DB_FILE;
+		$db_dir  = dirname( $db_path );
+		if ( ! is_dir( $db_dir ) ) {
+			wp_mkdir_p( $db_dir );
+		}
+
+		$data = [ 'version' => $version, 'ipv4' => $ipv4, 'ipv6' => $ipv6 ];
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_var_export
+		$php_content = "<?php\n// Deflect ASN Database - Auto-generated\nreturn " . var_export( $data, true ) . ";\n";
+		return @file_put_contents( $db_path, $php_content, LOCK_EX ) !== false;
+	}
+
+	/**
+	 * Load ASN database into memory.
+	 */
+	private function load_asn_db(): bool {
+		if ( self::$asn_cache !== null ) return true;
+		$db_path = WP_CONTENT_DIR . '/uploads/' . self::ASN_DB_FILE;
+		if ( ! file_exists( $db_path ) ) return false;
+		$data = include $db_path;
+		if ( ! is_array( $data ) ) return false;
+		self::$asn_cache = $data;
+		return true;
+	}
+
+	/**
+	 * Lookup ASN org string for an IP address.
+	 * Returns e.g. "CLOUDFLARENET (AS13335)" or null.
+	 */
+	public function lookup_asn( string $ip ): ?string {
+		if ( ! $this->load_asn_db() ) return null;
+
+		if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+			$long   = ip2long( $ip );
+			$ranges = self::$asn_cache['ipv4'] ?? [];
+			// Binary search for the range containing $long
+			$lo = 0; $hi = count( $ranges ) - 1;
+			while ( $lo <= $hi ) {
+				$mid = intdiv( $lo + $hi, 2 );
+				if ( $long < $ranges[ $mid ][0] ) {
+					$hi = $mid - 1;
+				} elseif ( $long > $ranges[ $mid ][1] ) {
+					$lo = $mid + 1;
+				} else {
+					return $ranges[ $mid ][2];
+				}
+			}
+			return null;
+		}
+
+		if ( filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+			$bin    = @inet_pton( $ip );
+			if ( $bin === false ) return null;
+			foreach ( self::$asn_cache['ipv6'] ?? [] as [ $s, $e, $org ] ) {
+				if ( strcmp( $bin, $s ) >= 0 && strcmp( $bin, $e ) <= 0 ) {
+					return $org;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
 	 * Delete database and reset
 	 * @return bool
 	 */
@@ -560,9 +701,15 @@ class Baskerville_Deflect_GeoIP {
 		delete_option(self::VERSION_OPTION);
 		delete_option(self::LAST_CHECK_OPTION);
 
-		self::$db_cache = null;
+		self::$db_cache  = null;
 		self::$ipv4_index = null;
 		self::$ipv6_index = null;
+		self::$asn_cache  = null;
+
+		$asn_path = WP_CONTENT_DIR . '/uploads/' . self::ASN_DB_FILE;
+		if ( file_exists( $asn_path ) ) {
+			wp_delete_file( $asn_path );
+		}
 
 		return true;
 	}
