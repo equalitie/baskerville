@@ -5,15 +5,18 @@ A WordPress security plugin with GeoIP-based access control, AI-powered bot dete
 ## Features
 
 - 🛡️ **AI-Powered Bot Detection** - Classification of bots vs. humans with configurable thresholds
-- 🌍 **GeoIP Access Control** - Block or allow traffic by country (whitelist/blacklist)
-- 🔍 **Browser Fingerprinting** - Advanced client-side fingerprinting with Canvas, WebGL, Audio
-- ☁️ **Cloudflare Turnstile** - CAPTCHA challenge for borderline bot scores with precision analytics
+- 🤖 **AI Spoofer Detection** - Catches bots that fake legitimate AI crawler User-Agents (GPTBot, ClaudeBot, etc.) by verifying their IP ranges against published ASN data
+- 🌍 **GeoIP Access Control** - Block or allow traffic by country, multiple data sources, works out of the box
+- 🔍 **Browser Fingerprinting** - Advanced client-side fingerprinting with Canvas, WebGL, Audio and other environment signals; bot score 0–100
+- ☁️ **CAPTCHA Challenge** - Built-in challenge system, no third-party account or API key required
 - 🍯 **Honeypot Detection** - Hidden links to catch AI crawlers
-- 📊 **Traffic Analytics** - Real-time statistics, live feed, and Turnstile precision metrics
-- ⚡ **Performance Optimized** - Minimal overhead (~1ms with page cache, ~30-50ms without)
-- 🔐 **IP Whitelist** - Bypass firewall for trusted IPs
-- 🚀 **Caching** - APCu + file-based caching for GeoIP lookups
+- 📊 **Live Traffic Feed** - Real-time visual dashboard showing every request, score, and decision as it happens
+- 🔒 **High-Risk Page Protection** - Login, registration, and comment pages hardened automatically
+- 🔐 **Per-Provider Bot Rules** - Allow Googlebot, block GPTBot, challenge everything in between; custom allowlist for trusted bots
+- ⚡ **Near-Zero Latency** - Firewall runs entirely from local cache (APCu or file), ~1ms overhead with page cache active. LLM analysis is fully asynchronous — no visitor ever waits for an AI call
+- 🚀 **No Configuration Required** - Sensible defaults protect from the moment the plugin is activated
 - 🚨 **Under Attack Mode** - Emergency mode to challenge all visitors
+- 🔐 **IP Whitelist** - Bypass firewall for trusted IPs
 
 ## Building
 

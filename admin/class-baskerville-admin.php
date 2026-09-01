@@ -26,6 +26,7 @@ class Baskerville_Admin {
 		add_action('wp_ajax_baskerville_import_logs', array($this, 'ajax_import_logs'));
 		add_action('wp_ajax_baskerville_ip_lookup', array($this, 'ajax_ip_lookup'));
 		add_action('wp_ajax_baskerville_clear_pass_cache', array($this, 'ajax_clear_pass_cache'));
+		add_action('wp_ajax_baskerville_run_watchdog', array($this, 'ajax_run_watchdog'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
 	}
 
@@ -316,6 +317,15 @@ class Baskerville_Admin {
 			'baskerville-settings-tab',
 			array($this, 'admin_page_settings')
 		);
+
+		add_submenu_page(
+			'baskerville-settings',
+			esc_html__('AI Watchdog', 'baskerville-ai-security'),
+			esc_html__('AI Watchdog ✦', 'baskerville-ai-security'),
+			'manage_options',
+			'baskerville-ai-watchdog',
+			array($this, 'admin_page_ai_watchdog')
+		);
 	}
 
 	// Callback methods for submenu pages - set tab and call main admin_page
@@ -356,6 +366,11 @@ class Baskerville_Admin {
 
 	public function admin_page_settings() {
 		$_GET['tab'] = 'settings';
+		$this->admin_page();
+	}
+
+	public function admin_page_ai_watchdog() {
+		$_GET['tab'] = 'ai-watchdog';
 		$this->admin_page();
 	}
 
@@ -467,6 +482,40 @@ class Baskerville_Admin {
 		// 	'baskerville-rate-limits',
 		// 	'baskerville_rate_limits_section'
 		// );
+
+		// ===== Cloud Settings (separate options, separate group) =====
+		register_setting(
+			'baskerville_cloud_group',
+			'baskerville_cloud_license_key',
+			array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field', 'default' => '' )
+		);
+		register_setting(
+			'baskerville_cloud_group',
+			'baskerville_cloud_api_secret',
+			array( 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field', 'default' => '' )
+		);
+		add_settings_section(
+			'baskerville_cloud_section',
+			esc_html__( 'Baskerville Cloud', 'baskerville-ai-security' ),
+			function() {
+				echo '<p class="description">' . esc_html__( 'Connect to the Baskerville Cloud API for AI-powered incident analysis and the AI Watchdog.', 'baskerville-ai-security' ) . '</p>';
+			},
+			'baskerville-cloud-settings'
+		);
+		add_settings_field(
+			'baskerville_cloud_license_key',
+			esc_html__( 'License Key', 'baskerville-ai-security' ),
+			array( $this, 'render_cloud_license_key_field' ),
+			'baskerville-cloud-settings',
+			'baskerville_cloud_section'
+		);
+		add_settings_field(
+			'baskerville_cloud_api_secret',
+			esc_html__( 'API Secret', 'baskerville-ai-security' ),
+			array( $this, 'render_cloud_api_secret_field' ),
+			'baskerville-cloud-settings',
+			'baskerville_cloud_section'
+		);
 
 		// ===== Settings Tab =====
 		add_settings_section(
@@ -1097,6 +1146,39 @@ class Baskerville_Admin {
 			<input type="checkbox" name="baskerville_settings[ai_bot_control_enabled]" value="1" <?php checked($enabled, true); ?> />
 			<?php esc_html_e('Enable AI bot crawler control', 'baskerville-ai-security'); ?>
 		</label>
+		<?php
+	}
+
+	public function render_cloud_license_key_field() {
+		$val = get_option( 'baskerville_cloud_license_key', '' );
+		echo '<input type="text" name="baskerville_cloud_license_key" value="' . esc_attr( $val ) . '" class="regular-text" />';
+		echo '<p class="description">' . esc_html__( 'Your Baskerville Cloud license key.', 'baskerville-ai-security' ) . '</p>';
+	}
+
+	public function render_cloud_api_secret_field() {
+		$val = get_option( 'baskerville_cloud_api_secret', '' );
+		$display = $val ? str_repeat( '•', 16 ) . substr( $val, -6 ) : '';
+		echo '<input type="password" name="baskerville_cloud_api_secret" value="' . esc_attr( $val ) . '" class="regular-text" autocomplete="new-password" />';
+		if ( $val ) {
+			echo '<p class="description">' . esc_html__( 'Secret is set.', 'baskerville-ai-security' ) . ' <code>' . esc_html( $display ) . '</code></p>';
+		} else {
+			echo '<p class="description">' . esc_html__( 'Shared secret for X-Baskerville-Key header (set in k8s baskerville-cloud-secret).', 'baskerville-ai-security' ) . '</p>';
+		}
+	}
+
+	private function render_cloud_settings_section() {
+		?>
+		<h2><?php esc_html_e( 'Baskerville Cloud', 'baskerville-ai-security' ); ?></h2>
+		<p class="description">
+			<?php esc_html_e( 'Connect to the Baskerville Cloud API for AI-powered incident analysis and the AI Watchdog feature.', 'baskerville-ai-security' ); ?>
+		</p>
+		<form method="post" action="options.php">
+			<?php
+			settings_fields( 'baskerville_cloud_group' );
+			do_settings_sections( 'baskerville-cloud-settings' );
+			submit_button( __( 'Save Cloud Settings', 'baskerville-ai-security' ) );
+			?>
+		</form>
 		<?php
 	}
 
@@ -3261,6 +3343,9 @@ class Baskerville_Admin {
 				</form>
 			</div>
 
+			<!-- AI Panel (always visible) -->
+			<?php $this->render_ai_panel_inline(); ?>
+
 			<!-- Tab Navigation -->
 			<?php
 			// Get all feature states for tab colors
@@ -3307,6 +3392,10 @@ class Baskerville_Admin {
 				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-settings-tab')); ?>"
 				   class="nav-tab <?php echo $current_tab === 'settings' ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e('Settings', 'baskerville-ai-security'); ?>
+				</a>
+				<a href="<?php echo esc_url(admin_url('admin.php?page=baskerville-ai-watchdog')); ?>"
+				   class="nav-tab baskerville-ai-watchdog-tab <?php echo $current_tab === 'ai-watchdog' ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e('AI Watchdog ✦', 'baskerville-ai-security'); ?>
 				</a>
 			</h2>
 
@@ -3730,6 +3819,18 @@ class Baskerville_Admin {
 						<?php
 						// Render GeoIP Testing section
 						$this->render_geoip_test_tab();
+						// Render Cloud Settings section (separate options group)
+						$this->render_cloud_settings_section();
+						?>
+						<form method="post" action="options.php">
+						<?php
+						break;
+
+					case 'ai-watchdog':
+						?>
+						</form>
+						<?php
+						$this->render_ai_watchdog_tab();
 						?>
 						<form method="post" action="options.php">
 						<?php
@@ -5555,6 +5656,147 @@ done
 	}
 
 	/**
+	 * AJAX: Manually trigger the watchdog using last 24h snapshot data.
+	 * Submits the job and polls synchronously for up to 25 seconds.
+	 */
+	public function ajax_run_watchdog() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( esc_html__( 'Permission denied.', 'baskerville-ai-security' ) );
+		}
+		if ( ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ?? '' ) ), 'baskerville_run_watchdog' ) ) {
+			wp_send_json_error( esc_html__( 'Security check failed.', 'baskerville-ai-security' ) );
+		}
+
+		$secret = get_option( 'baskerville_cloud_api_secret', '' );
+		if ( ! $secret ) {
+			wp_send_json_error( esc_html__( 'API Secret not configured. Go to Settings → Baskerville Cloud.', 'baskerville-ai-security' ) );
+		}
+
+		global $wpdb;
+		$snap_table = esc_sql( $wpdb->prefix . 'baskerville_snapshots' );
+		$cutoff     = gmdate( 'Y-m-d H:i:s', time() - 86400 );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		$snaps = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$snap_table} WHERE snapshot_at >= %s ORDER BY snapshot_at ASC",
+			$cutoff
+		), ARRAY_A );
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+
+		if ( empty( $snaps ) ) {
+			wp_send_json_error( esc_html__( 'No snapshot data yet. The plugin collects data every 5 minutes — please wait a few minutes and try again.', 'baskerville-ai-security' ) );
+		}
+
+		// Aggregate snapshots into a single "today" stats block.
+		$today = [
+			'traffic_total'      => 0,
+			'block_total'        => 0,
+			'challenge_total'    => 0,
+			'incident_count'     => 0,
+			'immature_ratio_avg' => 0.0,
+			'no_cookie_pct_avg'  => 0.0,
+			'ai_traffic'         => [],
+			'known_bots'         => [],
+			'classifications'    => [],
+			'countries'          => [],
+		];
+		foreach ( $snaps as $s ) {
+			$today['traffic_total']      += (int) $s['traffic_count'];
+			$today['block_total']        += (int) $s['block_count'];
+			$today['challenge_total']    += (int) $s['challenge_count'];
+			$today['immature_ratio_avg'] += (float) $s['immature_ratio'];
+			$today['no_cookie_pct_avg']  += (float) $s['no_cookie_pct'];
+			foreach ( [ 'ai_traffic', 'classifications', 'countries' ] as $key ) {
+				$col  = $key . '_json';
+				$data = json_decode( $s[ $col ] ?? '{}', true ) ?: [];
+				foreach ( $data as $k => $v ) {
+					$today[ $key ][ $k ] = ( $today[ $key ][ $k ] ?? 0 ) + (int) $v;
+				}
+			}
+			$kb = json_decode( $s['known_bots_json'] ?? '{}', true ) ?: [];
+			foreach ( $kb as $cat => $companies ) {
+				foreach ( $companies as $company => $count ) {
+					$today['known_bots'][ $cat ][ $company ] = ( $today['known_bots'][ $cat ][ $company ] ?? 0 ) + (int) $count;
+				}
+			}
+		}
+		$n = count( $snaps );
+		$today['immature_ratio_avg'] = round( $today['immature_ratio_avg'] / $n, 3 );
+		$today['no_cookie_pct_avg']  = round( $today['no_cookie_pct_avg']  / $n, 3 );
+
+		// PHP encodes empty arrays as [] but FastAPI expects {} for dict fields.
+		foreach ( [ 'ai_traffic', 'known_bots', 'classifications', 'countries' ] as $dict_field ) {
+			if ( empty( $today[ $dict_field ] ) ) {
+				$today[ $dict_field ] = new stdClass();
+			}
+		}
+
+		$payload = [
+			'license_key'     => (string) get_option( 'baskerville_cloud_license_key', 'manual' ),
+			'domain'          => parse_url( get_site_url(), PHP_URL_HOST ),
+			'today'           => $today,
+			'yesterday'       => null,
+			'week_avg'        => null,
+			'incidents_today' => [],
+		];
+
+		$api_base = 'https://api.baskerville.ai/v1';
+		$headers  = [
+			'Content-Type'      => 'application/json',
+			'X-Baskerville-Key' => $secret,
+		];
+
+		// Submit watchdog job.
+		$submit = wp_remote_post( $api_base . '/watchdog', [
+			'timeout' => 15,
+			'headers' => $headers,
+			'body'    => wp_json_encode( $payload ),
+		] );
+
+		if ( is_wp_error( $submit ) ) {
+			wp_send_json_error( 'Submit failed: ' . $submit->get_error_message() );
+		}
+
+		$body   = json_decode( wp_remote_retrieve_body( $submit ), true );
+		$job_id = $body['job_id'] ?? null;
+		if ( ! $job_id ) {
+			$code = wp_remote_retrieve_response_code( $submit );
+			wp_send_json_error( "Backend error HTTP {$code}: " . wp_remote_retrieve_body( $submit ) );
+		}
+
+		// Poll synchronously for up to 25 seconds.
+		$deadline = time() + 25;
+		while ( time() < $deadline ) {
+			sleep( 3 );
+			$poll = wp_remote_get( $api_base . '/report/' . $job_id, [
+				'timeout' => 10,
+				'headers' => $headers,
+			] );
+			if ( is_wp_error( $poll ) ) {
+				continue;
+			}
+			$result = json_decode( wp_remote_retrieve_body( $poll ), true );
+			$status = $result['status'] ?? 'pending';
+			if ( $status === 'ready' && ! empty( $result['summary'] ) ) {
+				$text = sanitize_textarea_field( $result['summary'] );
+				update_option( 'baskerville_watchdog_summary', $text );
+				update_option( 'baskerville_watchdog_generated_at', time() );
+				wp_send_json_success( [ 'summary' => $text ] );
+			}
+			if ( $status === 'error' ) {
+				wp_send_json_error( 'LLM error: ' . ( $result['error'] ?? 'unknown' ) );
+			}
+		}
+
+		// Timed out — save job_id for next cron poll.
+		update_option( 'baskerville_watchdog_pending', [
+			'job_id'       => $job_id,
+			'submitted_at' => time(),
+		] );
+		wp_send_json_error( esc_html__( 'Timed out waiting for AI response. The result will appear automatically within 5 minutes.', 'baskerville-ai-security' ) );
+	}
+
+	/**
 	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_feed() {
@@ -5778,4 +6020,517 @@ done
 		));
 	}
 	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
+
+	// =========================================================================
+	// AI Watchdog Tab
+	// =========================================================================
+
+	private function get_token_usage(): array {
+		$cache_key = 'baskerville_token_usage';
+		$cached    = get_transient( $cache_key );
+		if ( $cached !== false ) {
+			return $cached;
+		}
+		$domain  = parse_url( get_site_url(), PHP_URL_HOST );
+		$license = get_option( Baskerville_Cloud::OPTION_LICENSE, '' );
+		$secret  = get_option( Baskerville_Cloud::OPTION_API_SECRET, '' );
+		if ( ! $license || ! $secret ) {
+			return [];
+		}
+		$response = wp_remote_get(
+			Baskerville_Cloud::API_BASE . '/usage/' . rawurlencode( $domain ) . '?license_key=' . rawurlencode( $license ),
+			[ 'timeout' => 5, 'headers' => [ 'X-Baskerville-Key' => $secret ] ]
+		);
+		if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
+			return [];
+		}
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		set_transient( $cache_key, $data, HOUR_IN_SECONDS );
+		return $data ?: [];
+	}
+
+	private function render_ai_panel_inline() {
+		$watchdog_summary = get_option( 'baskerville_watchdog_summary', '' );
+		$watchdog_time    = (int) get_option( 'baskerville_watchdog_generated_at', 0 );
+		$watchdog_nonce   = wp_create_nonce( 'baskerville_run_watchdog' );
+		$ajax_url         = esc_url( admin_url( 'admin-ajax.php' ) );
+		$nonce            = wp_create_nonce( 'wp_rest' );
+		$query_url        = esc_url( rest_url( 'baskerville/v1/query' ) );
+		$poll_base_url    = esc_url( rest_url( 'baskerville/v1/query/' ) );
+		$usage            = $this->get_token_usage();
+
+		$badge = '';
+		$badge_class = '';
+		if ( $watchdog_summary ) {
+			$first_line = strtok( $watchdog_summary, "\n" );
+			if ( stripos( $first_line, 'alert' ) !== false ) {
+				$badge = '🔴 ALERT';
+				$badge_class = 'bsk-badge-alert';
+			} elseif ( stripos( $first_line, 'warning' ) !== false ) {
+				$badge = '🟡 WARNING';
+				$badge_class = 'bsk-badge-warning';
+			} else {
+				$badge = '🟢 QUIET';
+				$badge_class = 'bsk-badge-quiet';
+			}
+		}
+
+		// Strip first "Quiet/Warning/Alert" line for display
+		$summary_body = '';
+		if ( $watchdog_summary ) {
+			$lines = explode( "\n", trim( $watchdog_summary ), 2 );
+			$summary_body = isset( $lines[1] ) ? trim( $lines[1] ) : trim( $lines[0] );
+		}
+		?>
+		<div class="bsk-ai-panel">
+
+			<!-- AI Watchdog -->
+			<div class="bsk-ai-section">
+				<div class="bsk-ai-row-header">
+					<img src="<?php echo esc_url( BASKERVILLE_PLUGIN_URL . 'assets/icon-menu.svg' ); ?>" class="bsk-ai-icon" alt="">
+					<span class="bsk-ai-label"><?php esc_html_e( 'AI Watchdog', 'baskerville-ai-security' ); ?></span>
+					<?php if ( $badge ) : ?>
+						<span class="bsk-badge <?php echo esc_attr( $badge_class ); ?>"><?php echo esc_html( $badge ); ?></span>
+					<?php endif; ?>
+					<?php if ( $watchdog_time ) : ?>
+						<span class="bsk-panel-time"><?php printf( esc_html__( '%s ago', 'baskerville-ai-security' ), esc_html( human_time_diff( $watchdog_time ) ) ); ?></span>
+					<?php endif; ?>
+					<button id="bsk-panel-run-now" class="bsk-run-btn">
+						<?php esc_html_e( 'Run now', 'baskerville-ai-security' ); ?>
+					</button>
+					<span id="bsk-panel-run-status" style="display:none;font-size:0.82em;opacity:.8;"></span>
+				</div>
+				<div class="bsk-ai-watchdog-body">
+					<?php if ( $summary_body ) : ?>
+						<?php echo esc_html( $summary_body ); ?>
+					<?php else : ?>
+						<span class="bsk-no-data"><?php esc_html_e( 'No report yet — click "Run now" to generate.', 'baskerville-ai-security' ); ?></span>
+					<?php endif; ?>
+				</div>
+			</div>
+
+			<!-- Divider -->
+			<div class="bsk-ai-divider"></div>
+
+			<!-- Ask AI -->
+			<div class="bsk-ai-section">
+				<div class="bsk-ai-row-header">
+					<span class="bsk-ai-label">✦ <?php esc_html_e( 'Ask AI about your traffic', 'baskerville-ai-security' ); ?></span>
+					<select id="bsk-panel-period" class="bsk-period-select">
+						<option value="1d"><?php esc_html_e( 'Last 24h', 'baskerville-ai-security' ); ?></option>
+						<option value="7d" selected><?php esc_html_e( 'Last 7 days', 'baskerville-ai-security' ); ?></option>
+						<option value="30d"><?php esc_html_e( 'Last 30 days', 'baskerville-ai-security' ); ?></option>
+					</select>
+				</div>
+				<div class="bsk-quick-questions">
+					<?php
+					$quick_questions = [
+						__( 'Any incidents recently?',       'baskerville-ai-security' ),
+						__( 'What AI crawls my site?',       'baskerville-ai-security' ),
+						__( 'Any unusual patterns?',         'baskerville-ai-security' ),
+						__( 'Any AI spoofers?',              'baskerville-ai-security' ),
+						__( 'Top countries today?',          'baskerville-ai-security' ),
+						__( 'Human vs bot ratio this week?', 'baskerville-ai-security' ),
+						__( 'Am I under attack?',            'baskerville-ai-security' ),
+						__( 'What happened last night?',     'baskerville-ai-security' ),
+						__( 'Why do I need this plugin?',    'baskerville-ai-security' ),
+					];
+					foreach ( $quick_questions as $q ) : ?>
+						<button class="bsk-quick-btn" type="button" data-q="<?php echo esc_attr( $q ); ?>"><?php echo esc_html( $q ); ?></button>
+					<?php endforeach; ?>
+				</div>
+				<div class="bsk-panel-query-wrap">
+					<textarea id="bsk-panel-query-input" rows="2" placeholder="<?php esc_attr_e( 'Ask anything about your traffic or plugin settings…', 'baskerville-ai-security' ); ?>"></textarea>
+					<button id="bsk-panel-query-submit" class="bsk-ask-btn"><?php esc_html_e( 'Ask', 'baskerville-ai-security' ); ?></button>
+				</div>
+				<div id="bsk-panel-query-status" style="display:none;font-size:0.85em;opacity:.8;padding:4px 0;">
+					<span class="spinner is-active" style="float:none;margin:0 4px 0 0;vertical-align:middle;"></span><?php esc_html_e( 'Thinking…', 'baskerville-ai-security' ); ?>
+				</div>
+				<div id="bsk-panel-query-result" class="bsk-panel-result" style="display:none;"></div>
+				<div id="bsk-panel-query-error" class="bsk-panel-error" style="display:none;"></div>
+			</div>
+
+			<?php if ( ! empty( $usage['this_month'] ) ) : ?>
+			<div class="bsk-ai-divider"></div>
+			<div class="bsk-token-usage">
+				<span class="bsk-token-label"><?php esc_html_e( 'Tokens this month:', 'baskerville-ai-security' ); ?></span>
+				<span class="bsk-token-value"><?php echo esc_html( number_format( (int) $usage['this_month']['tokens'] ) ); ?></span>
+				<span class="bsk-token-requests">(<?php echo esc_html( (int) $usage['this_month']['requests'] ); ?> <?php esc_html_e( 'requests', 'baskerville-ai-security' ); ?>)</span>
+			</div>
+			<?php endif; ?>
+
+		</div>
+
+		<style>
+		.bsk-ai-panel { background:#fdf2f1; border:2px solid #e03323; border-radius:8px; margin-bottom:20px; padding:16px 20px; }
+		.bsk-ai-section { padding:4px 0; }
+		.bsk-ai-divider { border-top:1px solid #f5b0ab; margin:12px 0; }
+		.bsk-ai-row-header { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+		.bsk-ai-icon { width:22px; height:22px; vertical-align:middle; flex-shrink:0; }
+		.bsk-ai-label { font-weight:700; font-size:0.82em; text-transform:uppercase; letter-spacing:.05em; color:#e03323; }
+		.bsk-badge { display:inline-block; padding:1px 8px; border-radius:3px; font-weight:700; font-size:0.78em; }
+		.bsk-badge-quiet   { background:#c8e6c9; color:#1b5e20; }
+		.bsk-badge-warning { background:#fff9c4; color:#f57f17; border:1px solid #f9a825; }
+		.bsk-badge-alert   { background:#ffcdd2; color:#b71c1c; }
+		.bsk-panel-time { font-size:0.78em; color:#a0291e; }
+		.bsk-run-btn { background:#e03323; border:none; color:#fff; border-radius:4px; padding:3px 12px; cursor:pointer; font-size:0.82em; font-weight:600; }
+		.bsk-run-btn:hover { background:#b8271c; }
+		.bsk-run-btn:disabled { opacity:.6; cursor:not-allowed; }
+		.bsk-ai-watchdog-body { font-size:0.9em; color:#3d1a17; line-height:1.65; }
+		.bsk-no-data { color:#b07870; font-style:italic; }
+		.bsk-quick-questions { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px; }
+		.bsk-quick-btn { background:#fff; border:1px solid #e03323; color:#e03323; border-radius:12px; padding:3px 10px; font-size:0.78em; cursor:pointer; white-space:nowrap; transition:background .15s,color .15s; }
+		.bsk-quick-btn:hover { background:#e03323; color:#fff; }
+		.bsk-panel-query-wrap { display:flex; gap:8px; margin-bottom:6px; }
+		.bsk-panel-query-wrap textarea { flex:1; border:1px solid #f5b0ab; background:#fff; color:#3d1a17; border-radius:4px; padding:6px 10px; font-size:0.88em; resize:none; }
+		.bsk-panel-query-wrap textarea::placeholder { color:#c0877f; }
+		.bsk-period-select { background:#fff; border:1px solid #f5b0ab; color:#a0291e; border-radius:4px; padding:2px 6px; font-size:0.82em; }
+		.bsk-ask-btn { background:#e03323; border:none; color:#fff; border-radius:4px; padding:6px 16px; cursor:pointer; font-weight:600; font-size:0.88em; white-space:nowrap; align-self:flex-end; }
+		.bsk-ask-btn:hover { background:#b8271c; }
+		.bsk-ask-btn:disabled { opacity:.6; cursor:not-allowed; }
+		.bsk-panel-result { font-size:0.88em; color:#3d1a17; line-height:1.65; max-height:520px; overflow-y:auto; background:#fff; border:1px solid #f5b0ab; border-radius:4px; padding:10px 12px; margin-top:4px; }
+		.bsk-panel-result strong { color:#e03323; }
+		.bsk-panel-result ul { margin-left:1.3em; }
+		.bsk-panel-error { font-size:0.83em; color:#b8271c; padding:4px 0; }
+		.bsk-token-usage { font-size:0.78em; color:#a0291e; padding:4px 0 0; }
+		.bsk-token-value { font-weight:700; margin:0 4px; }
+		.bsk-token-requests { opacity:0.7; }
+		</style>
+
+		<script>
+		(function($) {
+			// Watchdog run now
+			$('#bsk-panel-run-now').on('click', function() {
+				var $btn = $(this), $st = $('#bsk-panel-run-status');
+				$btn.prop('disabled', true).text('…');
+				$st.text('<?php echo esc_js( __( 'Asking AI…', 'baskerville-ai-security' ) ); ?>').show();
+				$.ajax({
+					url: '<?php echo esc_js( $ajax_url ); ?>',
+					method: 'POST',
+					data: { action: 'baskerville_run_watchdog', _wpnonce: '<?php echo esc_js( $watchdog_nonce ); ?>' },
+					timeout: 35000,
+					success: function(r) { if (r.success) { location.reload(); } else { $st.text(r.data || 'Error'); $btn.prop('disabled', false).text('↺'); } },
+					error: function() { $st.text('Timeout'); $btn.prop('disabled', false).text('↺'); }
+				});
+			});
+
+			// Query
+			var pollInterval = null;
+			function stopPoll() { if (pollInterval) { clearInterval(pollInterval); pollInterval = null; } }
+
+			function renderMd(md) {
+				return md
+					.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+					.replace(/^### (.+)$/gm,'<strong>$1</strong>').replace(/^## (.+)$/gm,'<strong>$1</strong>')
+					.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+					.replace(/^[-*] (.+)$/gm,'<li>$1</li>')
+					.replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>');
+			}
+
+			$('.bsk-quick-btn').on('click', function() {
+				$('#bsk-panel-query-input').val($(this).data('q'));
+				$('#bsk-panel-query-submit').trigger('click');
+			});
+
+			$('#bsk-panel-query-submit').on('click', function() {
+				var q = $('#bsk-panel-query-input').val().trim();
+				if (!q) return;
+				stopPoll();
+				$('#bsk-panel-query-result').hide().html('');
+				$('#bsk-panel-query-error').hide().html('');
+				$('#bsk-panel-query-status').show();
+				$(this).prop('disabled', true);
+				var $btn = $(this);
+				$.ajax({
+					url: '<?php echo esc_js( $query_url ); ?>',
+					method: 'POST',
+					contentType: 'application/json',
+					beforeSend: function(xhr) { xhr.setRequestHeader('X-WP-Nonce', '<?php echo esc_js( $nonce ); ?>'); },
+					data: JSON.stringify({ question: q, period: $('#bsk-panel-period').val() }),
+					success: function(d) {
+						if (!d.job_id) { $('#bsk-panel-query-status').hide(); $('#bsk-panel-query-error').text('No job ID').show(); $btn.prop('disabled',false); return; }
+						pollInterval = setInterval(function() {
+							$.ajax({
+								url: '<?php echo esc_js( $poll_base_url ); ?>' + d.job_id,
+								method: 'GET',
+								beforeSend: function(xhr) { xhr.setRequestHeader('X-WP-Nonce', '<?php echo esc_js( $nonce ); ?>'); },
+								success: function(r) {
+									if (r.status === 'ready') { stopPoll(); $('#bsk-panel-query-status').hide(); $('#bsk-panel-query-result').html(renderMd(r.summary||'')).show(); $btn.prop('disabled',false); }
+									else if (r.status === 'error') { stopPoll(); $('#bsk-panel-query-status').hide(); $('#bsk-panel-query-error').text(r.error||'Error').show(); $btn.prop('disabled',false); }
+								},
+								error: function() { stopPoll(); $('#bsk-panel-query-status').hide(); $('#bsk-panel-query-error').text('Poll failed').show(); $btn.prop('disabled',false); }
+							});
+						}, 3000);
+					},
+					error: function(xhr) { $('#bsk-panel-query-status').hide(); $('#bsk-panel-query-error').text((xhr.responseJSON&&xhr.responseJSON.message)||xhr.statusText).show(); $btn.prop('disabled',false); }
+				});
+			});
+		})(jQuery);
+		</script>
+		<?php
+	}
+
+	private function render_ai_watchdog_tab() {
+		$watchdog_summary = get_option( 'baskerville_watchdog_summary', '' );
+		$watchdog_time    = (int) get_option( 'baskerville_watchdog_generated_at', 0 );
+		$has_license      = (bool) get_option( 'baskerville_cloud_license_key', '' );
+		$has_secret       = (bool) get_option( 'baskerville_cloud_api_secret', '' );
+		$nonce            = wp_create_nonce( 'wp_rest' );
+		$query_url        = esc_url( rest_url( 'baskerville/v1/query' ) );
+		$poll_base_url    = esc_url( rest_url( 'baskerville/v1/query/' ) );
+
+		$watchdog_nonce = wp_create_nonce( 'baskerville_run_watchdog' );
+		$ajax_url       = esc_url( admin_url( 'admin-ajax.php' ) );
+
+		// Parse watchdog status badge
+		$badge       = '';
+		$badge_class = '';
+		if ( $watchdog_summary ) {
+			$first_line = strtok( $watchdog_summary, "\n" );
+			if ( stripos( $first_line, 'alert' ) !== false ) {
+				$badge = '🔴 ALERT';
+				$badge_class = 'bsk-badge-alert';
+			} elseif ( stripos( $first_line, 'warning' ) !== false ) {
+				$badge = '🟡 WARNING';
+				$badge_class = 'bsk-badge-warning';
+			} else {
+				$badge = '🟢 QUIET';
+				$badge_class = 'bsk-badge-quiet';
+			}
+		}
+		?>
+		<div class="bsk-ai-watchdog-wrap">
+
+			<?php if ( ! $has_license || ! $has_secret ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<?php esc_html_e( 'Baskerville Cloud is not configured. Add your License Key and API Secret in Settings → Cloud Settings.', 'baskerville-ai-security' ); ?>
+				</p>
+			</div>
+			<?php endif; ?>
+
+			<!-- Watchdog Summary Card -->
+			<div class="bsk-card">
+				<h2><?php esc_html_e( 'Nightly Watchdog', 'baskerville-ai-security' ); ?></h2>
+				<?php if ( $watchdog_summary ) : ?>
+					<p class="bsk-watchdog-meta">
+						<?php if ( $badge ) : ?>
+							<span class="bsk-badge <?php echo esc_attr( $badge_class ); ?>"><?php echo esc_html( $badge ); ?></span>
+						<?php endif; ?>
+						<?php if ( $watchdog_time ) : ?>
+							<span class="bsk-watchdog-time">
+								<?php
+								/* translators: %s: human-readable time ago */
+								printf( esc_html__( 'Generated %s ago', 'baskerville-ai-security' ), esc_html( human_time_diff( $watchdog_time ) ) );
+								?>
+							</span>
+						<?php endif; ?>
+					</p>
+					<div class="bsk-watchdog-text"><?php echo nl2br( esc_html( $watchdog_summary ) ); ?></div>
+				<?php else : ?>
+					<p class="description">
+						<?php esc_html_e( 'No watchdog report yet. The nightly summary runs automatically and will appear here.', 'baskerville-ai-security' ); ?>
+					</p>
+				<?php endif; ?>
+				<p style="margin-top:14px;">
+					<button id="bsk-watchdog-run-now" class="button">
+						<?php esc_html_e( 'Run now', 'baskerville-ai-security' ); ?>
+					</button>
+					<span id="bsk-watchdog-run-status" style="margin-left:10px;color:#646970;font-size:0.9em;display:none;"></span>
+				</p>
+			</div>
+
+			<!-- Natural Language Query -->
+			<div class="bsk-card">
+				<h2><?php esc_html_e( 'Ask about your traffic', 'baskerville-ai-security' ); ?></h2>
+				<p class="description">
+					<?php esc_html_e( 'Ask a question in plain language. The AI will answer using your site\'s traffic data.', 'baskerville-ai-security' ); ?>
+				</p>
+
+				<div class="bsk-query-form">
+					<div class="bsk-query-row">
+						<textarea id="bsk-query-input" rows="3" placeholder="<?php esc_attr_e( 'e.g. Which AI companies scraped my site this week? Was there a bot attack on Wednesday?', 'baskerville-ai-security' ); ?>" class="large-text"></textarea>
+					</div>
+					<div class="bsk-query-row bsk-query-controls">
+						<label for="bsk-query-period"><?php esc_html_e( 'Period:', 'baskerville-ai-security' ); ?></label>
+						<select id="bsk-query-period">
+							<option value="1d"><?php esc_html_e( 'Last 24 hours', 'baskerville-ai-security' ); ?></option>
+							<option value="7d" selected><?php esc_html_e( 'Last 7 days', 'baskerville-ai-security' ); ?></option>
+							<option value="30d"><?php esc_html_e( 'Last 30 days', 'baskerville-ai-security' ); ?></option>
+						</select>
+						<button id="bsk-query-submit" class="button button-primary">
+							<?php esc_html_e( 'Ask AI', 'baskerville-ai-security' ); ?>
+						</button>
+					</div>
+					<div id="bsk-query-status" class="bsk-query-status" style="display:none;">
+						<span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span>
+						<?php esc_html_e( 'Thinking…', 'baskerville-ai-security' ); ?>
+					</div>
+					<div id="bsk-query-result" class="bsk-query-result" style="display:none;"></div>
+					<div id="bsk-query-error" class="bsk-query-error notice notice-error inline" style="display:none;"></div>
+				</div>
+			</div>
+
+		</div><!-- .bsk-ai-watchdog-wrap -->
+
+		<style>
+		.bsk-ai-watchdog-wrap { max-width: 860px; }
+		.bsk-card { background: #fff; border: 1px solid #c3c4c7; border-radius: 4px; padding: 20px 24px; margin-bottom: 20px; }
+		.bsk-card h2 { margin-top: 0; font-size: 1.1em; }
+		.bsk-badge { display: inline-block; padding: 2px 10px; border-radius: 3px; font-weight: 700; font-size: 0.85em; margin-right: 8px; }
+		.bsk-badge-quiet   { background: #d1e7dd; color: #0a3622; }
+		.bsk-badge-warning { background: #fff3cd; color: #664d03; }
+		.bsk-badge-alert   { background: #f8d7da; color: #58151c; }
+		.bsk-watchdog-meta { margin-bottom: 12px; }
+		.bsk-watchdog-time { color: #646970; font-size: 0.9em; }
+		.bsk-watchdog-text { white-space: pre-wrap; font-family: inherit; font-size: 0.92em; line-height: 1.6; background: #f6f7f7; padding: 14px 16px; border-radius: 3px; }
+		.bsk-query-form { margin-top: 14px; }
+		.bsk-query-row { margin-bottom: 10px; }
+		.bsk-query-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+		.bsk-query-status { padding: 8px 0; color: #646970; display: flex; align-items: center; }
+		.bsk-query-result { margin-top: 14px; padding: 16px 18px; background: #f0f6fc; border: 1px solid #c8e1ff; border-radius: 4px; font-size: 0.93em; line-height: 1.65; }
+		.bsk-query-result h2 { font-size: 1em; margin-top: 1em; }
+		.bsk-query-result h3 { font-size: 0.95em; margin-top: 0.8em; }
+		.bsk-query-result ul, .bsk-query-result ol { margin-left: 1.4em; }
+		.bsk-query-error { margin-top: 10px; }
+		.baskerville-ai-watchdog-tab { font-weight: 600; }
+		</style>
+
+		<script>
+		(function($) {
+			var pollInterval = null;
+			var pollUrl = '<?php echo esc_js( $poll_base_url ); ?>';
+			var submitUrl = '<?php echo esc_js( $query_url ); ?>';
+			var nonce = '<?php echo esc_js( $nonce ); ?>';
+
+			function renderMarkdown(md) {
+				// Minimal markdown rendering without external lib
+				var html = md
+					.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+					// headers
+					.replace(/^### (.+)$/gm, '<h3>$1</h3>')
+					.replace(/^## (.+)$/gm, '<h2>$1</h2>')
+					.replace(/^# (.+)$/gm, '<h2>$1</h2>')
+					// bold
+					.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+					// bullet lists
+					.replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+					// wrap consecutive <li> in <ul>
+					.replace(/(<li>[\s\S]+?<\/li>)(\n<li>|$)/g, function(m) { return m; })
+					// line breaks
+					.replace(/\n\n/g, '</p><p>')
+					.replace(/\n/g, '<br>');
+				// wrap in paragraphs if no block elements
+				if (html.indexOf('<h') === -1 && html.indexOf('<li>') === -1) {
+					html = '<p>' + html + '</p>';
+				}
+				// wrap <li> groups in <ul>
+				html = html.replace(/(<li>(?:.*?)<\/li>(?:<br>|<\/p><p>|)*)+/g, function(match) {
+					var items = match.replace(/<br>/g,'').replace(/<\/p><p>/g,'');
+					return '<ul>' + items + '</ul>';
+				});
+				return html;
+			}
+
+			function stopPolling() {
+				if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+			}
+
+			function pollJob(jobId) {
+				pollInterval = setInterval(function() {
+					$.ajax({
+						url: pollUrl + jobId,
+						method: 'GET',
+						beforeSend: function(xhr) { xhr.setRequestHeader('X-WP-Nonce', nonce); },
+						success: function(data) {
+							var status = data.status || '';
+							if (status === 'ready') {
+								stopPolling();
+								$('#bsk-query-status').hide();
+								$('#bsk-query-result').html(renderMarkdown(data.summary || '')).show();
+								$('#bsk-query-submit').prop('disabled', false);
+							} else if (status === 'error') {
+								stopPolling();
+								$('#bsk-query-status').hide();
+								$('#bsk-query-error').html('<p><?php echo esc_js( __( 'AI error:', 'baskerville-ai-security' ) ); ?> ' + (data.error || '?') + '</p>').show();
+								$('#bsk-query-submit').prop('disabled', false);
+							}
+							// status === 'pending' → keep polling
+						},
+						error: function(xhr) {
+							stopPolling();
+							$('#bsk-query-status').hide();
+							$('#bsk-query-error').html('<p><?php echo esc_js( __( 'Network error while polling.', 'baskerville-ai-security' ) ); ?></p>').show();
+							$('#bsk-query-submit').prop('disabled', false);
+						}
+					});
+				}, 3000);
+			}
+
+			$('#bsk-watchdog-run-now').on('click', function() {
+			var $btn = $(this);
+			var $status = $('#bsk-watchdog-run-status');
+			$btn.prop('disabled', true);
+			$status.text('<?php echo esc_js( __( 'Asking AI… this takes ~10 seconds', 'baskerville-ai-security' ) ); ?>').show();
+			$.ajax({
+				url: '<?php echo esc_js( $ajax_url ); ?>',
+				method: 'POST',
+				data: { action: 'baskerville_run_watchdog', _wpnonce: '<?php echo esc_js( $watchdog_nonce ); ?>' },
+				timeout: 35000,
+				success: function(response) {
+					if (response.success) {
+						// Reload page to show the new summary in the card
+						location.reload();
+					} else {
+						$status.text(response.data || '<?php echo esc_js( __( 'Error', 'baskerville-ai-security' ) ); ?>');
+						$btn.prop('disabled', false);
+					}
+				},
+				error: function() {
+					$status.text('<?php echo esc_js( __( 'Request failed or timed out', 'baskerville-ai-security' ) ); ?>');
+					$btn.prop('disabled', false);
+				}
+			});
+		});
+
+		$('#bsk-query-submit').on('click', function() {
+				var question = $('#bsk-query-input').val().trim();
+				if (!question) { return; }
+
+				stopPolling();
+				$('#bsk-query-result').hide().html('');
+				$('#bsk-query-error').hide().html('');
+				$('#bsk-query-status').show();
+				$('#bsk-query-submit').prop('disabled', true);
+
+				$.ajax({
+					url: submitUrl,
+					method: 'POST',
+					contentType: 'application/json',
+					beforeSend: function(xhr) { xhr.setRequestHeader('X-WP-Nonce', nonce); },
+					data: JSON.stringify({
+						question: question,
+						period:   $('#bsk-query-period').val()
+					}),
+					success: function(data) {
+						if (data.job_id) {
+							pollJob(data.job_id);
+						} else {
+							$('#bsk-query-status').hide();
+							$('#bsk-query-error').html('<p><?php echo esc_js( __( 'Unexpected response from server.', 'baskerville-ai-security' ) ); ?></p>').show();
+							$('#bsk-query-submit').prop('disabled', false);
+						}
+					},
+					error: function(xhr) {
+						$('#bsk-query-status').hide();
+						var msg = (xhr.responseJSON && xhr.responseJSON.message) ? xhr.responseJSON.message : xhr.statusText;
+						$('#bsk-query-error').html('<p>' + msg + '</p>').show();
+						$('#bsk-query-submit').prop('disabled', false);
+					}
+				});
+			});
+		})(jQuery);
+		</script>
+		<?php
+	}
 }

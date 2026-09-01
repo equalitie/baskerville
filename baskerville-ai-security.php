@@ -3,7 +3,7 @@
  * Plugin Name: Baskerville AI Security
  * Plugin URI: https://wordpress.org/plugins/baskerville-ai-security/
  * Description: Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
- * Version: 1.0.4
+ * Version: 1.0.5
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * Author: eQualitie
@@ -14,12 +14,21 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BASKERVILLE_VERSION', '1.0.4');
+define('BASKERVILLE_VERSION', '1.0.5');
 define('BASKERVILLE_PLUGIN_FILE', __FILE__);
 define('BASKERVILLE_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('BASKERVILLE_PLUGIN_URL',  plugin_dir_url(__FILE__));
 define('BASKERVILLE_DEBUG', defined('WP_DEBUG') && WP_DEBUG);
 define('BASKERVILLE_DEFAULT_RETENTION_DAYS', 14);
+
+if ( ! function_exists( 'wpsec_log' ) ) {
+	function wpsec_log( string $msg ): void {
+		if ( BASKERVILLE_DEBUG ) {
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			error_log( $msg );
+		}
+	}
+}
 
 // includes
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-core.php';
@@ -32,6 +41,7 @@ require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-installer.php
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-maxmind-installer.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-turnstile.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-altcha.php';
+require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-ai-bots.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'includes/class-baskerville-cloud.php';
 require_once BASKERVILLE_PLUGIN_PATH . 'admin/class-baskerville-admin.php';
 
@@ -139,9 +149,13 @@ add_action('plugins_loaded', function () {
 	// Initialize Turnstile hooks (object already created before firewall)
 	$turnstile->init();
 
-	// Baskerville Cloud: LLM incident analysis
+	// Baskerville Cloud: LLM incident analysis + snapshots
 	$cloud = new Baskerville_Cloud( $stats );
-	add_action( 'baskerville_cloud_analyze', [ $cloud, 'maybe_analyze' ] );
+	add_action( 'baskerville_cloud_analyze',     [ $cloud, 'maybe_analyze' ] );
+	add_action( 'baskerville_daily_rollup',      [ $cloud, 'run_daily_rollup' ] );
+	add_action( 'baskerville_cleanup_snapshots', [ $cloud, 'cleanup_snapshots' ] );
+	add_action( 'wp_dashboard_setup',            [ $cloud, 'register_dashboard_widget' ] );
+	add_action( 'rest_api_init',                 [ $cloud, 'register_rest_routes' ] );
 
 	// periodic statistics cleanup
 	add_action('baskerville_cleanup_stats', [$stats, 'cleanup_old_stats']);

@@ -26,15 +26,12 @@ This is not viable at tens of thousands of installations. The plugin must remain
 WordPress site (plugin)
   │
   ├── Collects stats locally → wp_baskerville_stats
-  ├── Detects spike (traffic or decisions)
-  ├── Runs pre-aggregated SQL queries
-  ├── Builds payload JSON (~10-15KB)
+  ├── Every 5 min: saves snapshot → wp_baskerville_snapshots
+  │     (traffic, blocks, challenges, country/fingerprint/ua/asn/session_length histograms)
+  ├── Detects traffic spike OR block/challenge spike vs snapshot baseline
+  ├── Builds payload: current snapshot + delta vs baseline + ip_overlap + no_cookie_pct
   │
   └── POST https://api.baskerville.ai/v1/analyze
-          { license_key, domain, spike_type, spike_factor,
-            timeline, top_asns, top_countries, top_urls,
-            ua_distribution, unique_ips, fingerprint_signals,
-            ip_overlap, no_cookie_pct }
               │
               └── Baskerville backend (FastAPI)
                     ├── Validates license key
@@ -43,12 +40,14 @@ WordPress site (plugin)
 
 Plugin polls GET /v1/report/{job_id} every 2 min
   ├── status: pending → wait
-  └── status: ready → { incident_action[], reasoning, report_markdown }
+  └── status: ready → { actions[], reasoning, report_markdown }
         ├── Apply actions locally (firewall rules, temporary blocks)
         └── Save to wp_baskerville_reports + wp_baskerville_incidents
 ```
 
-The LLM never connects to the WordPress database. All SQL runs locally in PHP before the request is sent.
+**Key principle:** The plugin handles mechanics (data collection, snapshot storage, delta computation, applying blocks). The LLM handles all reasoning and decisions — including cases that rule-based logic would miss, such as distributed one-shot botnets where no individual IP looks suspicious.
+
+The LLM never connects to the WordPress database. All SQL runs locally in PHP.
 
 ---
 
@@ -78,13 +77,88 @@ ip_overlap_json  -- overlap with previous incidents
 
 ---
 
+## Snapshot Histograms
+
+Every 5 minutes the plugin saves a snapshot to `wp_baskerville_snapshots`.
+Snapshots are the foundation for spike detection, baseline comparison, and LLM payload.
+
+### wp_baskerville_snapshots table
+
+```sql
+snapshot_at           DATETIME        -- timestamp of this 5-min window
+traffic_count         INT             -- total requests
+block_count           INT             -- event_type='block'
+challenge_count       INT             -- challenge decisions
+unique_ips            INT
+unique_sessions       INT             -- distinct (ip, baskerville_id) tuples in window
+immature_ratio        FLOAT           -- fraction of sessions with exactly 1 request (0.0–1.0)
+no_cookie_pct         FLOAT           -- % requests without baskerville_id cookie
+
+countries_json        JSON            -- { "SG": 847, "US": 12, "DE": 34 }
+fingerprints_json     JSON            -- { "webdriver": 89, "http1_protocol": 340, ... }
+ua_json               JSON            -- { "MJ12bot": 1240, "Chrome/124": 340, ... }
+asn_json              JSON            -- { "ALIBABA-US (AS45102)": 890, ... }
+classifications_json  JSON            -- { "human": 450, "bot": 120, "bad_bot": 380, "borderline": 8 }
+known_bots_json       JSON            -- { "search_engines": {...}, "ai_training": {...}, "seo_tools": {...} }
+ai_traffic_json       JSON            -- { "OpenAI": 234, "ByteDance": 890 }  flat, for daily rollup
+
+PRIMARY KEY (snapshot_at)
+```
+
+Retention: 7 days. Cleaned up by daily cron. 7 days × 288 snapshots/day ≈ 2,016 rows max.
+
+### immature_ratio — one-shot botnet detection
+
+`immature_ratio` = fraction of unique sessions in the 5-minute window that made exactly 1 request.
+Computed at snapshot time via SQL — no session tracking table required:
+
+```sql
+SELECT
+  COUNT(DISTINCT session_key) AS total_sessions,
+  SUM(CASE WHEN cnt = 1 THEN 1 ELSE 0 END) AS immature_sessions
+FROM (
+  SELECT COALESCE(baskerville_id, ip) AS session_key, COUNT(*) AS cnt
+  FROM wp_baskerville_stats
+  WHERE timestamp_utc >= :window_start AND timestamp_utc < :window_end
+  GROUP BY session_key
+) sub
+```
+
+`immature_ratio = immature_sessions / total_sessions`
+
+**Why this is the key signal:** Distributed one-shot botnets (10,000 IPs × 1–2 requests each) are invisible to:
+- Per-IP rule-based logic (each IP looks normal)
+- IP overlap (fresh IPs, never seen before)
+
+But `immature_ratio` immediately shows: "0.97 (97% of sessions = 1 request)" vs baseline "0.12".
+Combined with country/ASN shift, the LLM identifies this as a distributed one-shot attack.
+
+**Note on session_length_json:** A full bucketed distribution (`{"1": 89, "2": 45, ...}`) was considered but rejected:
+- Sessions span more than one 5-min window, so per-window counts are partial
+- `immature_ratio` captures the most important signal (1-hit pattern) without ambiguity
+- Clearinghouse experience confirmed: immature/mature ratio is sufficient for LLM reasoning
+
+### What each histogram catches
+
+| Signal | Attack pattern detected |
+|---|---|
+| `countries_json` | Country concentration spike (SG: 2% → 97%) |
+| `fingerprints_json` | Botnet fingerprint emergence (webdriver: 1% → 89%) |
+| `ua_json` | Known bot UA surge (MJ12bot: 2 → 1,240) |
+| `asn_json` | ASN concentration (Alibaba: 0.1% → 97%) |
+| `immature_ratio` | One-shot botnet (0.12 baseline → 0.97 attack) |
+| `block_count` | Decision spike — rule engine sees attack before traffic peaks |
+| `no_cookie_pct` | Cookie-less bot flood |
+
+---
+
 ## Spike Detection
 
 Two independent triggers (either fires an incident):
 
-**Traffic spike** — current 5-min bucket vs average of previous buckets in last 30 min exceeds 3x.
+**Traffic spike** — current snapshot `traffic_count` vs average of last 6 snapshots (30 min baseline) exceeds 3x.
 
-**Decision spike** — blocks + bad_bot classifications spike 3x vs baseline. Fires earlier than traffic spike — the rule engine already sees the attack before raw volume peaks.
+**Decision spike** — current snapshot `block_count + challenge_count` vs baseline exceeds 3x. Fires earlier than traffic spike — the rule engine sees the attack before raw volume peaks.
 
 Cooldown: 30 minutes between incidents to avoid re-triggering during active attack.
 
@@ -92,7 +166,11 @@ Cooldown: 30 minutes between incidents to avoid re-triggering during active atta
 
 ## Payload Sent to API
 
-Aggregated statistics only — no raw IPs, no PII:
+Aggregated statistics only — no raw IPs, no PII.
+
+The payload contains the **current snapshot** plus **deltas vs baseline** (average of last 6 snapshots).
+The LLM receives both absolute numbers and relative changes, enabling it to detect
+attacks invisible to per-request rule-based logic (e.g. distributed one-shot botnets).
 
 ```json
 {
@@ -104,35 +182,46 @@ Aggregated statistics only — no raw IPs, no PII:
   "no_cookie_pct": 94.2,
 
   "timeline": [
-    { "bucket": "2026-08-07 14:05", "requests": 12 },
-    { "bucket": "2026-08-07 14:10", "requests": 1958 }
+    { "bucket": "2026-08-11 14:05", "requests": 12, "blocks": 1, "challenges": 2 },
+    { "bucket": "2026-08-11 14:10", "requests": 1958, "blocks": 847, "challenges": 312 }
   ],
 
-  "top_asns": [
-    { "asn": "ALIBABA-US (AS45102)", "attack_pct": 97.2, "normal_pct": 0.1 }
-  ],
+  "current_snapshot": {
+    "traffic_count": 1958,
+    "block_count": 847,
+    "challenge_count": 312,
+    "unique_ips": 692,
+    "unique_sessions": 680,
+    "immature_ratio": 0.97,
+    "no_cookie_pct": 94.2,
+    "countries":        { "SG": 1840, "US": 12, "DE": 8 },
+    "fingerprints":     { "webdriver": 89, "http1_protocol": 340, "lang_mismatch": 124 },
+    "user_agents":      { "MJ12bot/v1.4.8": 1240, "Chrome/124.0": 340 },
+    "asns":             { "ALIBABA-US (AS45102)": 1820, "CLOUDFLARENET (AS13335)": 12 }
+  },
 
-  "top_countries": [
-    { "country": "SG", "attack_pct": 99.0, "normal_pct": 0.2 }
-  ],
+  "baseline_snapshot": {
+    "traffic_count": 12,
+    "block_count": 1,
+    "challenge_count": 2,
+    "unique_ips": 8,
+    "unique_sessions": 7,
+    "immature_ratio": 0.12,
+    "no_cookie_pct": 6.1,
+    "countries":        { "SG": 1, "US": 8, "DE": 3 },
+    "fingerprints":     { "webdriver": 0, "http1_protocol": 1, "lang_mismatch": 0 },
+    "user_agents":      { "MJ12bot/v1.4.8": 0, "Chrome/124.0": 9 },
+    "asns":             { "ALIBABA-US (AS45102)": 0, "CLOUDFLARENET (AS13335)": 1 }
+  },
 
   "top_urls": [
     { "url": "/wp-login.php", "count": 1240 }
   ],
 
-  "ua_distribution": [
-    { "user_agent": "Mozilla/5.0 (compatible; MJ12bot/...)", "count": 890 }
-  ],
-
-  "fingerprint_signals": {
-    "webdriver_pct": 87.3,
-    "no_touch_mobile_pct": 76.1,
-    "http1_pct": 92.0,
-    "lang_mismatch_pct": 45.2,
-    "no_webgl_pct": 68.0,
-    "top_factors": [
-      { "factor": "webdriver", "count": 1240, "percent": 87.3, "avg_score": 78.2 }
-    ]
+  "auto_blocked_ips": {
+    "count": 0,
+    "pct_of_attack_traffic": 0,
+    "action": "none"
   },
 
   "ip_overlap": {
@@ -143,6 +232,9 @@ Aggregated statistics only — no raw IPs, no PII:
   }
 }
 ```
+
+The LLM receives both `current_snapshot` and `baseline_snapshot` and computes its own
+deltas — this gives it full context rather than pre-filtered summaries.
 
 ---
 
@@ -284,6 +376,176 @@ This is part of Level 1 — no extra API calls, just richer prompt.
 
 ---
 
+## AI Bot Intelligence (Conference Feature)
+
+WordPress sites running the plugin passively collect data on which AI companies crawl their content.
+This is valuable for CSOs, media, and anyone concerned about content scraping for AI training.
+
+### Known Bot Map (plugin-side)
+
+Maintained as a static PHP array — no external DB needed. Five categories:
+
+**AI Training / Agents**
+
+| User-Agent pattern | Company |
+|---|---|
+| `GPTBot`, `ChatGPT-User`, `OAI-SearchBot` | OpenAI |
+| `ClaudeBot`, `Claude-Web` | Anthropic |
+| `Google-Extended`, `GoogleOther` | Google AI |
+| `Gemini` | Google Gemini |
+| `Bytespider` | ByteDance |
+| `PerplexityBot` | Perplexity |
+| `CCBot` | Common Crawl |
+| `Amazonbot` | Amazon |
+| `Meta-ExternalAgent` | Meta |
+| `Applebot-Extended` | Apple |
+| `cohere-ai` | Cohere |
+| `Diffbot` | Diffbot |
+
+**Search Engines (verified bots)**
+
+| User-Agent pattern | Company |
+|---|---|
+| `Googlebot` | Google |
+| `bingbot` | Microsoft Bing |
+| `Slurp` | Yahoo |
+| `YandexBot` | Yandex |
+| `DuckDuckBot` | DuckDuckGo |
+| `Baiduspider` | Baidu |
+
+**SEO / Data Tools**
+
+| User-Agent pattern | Company |
+|---|---|
+| `AhrefsBot` | Ahrefs |
+| `SemrushBot` | Semrush |
+| `MJ12bot` | Majestic |
+| `DotBot` | Moz |
+| `DataForSeoBot` | DataForSEO |
+
+**Social Crawlers**
+
+| User-Agent pattern | Company |
+|---|---|
+| `facebookexternalhit`, `FacebookBot` | Meta |
+| `Twitterbot` | Twitter/X |
+| `LinkedInBot` | LinkedIn |
+| `TelegramBot` | Telegram |
+
+**Security Scanners**
+
+| User-Agent pattern | Operator |
+|---|---|
+| `Shodan` | Shodan |
+| `censys` | Censys |
+| `masscan` | masscan |
+
+### `known_bots_json` + `ai_traffic_json` in snapshots
+
+Two separate histograms added to `wp_baskerville_snapshots`:
+
+```json
+"known_bots_json": {
+  "search_engines": { "Googlebot": 340, "bingbot": 89 },
+  "seo_tools":      { "AhrefsBot": 120, "SemrushBot": 45 },
+  "social":         { "facebookexternalhit": 23 },
+  "security":       { "Shodan": 8 },
+  "ai_training":    { "GPTBot": 234, "ByteDance": 890, "CCBot": 120 }
+}
+"ai_traffic_json": {
+  "OpenAI": 234,
+  "ByteDance": 890,
+  "CCBot": 120
+}
+```
+
+`ai_traffic_json` is a flat summary for fast daily rollup aggregation.
+`known_bots_json` is the full nested breakdown for LLM context.
+
+### `classifications_json` in snapshots — bot vs human ratio
+
+Aggregated from the `classification` column in `wp_baskerville_stats`:
+
+```json
+"classifications_json": {
+  "human":     450,
+  "bot":       120,
+  "bad_bot":   380,
+  "borderline": 8
+}
+```
+
+This is one of the strongest signals for the LLM:
+- `45% human / 40% bad_bot / 12% verified bots / 3% AI` → normal day with some attack
+- `3% human / 90% bad_bot / 7% other` → active bot attack
+- `60% human / 30% AI crawlers / 10% other` → heavy AI scraping day
+
+### AI section in LLM payload
+
+```json
+"known_bots": {
+  "search_engines": { "Googlebot": 340, "bingbot": 89 },
+  "seo_tools":      { "AhrefsBot": 120 },
+  "ai_training":    { "OpenAI": 234, "ByteDance": 890, "CCBot": 120 }
+},
+"known_bots_baseline": {
+  "search_engines": { "Googlebot": 110, "bingbot": 30 },
+  "ai_training":    { "OpenAI": 8, "ByteDance": 12 }
+},
+"classifications": {
+  "human": 450, "bot": 120, "bad_bot": 380, "borderline": 8
+},
+"classifications_baseline": {
+  "human": 820, "bot": 90, "bad_bot": 40, "borderline": 12
+}
+```
+
+### LLM prompt additions
+
+The system prompt asks the LLM to produce an `ai_report` section:
+- Which AI companies are active on this site
+- What content they are targeting (news, blog, API, media)
+- Whether crawl rate is within normal parameters or aggressive
+- Whether they appear to respect crawl signals (indirect: URL patterns, timing)
+- Per-company recommendation: allow / rate-limit / block
+
+### LLM response — `ai_report` field
+
+```json
+"ai_report": {
+  "companies_detected": ["OpenAI", "ByteDance", "CCBot"],
+  "most_aggressive": "ByteDance — 890 requests, 45% of traffic (8× above baseline)",
+  "content_targeted": "News articles (/news/*), author pages",
+  "assessment": "ByteDance is scraping aggressively. OpenAI within normal range.",
+  "recommendations": [
+    { "company": "ByteDance", "action": "rate_limit", "limit": "10 req/min" },
+    { "company": "CCBot",     "action": "block", "reason": "training data harvesting" }
+  ]
+}
+```
+
+### Always-on (no spike required)
+
+AI bot reporting runs on every snapshot cycle, not just during incidents.
+The admin dashboard shows a persistent "AI Traffic" tab with:
+- Per-company request counts (last 24h)
+- Week-over-week trend
+- LLM-generated summary (cached, refreshed daily)
+
+### x402 Monetization angle
+
+When an AI bot is identified, instead of blocking the plugin can return `402 Payment Required`
+with an x402 payment header. The AI agent pays per-page in micropayments.
+
+This is the monetization path for CSOs and media organizations:
+- Allow AI access but make it paid
+- Revenue stream from content that would otherwise be scraped for free
+- Configurable per company: block / allow-free / require-payment
+
+Implementation: x402 support is a future roadmap item (V3+), requires payment processor integration.
+
+---
+
 ## Session Tracking
 
 The plugin has no native session concept — `wp_baskerville_stats` stores individual requests.
@@ -421,6 +683,202 @@ No raw IPs sent. `cluster_size` tells LLM how many sessions this pattern represe
 
 ---
 
+## Natural Language Query Interface
+
+Instead of dashboards and graphs, the admin UI exposes a single text input.
+The user types a question in plain language; the plugin aggregates the relevant data and
+sends it to the LLM; the result appears as a markdown report inline in the admin panel.
+
+**Examples:**
+- "Give me a breakdown of AI companies that crawled my site this week"
+- "Were there any interesting incidents last month?"
+- "Is ByteDance behaving aggressively compared to last month?"
+- "What content are AI crawlers targeting?"
+
+This is not a chatbot — one question, one report. No conversation state.
+
+### Flow
+
+```
+Admin UI (text input + submit)
+  → AJAX POST to WP REST endpoint
+  → build_query_payload(query, timeframe)   ← reads daily rollups
+  → POST /v1/query → { job_id }
+  → browser polls GET /v1/report/{job_id} every 3 sec
+  → result rendered as markdown in admin panel
+```
+
+Polling happens in the browser (JavaScript), not via WP Cron — the user sees the result
+appear within ~10 seconds without a page reload.
+
+### Why not on-demand from raw data
+
+Snapshots (`wp_baskerville_snapshots`) are retained for only 24 hours.
+Querying `wp_baskerville_stats` directly for "last month" is expensive.
+Daily rollups solve both problems: cheap reads, arbitrary lookback window.
+
+### wp_baskerville_daily table
+
+One row per day. Written by a nightly cron job (rolls up that day's snapshots before they expire).
+
+```sql
+day                DATE         PRIMARY KEY
+traffic_total      INT
+block_total        INT
+challenge_total    INT
+unique_ips_avg     INT          -- average across snapshots that day
+immature_ratio_avg FLOAT
+no_cookie_pct_avg  FLOAT
+incident_count     INT
+peak_spike_factor  FLOAT        -- highest spike_factor in any incident that day
+
+-- Histograms: summed across all snapshots for the day
+countries_json        longtext     -- { "SG": 12400, "US": 890 }
+fingerprints_json     longtext
+ua_json               longtext
+asn_json              longtext
+classifications_json  longtext     -- { "human": 45000, "bot": 12000, "bad_bot": 38000, "borderline": 800 }
+known_bots_json       longtext     -- { "search_engines": {...}, "ai_training": {...}, "seo_tools": {...} }
+ai_traffic_json       longtext     -- { "OpenAI": 1240, "ByteDance": 8900 }
+```
+
+Retention: 365 days (configurable). One row = ~2KB → full year = ~700KB.
+
+### Query payload
+
+```json
+{
+  "license_key": "...",
+  "domain": "example.com",
+  "question": "Give me a breakdown of AI companies that crawled my site this week",
+  "period": "7d",
+  "daily_rollups": [
+    {
+      "day": "2026-08-05",
+      "traffic_total": 8420,
+      "incident_count": 1,
+      "peak_spike_factor": 12.4,
+      "ai_traffic": { "OpenAI": 234, "ByteDance": 890 },
+      "countries": { "SG": 4200, "US": 890 }
+    },
+    ...
+  ],
+  "incidents": [
+    { "started_at": "2026-08-07", "spike_type": "traffic", "spike_factor": 12.4,
+      "reasoning": "97% traffic from Alibaba Singapore..." }
+  ]
+}
+```
+
+### New backend endpoint
+
+`POST /v1/query` — same async pattern as `/v1/analyze`:
+- Accepts `question` + `daily_rollups` + `incidents`
+- LLM system prompt: "You are a security analyst. Answer the user's question using site data. Be specific, cite numbers. Format: markdown, 200–400 words."
+- Returns `{ job_id }` immediately, result polled via `GET /v1/report/{job_id}`
+
+---
+
+## Watchdog — Daily AI Summary
+
+A short, plain-language summary of what happened on the site in the last 24 hours.
+Displayed prominently in the WordPress admin — either as a widget on the main WP Dashboard,
+or as a sticky notice at the top of the Baskerville admin page.
+
+**Goal:** the site owner sees at a glance whether anything interesting or unusual happened,
+without opening reports or reading graphs.
+
+**Example output:**
+> Quiet day overall. ByteDance crawled 3× more than usual — 890 requests vs a 7-day average
+> of 290. They targeted mostly /news/* pages. OpenAI was within normal range. No attack
+> incidents detected.
+
+> ⚠ Unusual: a traffic spike hit at 14:00 UTC — 1,958 requests in 5 minutes, mostly from
+> Singapore (94%). The firewall blocked 847 of them. No repeat since.
+
+### Generation flow
+
+Runs as part of the nightly rollup cron (after daily row is written):
+
+```
+1. Read today's wp_baskerville_daily row
+2. Read yesterday's row + 7-day average (for comparison)
+3. Read any incidents from the last 24h (with their reasoning)
+4. POST /v1/watchdog → { job_id }
+5. Poll result → save to wp_options('baskerville_watchdog_summary')
+6. Also save generated_at timestamp
+```
+
+### Watchdog payload (small, cheap)
+
+```json
+{
+  "license_key": "...",
+  "domain": "example.com",
+  "today": {
+    "traffic_total": 18420,
+    "incident_count": 1,
+    "peak_spike_factor": 12.4,
+    "ai_traffic": { "OpenAI": 234, "ByteDance": 890 },
+    "top_countries": { "US": 8400, "SG": 4200 },
+    "immature_ratio_avg": 0.14
+  },
+  "yesterday": {
+    "traffic_total": 16200,
+    "ai_traffic": { "OpenAI": 230, "ByteDance": 290 },
+    "incident_count": 0
+  },
+  "week_avg": {
+    "traffic_total": 15800,
+    "ai_traffic": { "OpenAI": 220, "ByteDance": 310 }
+  },
+  "incidents_today": [
+    { "started_at": "14:00 UTC", "spike_type": "traffic", "spike_factor": 12.4,
+      "reasoning": "97% from Singapore, Alibaba ASN" }
+  ]
+}
+```
+
+### LLM system prompt for watchdog
+
+> You are a security watchdog for a WordPress site. Write a 2–4 sentence plain-language
+> summary of what happened today. Highlight anything unusual compared to yesterday or the
+> 7-day average. Mention AI crawlers if their behavior changed significantly.
+> Be direct, conversational, no jargon. Start with a one-word status: Quiet / Warning / Alert.
+
+### Storage and display
+
+- Saved to `wp_options('baskerville_watchdog_summary')` — a simple string (markdown, 2–4 sentences)
+- Also saved: `baskerville_watchdog_generated_at` (timestamp)
+- Displayed in WP admin via `wp_dashboard_setup` hook — a small widget on the main Dashboard
+- Also shown as a notice at the top of the Baskerville settings page
+- If no summary yet (first day, no license): widget shows "Baskerville AI Watchdog — activate a license to enable daily summaries"
+- Refreshed once per day; if LLM call fails, previous summary is kept with a "last updated X ago" note
+
+### Cost
+
+~300 tokens per watchdog call × 365 days = ~$0.02/year per site at GPT-4o-mini pricing. Negligible.
+
+### New backend endpoint
+
+`POST /v1/watchdog` — same async pattern:
+- Accepts today/yesterday/week_avg + incidents
+- Returns `{ job_id }`, polled via `GET /v1/report/{job_id}`
+- Result: `{ summary: "Quiet day. ByteDance crawled 3×..." }`
+
+---
+
+## Daily Rollup
+
+Nightly cron (`baskerville_daily_rollup`, runs at 00:05 UTC):
+1. Aggregate all snapshots for yesterday into one `wp_baskerville_daily` row
+2. Generate watchdog summary via `/v1/watchdog` → save to `wp_options`
+3. Delete snapshots older than 24h
+
+If no snapshots exist for a day (site offline, cron missed) — row is skipped, no gap-filling.
+
+---
+
 ## Backend (api.baskerville.ai)
 
 FastAPI on Kubernetes (same cluster as Baskervillehall). LLM provider switchable via `LLM_PROVIDER` env var:
@@ -512,11 +970,28 @@ Aggregated attack data across install base (opt-in):
 - Redis job store for persistence across restarts
 - Tool calling: backend requests additional SQL from plugin mid-analysis
 - Stripe billing integration
+- **Daily rollups**: `wp_baskerville_daily` table, nightly cron, 365-day retention
+- **Watchdog widget**: 2–4 sentence daily summary on WP Dashboard + Baskerville admin top
+  - Generated nightly alongside daily rollup
+  - Plain language: "Quiet day" / "Warning" / "Alert" + what changed
+  - Highlights AI bot changes, incidents, unusual patterns vs 7-day baseline
+  - Stored in `wp_options`, costs ~$0.02/year per site
+- **Natural language query interface**: admin text input → `/v1/query` → markdown report in browser
+  - Reads daily rollups for arbitrary lookback (week, month, year)
+  - Browser-side polling (no WP Cron), result appears in ~10 sec
+- **AI Bot Intelligence**: `ai_traffic_json` in snapshots + daily rollups, per-company report
+  - Known AI crawler map (OpenAI, Anthropic, Google, ByteDance, Meta, Perplexity, CCBot, ...)
+  - Always-on (no spike required), refreshed every snapshot cycle
+  - LLM-generated `ai_report`: behavior assessment + per-company recommendations
+  - Admin dashboard "AI Traffic" tab with 24h stats and weekly trend
 
-**V3 — Cross-site Intelligence:**
+**V3 — Cross-site Intelligence + Monetization:**
 - Opt-in aggregated threat sharing across install base
 - Pre-warn sites about known attacking ASNs/IPs
 - Campaign attribution across targets
+- **x402 monetization**: return `402 Payment Required` to identified AI bots instead of blocking
+  - Configurable per company: block / allow-free / require-payment
+  - Revenue stream for media and CSOs from AI content scraping
 
 **V4 — Self-hosted:**
 - Accept any OpenAI-compatible endpoint (Ollama, private LLM)
