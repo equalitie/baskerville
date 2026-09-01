@@ -1,6 +1,6 @@
 # Baskerville WordPress Plugin
 
-A WordPress security plugin with GeoIP-based access control, AI-powered bot detection, Cloudflare Turnstile integration, and advanced fingerprinting.
+A WordPress security plugin with AI bot detection, GeoIP access control, CAPTCHA challenge, and optional AI cloud analysis. Free, open source, works out of the box.
 
 ## Features
 
@@ -211,18 +211,20 @@ opcache.validate_timestamps=0 # Production only
 Baskerville with **File Logging** adds **5% overhead** while providing:
 - ✅ GeoIP-based access control
 - ✅ AI-powered bot detection with configurable thresholds
-- ✅ Cloudflare Turnstile for borderline cases
+- ✅ AI spoofer detection (IP range verification)
+- ✅ Per-provider AI bot rules (OpenAI, Meta, Google, and others)
+- ✅ Altcha built-in CAPTCHA or Cloudflare Turnstile for borderline cases
 - ✅ Honeypot detection for AI crawlers
-- ✅ Advanced fingerprinting
-- ✅ Real-time traffic analytics with precision metrics
+- ✅ Real-time traffic feed and analytics
 - ✅ Rate limiting & ban management
+- ✅ Optional AI cloud analysis (nightly watchdog, natural language queries)
 
 **Recommendations**:
 - ✅ Use **File Logging** mode for production (default)
 - ✅ Enable page caching (WP Super Cache, etc.)
 - ✅ Install APCu if available (10x faster cache)
 - ✅ Whitelist monitoring/testing IPs
-- ✅ Configure Turnstile for borderline scores (40-70)
+- ✅ Configure challenge range for borderline scores (40-70)
 - ✅ Set Instant Ban Threshold for high-risk visitors (e.g., 85)
 
 ---
@@ -271,9 +273,12 @@ baskerville/
 │   ├── class-baskerville-core.php       # Core functions, caching, GeoIP
 │   ├── class-baskerville-firewall.php   # Firewall logic, blocking rules
 │   ├── class-baskerville-ai-ua.php      # AI bot detection & classification
+│   ├── class-baskerville-ai-bots.php    # Known AI bot registry & spoofer detection
+│   ├── class-baskerville-cloud.php      # AI cloud integration (watchdog, query, actions)
 │   ├── class-baskerville-stats.php      # Analytics & database logging
 │   ├── class-baskerville-rest.php       # REST API for fingerprinting
 │   ├── class-baskerville-turnstile.php  # Cloudflare Turnstile integration
+│   ├── class-baskerville-altcha.php     # Altcha built-in CAPTCHA
 │   └── class-baskerville-honeypot.php   # Honeypot for AI crawler detection
 ├── assets/
 │   ├── js/baskerville.js                # Frontend fingerprinting script
