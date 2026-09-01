@@ -665,7 +665,7 @@ class Baskerville_Turnstile {
 			return new WP_Error('turnstile_missing', __('Please complete the security check.', 'baskerville-ai-security'));
 		}
 
-		$response = wp_remote_post('https://challenges.cloudflare.com/turnstile/v0/siteverify', array(
+		$response = wp_remote_post('https://challenges.cloudflare.com/turnstile/v0/siteverify', array( // phpcs:ignore PluginCheck.CodeAnalysis.Offloading.OffloadedContent -- server-to-server CAPTCHA token verification; must be validated against Cloudflare's API using the secret key, which can never be exposed client-side
 			'body' => array(
 				'secret' => $this->secret_key,
 				'response' => $token,
