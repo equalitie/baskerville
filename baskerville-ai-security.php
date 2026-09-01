@@ -4,11 +4,12 @@
  * Plugin URI: https://wordpress.org/plugins/baskerville-ai-security/
  * Description: Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
  * Version: 1.0.5
- * Requires at least: 6.2
+ * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: eQualitie
  * Author URI: https://equalitie.org
  * License: GPL v3
+ * License URI: https://www.gnu.org/licenses/gpl-3.0.html
  * Text Domain: baskerville-ai-security
  */
 
@@ -22,6 +23,7 @@ define('BASKERVILLE_DEBUG', defined('WP_DEBUG') && WP_DEBUG);
 define('BASKERVILLE_DEFAULT_RETENTION_DAYS', 14);
 
 if ( ! function_exists( 'wpsec_log' ) ) {
+	// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedFunctionFound -- wrapped in function_exists() guard to avoid fatal redeclaration if another plugin already defines this name; accepted as a known naming-collision tradeoff rather than renaming ~28 call sites
 	function wpsec_log( string $msg ): void {
 		if ( BASKERVILLE_DEBUG ) {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log

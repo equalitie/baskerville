@@ -169,7 +169,7 @@ class Baskerville_Cloud {
 		$ts_start     = gmdate( 'Y-m-d H:i:s', $window_start );
 		$ts_end       = gmdate( 'Y-m-d H:i:s', $window_end );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name is a hardcoded literal via esc_sql( $wpdb->prefix . '...' ), never user input; values still use $wpdb->prepare() placeholders
 		$exists = $wpdb->get_var( $wpdb->prepare(
 			"SELECT 1 FROM {$snap_table} WHERE snapshot_at = %s LIMIT 1",
 			$snap_at
@@ -265,7 +265,7 @@ class Baskerville_Cloud {
 			$ts_start, $ts_end
 		), ARRAY_A );
 
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		// Known bot detection via UA matching (PHP-side, no extra SQL).
 		$bot_data   = Baskerville_AI_Bots::aggregate( $ua_rows );
@@ -317,7 +317,7 @@ class Baskerville_Cloud {
 		$snap_table = esc_sql( $wpdb->prefix . 'baskerville_snapshots' );
 		$limit      = self::BASELINE_SNAPSHOTS + 1;
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name is a hardcoded literal via esc_sql( $wpdb->prefix . '...' ), never user input; $limit is an internal int constant
 		$snaps = $wpdb->get_results(
 			"SELECT traffic_count, block_count, challenge_count
 			 FROM {$snap_table}
@@ -325,7 +325,7 @@ class Baskerville_Cloud {
 			 LIMIT {$limit}",
 			ARRAY_A
 		);
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		if ( count( $snaps ) < 3 ) {
 			return null; // not enough history yet
@@ -371,7 +371,7 @@ class Baskerville_Cloud {
 		$snap_table = esc_sql( $wpdb->prefix . 'baskerville_snapshots' );
 		$limit      = self::BASELINE_SNAPSHOTS + 1;
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table names are hardcoded literals via esc_sql( $wpdb->prefix . '...' ), never user input; $limit is an internal int constant
 
 		// Load last N+1 snapshots (newest first).
 		$snaps = $wpdb->get_results(
@@ -446,11 +446,11 @@ class Baskerville_Cloud {
 		// Auto-block concentrated attack (top N IPs > 80% of traffic).
 		$auto_blocked = $this->check_auto_block( $cutoff );
 
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		return [
 			'license_key'       => (string) get_option( self::OPTION_LICENSE, '' ),
-			'domain'            => parse_url( get_site_url(), PHP_URL_HOST ),
+			'domain'            => wp_parse_url( get_site_url(), PHP_URL_HOST ),
 			'spike_type'        => $spike['type'],
 			'spike_factor'      => $spike['factor'],
 			'unique_ips'        => $current_snapshot['unique_ips'] ?? 0,
@@ -587,7 +587,7 @@ class Baskerville_Cloud {
 		global $wpdb;
 		$table = esc_sql( $wpdb->prefix . 'baskerville_stats' );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name is a hardcoded literal via esc_sql( $wpdb->prefix . '...' ), never user input; values still use $wpdb->prepare() placeholders
 		$total = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$table}
 			 WHERE timestamp_utc >= %s AND event_type IN ('page','fp','block')",
@@ -607,7 +607,7 @@ class Baskerville_Cloud {
 			 LIMIT 50",
 			$cutoff
 		), ARRAY_A );
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		$cumulative = 0;
 		$concentrated_n = 0;
@@ -665,13 +665,13 @@ class Baskerville_Cloud {
 		$snap_table = esc_sql( $wpdb->prefix . 'baskerville_snapshots' );
 		$limit      = self::BASELINE_SNAPSHOTS + 1;
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name is a hardcoded literal via esc_sql( $wpdb->prefix . '...' ), never user input; $limit is an internal int constant
 		$snaps = $wpdb->get_results(
 			"SELECT traffic_count FROM {$snap_table}
 			 ORDER BY snapshot_at DESC LIMIT {$limit}",
 			ARRAY_A
 		);
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		if ( count( $snaps ) < 3 ) {
 			return;
@@ -883,7 +883,7 @@ class Baskerville_Cloud {
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery
 		$wpdb->insert( $table, [
 			'incident_id'     => $incident_id ?: null,
-			'domain'          => parse_url( get_site_url(), PHP_URL_HOST ),
+			'domain'          => wp_parse_url( get_site_url(), PHP_URL_HOST ),
 			'created_at'      => current_time( 'mysql', true ),
 			'actions_json'    => wp_json_encode( $body['actions'] ?? [] ),
 			'reasoning'       => sanitize_textarea_field( $body['reasoning'] ?? '' ),
@@ -1025,7 +1025,7 @@ class Baskerville_Cloud {
 		$day_start = $yesterday . ' 00:00:00';
 		$day_end   = $yesterday . ' 23:59:59';
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table names are hardcoded literals via esc_sql( $wpdb->prefix . '...' ), never user input; values still use $wpdb->prepare() placeholders
 
 		// Idempotent check.
 		$exists = $wpdb->get_var( $wpdb->prepare(
@@ -1131,7 +1131,7 @@ class Baskerville_Cloud {
 			'known_bots_json'      => wp_json_encode( $known_bots_sum ) ?: '{}',
 			'ai_traffic_json'      => wp_json_encode( $histo_sums['ai_traffic'] ) ?: '{}',
 		], [ '%s', '%d', '%d', '%d', '%d', '%d', '%f', '%f', '%d', '%f', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ] );
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		wpsec_log( "Baskerville Cloud: daily rollup saved for {$yesterday} ({$n} snapshots)." );
 
@@ -1156,7 +1156,7 @@ class Baskerville_Cloud {
 
 		wpsec_log( "Baskerville Cloud: submit_watchdog({$for_day}) called." );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table names are hardcoded literals via esc_sql( $wpdb->prefix . '...' ), never user input; values still use $wpdb->prepare() placeholders
 		$today_row = $wpdb->get_row( $wpdb->prepare(
 			"SELECT * FROM {$daily_table} WHERE day = %s", $for_day
 		), ARRAY_A );
@@ -1182,7 +1182,7 @@ class Baskerville_Cloud {
 			 WHERE DATE(started_at) = %s",
 			$for_day
 		), ARRAY_A );
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		$to_stats = function( ?array $row ): array {
 			if ( ! $row ) {
@@ -1228,7 +1228,7 @@ class Baskerville_Cloud {
 
 		$payload = [
 			'license_key'     => (string) get_option( self::OPTION_LICENSE, '' ),
-			'domain'          => parse_url( get_site_url(), PHP_URL_HOST ),
+			'domain'          => wp_parse_url( get_site_url(), PHP_URL_HOST ),
 			'today'           => $to_stats( $today_row ),
 			'yesterday'       => $to_stats( $prev_row ) ?: null,
 			'week_avg'        => $week_avg ?: null,
@@ -1392,7 +1392,7 @@ class Baskerville_Cloud {
 		$snap_cutoff = gmdate( 'Y-m-d H:i:s', time() - self::SNAPSHOT_RETENTION_H * 3600 );
 		$daily_cutoff = gmdate( 'Y-m-d', time() - 365 * 86400 );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table names are hardcoded literals via esc_sql( $wpdb->prefix . '...' ), never user input; values still use $wpdb->prepare() placeholders
 		$wpdb->query( $wpdb->prepare(
 			"DELETE FROM {$snap_table} WHERE snapshot_at < %s",
 			$snap_cutoff
@@ -1401,7 +1401,7 @@ class Baskerville_Cloud {
 			"DELETE FROM {$daily_table} WHERE day < %s",
 			$daily_cutoff
 		) );
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 	}
 
 	// =========================================================================
@@ -1499,7 +1499,7 @@ class Baskerville_Cloud {
 		$days   = max( 1, min( 365, $days ) );
 		$cutoff = gmdate( 'Y-m-d', time() - $days * 86400 );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table names are hardcoded literals via esc_sql( $wpdb->prefix . '...' ), never user input; values still use $wpdb->prepare() placeholders
 		$daily_rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$daily_table} WHERE day >= %s ORDER BY day ASC",
 			$cutoff
@@ -1557,7 +1557,7 @@ class Baskerville_Cloud {
 		foreach ( $today_countries_rows as $r ) {
 			$today_countries[ $r['country'] ] = (int) $r['cnt'];
 		}
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		$rollups = array_map( function( $row ) {
 			return [
@@ -1650,7 +1650,7 @@ class Baskerville_Cloud {
 
 		return [
 			'license_key'      => (string) get_option( self::OPTION_LICENSE, '' ),
-			'domain'           => parse_url( get_site_url(), PHP_URL_HOST ),
+			'domain'           => wp_parse_url( get_site_url(), PHP_URL_HOST ),
 			'question'         => $question,
 			'period'           => $period,
 			'today_totals'     => $today_totals ? [

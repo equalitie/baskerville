@@ -4166,7 +4166,7 @@ class Baskerville_Admin {
 					printf(
 						/* translators: %s: link to Cloudflare dashboard */
 						esc_html__('Get your Site Key and Secret Key from the %s.', 'baskerville-ai-security'),
-						'<a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank">' . esc_html__( 'Cloudflare Dashboard', 'baskerville-ai-security' ) . '</a>'
+						'<a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank">' . esc_html__( 'Cloudflare Dashboard', 'baskerville-ai-security' ) . '</a>' // phpcs:ignore PluginCheck.CodeAnalysis.Offloading.OffloadedContent -- plain outbound link to Cloudflare's dashboard, not an embedded/offloaded resource
 					);
 					?>
 				</p>
@@ -5676,12 +5676,12 @@ done
 		$snap_table = esc_sql( $wpdb->prefix . 'baskerville_snapshots' );
 		$cutoff     = gmdate( 'Y-m-d H:i:s', time() - 86400 );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- table name is a hardcoded literal via esc_sql( $wpdb->prefix . '...' ), never user input; values still use $wpdb->prepare() placeholders
 		$snaps = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$snap_table} WHERE snapshot_at >= %s ORDER BY snapshot_at ASC",
 			$cutoff
 		), ARRAY_A );
-		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
 		if ( empty( $snaps ) ) {
 			wp_send_json_error( esc_html__( 'No snapshot data yet. The plugin collects data every 5 minutes — please wait a few minutes and try again.', 'baskerville-ai-security' ) );
@@ -5733,7 +5733,7 @@ done
 
 		$payload = [
 			'license_key'     => (string) get_option( 'baskerville_cloud_license_key', 'manual' ),
-			'domain'          => parse_url( get_site_url(), PHP_URL_HOST ),
+			'domain'          => wp_parse_url( get_site_url(), PHP_URL_HOST ),
 			'today'           => $today,
 			'yesterday'       => null,
 			'week_avg'        => null,
@@ -6031,7 +6031,7 @@ done
 		if ( $cached !== false ) {
 			return $cached;
 		}
-		$domain  = parse_url( get_site_url(), PHP_URL_HOST );
+		$domain  = wp_parse_url( get_site_url(), PHP_URL_HOST );
 		$license = get_option( Baskerville_Cloud::OPTION_LICENSE, '' );
 		$secret  = get_option( Baskerville_Cloud::OPTION_API_SECRET, '' );
 		if ( ! $license || ! $secret ) {
@@ -6093,7 +6093,10 @@ done
 						<span class="bsk-badge <?php echo esc_attr( $badge_class ); ?>"><?php echo esc_html( $badge ); ?></span>
 					<?php endif; ?>
 					<?php if ( $watchdog_time ) : ?>
-						<span class="bsk-panel-time"><?php printf( esc_html__( '%s ago', 'baskerville-ai-security' ), esc_html( human_time_diff( $watchdog_time ) ) ); ?></span>
+						<span class="bsk-panel-time"><?php
+							/* translators: %s: human-readable time ago */
+							printf( esc_html__( '%s ago', 'baskerville-ai-security' ), esc_html( human_time_diff( $watchdog_time ) ) );
+						?></span>
 					<?php endif; ?>
 					<button id="bsk-panel-run-now" class="bsk-run-btn">
 						<?php esc_html_e( 'Run now', 'baskerville-ai-security' ); ?>
