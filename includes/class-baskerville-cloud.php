@@ -819,7 +819,11 @@ class Baskerville_Cloud {
 
 	/**
 	 * Apply LLM-recommended actions to the firewall.
-	 * Stores temporary blocks in a transient checked by pre_db_firewall() on every request.
+	 *
+	 * Uses the fast file/APCu cache (fc_get/fc_set) — no DB on the request path.
+	 * - block_country: one fc entry per country code → O(1) lookup in firewall
+	 * - block_asn:     one fc entry per ASN         → O(1) lookup in firewall
+	 * - block_useragent: list stored under one key   → one file read, iterate
 	 *
 	 * Action format from LLM: { type: block_country|block_asn|block_useragent, target: string, ttl_hours: int }
 	 */
@@ -828,15 +832,11 @@ class Baskerville_Cloud {
 			return;
 		}
 
-		// Load existing cloud blocks, prune expired ones.
-		$blocks = get_transient( 'baskerville_cloud_blocks' ) ?: [];
-		$now    = time();
-		$blocks = array_filter( $blocks, fn( $b ) => $b['expires'] > $now );
-
 		foreach ( $actions as $action ) {
 			$type   = sanitize_key( $action['type'] ?? 'none' );
 			$target = sanitize_text_field( $action['target'] ?? '' );
 			$ttl    = (int) ( $action['ttl_hours'] ?? 2 );
+			$ttl_s  = $ttl * 3600;
 
 			if ( ! $type || ! $target ) {
 				continue;
@@ -846,29 +846,31 @@ class Baskerville_Cloud {
 
 			switch ( $type ) {
 				case 'block_country':
+					// One fc entry per country code — O(1) firewall lookup.
+					$this->stats->get_core()->fc_set( 'cloud:block:country:' . strtoupper( $target ), 1, $ttl_s );
+					break;
+
 				case 'block_asn':
+					// One fc entry per ASN — O(1) firewall lookup.
+					$this->stats->get_core()->fc_set( 'cloud:block:asn:' . strtoupper( $target ), 1, $ttl_s );
+					break;
+
 				case 'block_useragent':
-					$blocks[] = [
-						'type'    => $type,
-						'target'  => strtoupper( $target ),
-						'expires' => $now + $ttl * 3600,
-					];
+					// UA matching requires substring search — store as list under one key.
+					$ua_list   = $this->stats->get_core()->fc_get( 'cloud:block:ua_list' ) ?: [];
+					$ua_target = strtolower( $target );
+					$ua_list[ $ua_target ] = time() + $ttl_s; // value = expiry timestamp
+					// TTL of the fc entry = longest UA block.
+					$max_ttl = max( $ua_list ) - time();
+					$this->stats->get_core()->fc_set( 'cloud:block:ua_list', $ua_list, max( $max_ttl, $ttl_s ) );
 					break;
 
 				case 'raise_threshold':
-					// Temporarily lower the challenge threshold (raise sensitivity).
-					$current = (int) get_option( 'baskerville_settings', [] )['challenge_min'] ?? 40;
-					set_transient( 'baskerville_cloud_threshold', max( 10, $current - 20 ), $ttl * 3600 );
+					$current = (int) ( get_option( 'baskerville_settings', [] )['challenge_min'] ?? 40 );
+					$this->stats->get_core()->fc_set( 'cloud:raise_threshold', max( 10, $current - 20 ), $ttl_s );
 					wpsec_log( "Baskerville Cloud: challenge threshold temporarily lowered for {$ttl}h" );
 					break;
 			}
-		}
-
-		// Store blocks — TTL of the transient itself is the longest individual block.
-		if ( ! empty( $blocks ) ) {
-			$max_ttl = max( array_map( fn( $b ) => $b['expires'] - $now, $blocks ) );
-			set_transient( 'baskerville_cloud_blocks', array_values( $blocks ), $max_ttl );
-			wpsec_log( 'Baskerville Cloud: ' . count( $blocks ) . ' active cloud blocks stored.' );
 		}
 	}
 

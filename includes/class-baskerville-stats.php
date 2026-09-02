@@ -20,6 +20,10 @@ class Baskerville_Stats
         $this->aiua = $aiua;
     }
 
+    public function get_core(): Baskerville_Core {
+        return $this->core;
+    }
+
     public function create_stats_table() {
         global $wpdb;
 
