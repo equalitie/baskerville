@@ -28,6 +28,15 @@ class Baskerville_Admin {
 		add_action('wp_ajax_baskerville_clear_pass_cache', array($this, 'ajax_clear_pass_cache'));
 		add_action('wp_ajax_baskerville_run_watchdog', array($this, 'ajax_run_watchdog'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+		add_action('wp_ajax_baskerville_dismiss_cdn_notice', array($this, 'ajax_dismiss_cdn_notice'));
+	}
+
+	public function ajax_dismiss_cdn_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'unauthorized' );
+		}
+		update_user_meta( get_current_user_id(), 'baskerville_cdn_notice_dismissed', 1 );
+		wp_send_json_success();
 	}
 
 	public function enqueue_admin_scripts($hook) {
@@ -59,6 +68,7 @@ class Baskerville_Admin {
 			'clearGeoipCacheNonce' => wp_create_nonce('baskerville_clear_geoip_cache'),
 			'ipLookupNonce'        => wp_create_nonce('baskerville_ip_lookup'),
 			'benchmarkNonce'       => wp_create_nonce('baskerville_benchmark'),
+			'liveFeedNonce'        => wp_create_nonce('baskerville_live_feed'),
 			'i18n' => array(
 				// Import logs
 				'importing'     => __( 'Importing...', 'baskerville-ai-security' ),
@@ -200,16 +210,124 @@ class Baskerville_Admin {
 	 * Show activation notices (e.g., Deflect GeoIP download result)
 	 */
 	public function show_activation_notices() {
-		// Check for Deflect GeoIP activation result
+		if (!current_user_can('manage_options')) {
+			return;
+		}
+
+		// Show a download button if GeoIP database file is missing AND no header-based
+		// GeoIP source is present (Deflect CDN, nginx GeoIP module, Cloudflare).
+		// If any header source is active, country detection works without the database file.
+		$upload_dir = wp_upload_dir();
+		$geoip_file = trailingslashit($upload_dir['basedir']) . 'baskerville-geoip/countrydb.php';
+		$has_db     = file_exists($geoip_file) && filesize($geoip_file) > 0;
+		$options_check = get_option('baskerville_settings', array());
+		$has_header = !empty($_SERVER['GEOIP2_COUNTRY_CODE']) ||
+		              !empty($_SERVER['GEOIP_COUNTRY_CODE'])  ||
+		              // Deflect and CF-IPCountry count only when explicitly enabled
+		              (!empty($options_check['trust_deflect_country']) && !empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) ||
+		              (!empty($options_check['trust_cf_ipcountry'])    && !empty($_SERVER['HTTP_CF_IPCOUNTRY']));
+		$geoip_missing = !$has_db && !$has_header;
+
+		if ($geoip_missing) {
+			$nonce = wp_create_nonce('baskerville_update_deflect_geoip');
+			?>
+			<div class="notice notice-warning" id="baskerville-geoip-notice">
+				<p>
+					<strong><?php esc_html_e('Baskerville:', 'baskerville-ai-security'); ?></strong>
+					<?php esc_html_e('GeoIP database is not installed — country blocking and ASN detection are disabled.', 'baskerville-ai-security'); ?>
+				</p>
+				<p>
+					<button type="button" class="button button-primary" id="baskerville-install-geoip-btn"
+							data-nonce="<?php echo esc_attr($nonce); ?>">
+						<?php esc_html_e('Finish setup: Download GeoIP Database', 'baskerville-ai-security'); ?>
+					</button>
+					<span id="baskerville-install-geoip-status" style="margin-left:10px;display:inline-block;"></span>
+				</p>
+			</div>
+			<script>
+			jQuery(function($) {
+				$('#baskerville-install-geoip-btn').on('click', function() {
+					var $btn    = $(this);
+					var $status = $('#baskerville-install-geoip-status');
+					$btn.prop('disabled', true).text(<?php echo wp_json_encode(__('Downloading… this may take a minute', 'baskerville-ai-security')); ?>);
+					$status.text('');
+					$.post(ajaxurl, { action: 'baskerville_update_deflect_geoip', nonce: $btn.data('nonce'), force: 'true' })
+						.done(function(response) {
+							if (response.success) {
+								$('#baskerville-geoip-notice').fadeOut(400, function() { $(this).remove(); });
+							} else {
+								var msg = (response.data && response.data.message) ? response.data.message : <?php echo wp_json_encode(__('Download failed. Please try again.', 'baskerville-ai-security')); ?>;
+								$btn.prop('disabled', false).text(<?php echo wp_json_encode(__('Retry Download', 'baskerville-ai-security')); ?>);
+								$status.css('color', '#d63638').text(msg);
+							}
+						})
+						.fail(function() {
+							$btn.prop('disabled', false).text(<?php echo wp_json_encode(__('Retry Download', 'baskerville-ai-security')); ?>);
+							$status.css('color', '#d63638').text(<?php echo wp_json_encode(__('Request failed. Please try again.', 'baskerville-ai-security')); ?>);
+						});
+				});
+			});
+			</script>
+			<?php
+		}
+
+		// CDN auto-detection notice.
+		// On plugins.php?activate=true: store CF/Deflect detection in an option and reset per-user dismissed flag.
+		// On any subsequent admin page: show once per user, mark as seen immediately (no AJAX needed).
+		if ( ! empty( $_GET['activate'] ) ) {
+			$opts       = get_option( 'baskerville_settings', array() );
+			$cf_active  = ! empty( $opts['trust_cf_ipcountry'] ) && (
+				! empty( $_SERVER['HTTP_CF_RAY'] ) ||
+				! empty( $_SERVER['HTTP_CF_IPCOUNTRY'] ) ||
+				! empty( $_SERVER['HTTP_CF_CONNECTING_IP'] )
+			);
+			$def_active = ! empty( $opts['trust_deflect_country'] ) && ! empty( $_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'] );
+			if ( $cf_active || $def_active ) {
+				$labels = array();
+				if ( $cf_active )  $labels[] = 'cloudflare';
+				if ( $def_active ) $labels[] = 'deflect';
+				update_option( 'baskerville_cdn_notice_pending', $labels, false );
+				// Reset dismissed flag so the notice re-appears after each activation.
+				delete_user_meta( get_current_user_id(), 'baskerville_cdn_notice_dismissed' );
+			}
+		} else {
+			$cdn_pending = get_option( 'baskerville_cdn_notice_pending' );
+			$user_id     = get_current_user_id();
+			$dismissed   = get_user_meta( $user_id, 'baskerville_cdn_notice_dismissed', true );
+
+			if ( $cdn_pending && ! $dismissed ) {
+				$cdn_labels = array();
+				if ( in_array( 'cloudflare', $cdn_pending, true ) ) $cdn_labels[] = '<strong>Cloudflare</strong>';
+				if ( in_array( 'deflect',    $cdn_pending, true ) ) $cdn_labels[] = '<strong>Deflect CDN</strong>';
+				$cdn_string = wp_kses( implode( ' and ', $cdn_labels ), array( 'strong' => array() ) );
+				printf(
+					'<div class="notice notice-info is-dismissible baskerville-cdn-notice"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> ' .
+					/* translators: %s: CDN name(s) */
+					esc_html__( 'Detected %s — automatically enabled country detection from its header. If this is incorrect, disable the setting in Country Control.', 'baskerville-ai-security' ) . '</p></div>',
+					$cdn_string
+				);
+				?>
+				<script>
+				jQuery(function($) {
+					$(document).on('click', '.baskerville-cdn-notice .notice-dismiss', function() {
+						$.post(ajaxurl, { action: 'baskerville_dismiss_cdn_notice' });
+					});
+				});
+				</script>
+				<?php
+			}
+		}
+
+		// Show result of a manual or cron-triggered GeoIP download.
 		$result = get_transient('baskerville_deflect_geoip_activation_result');
 		if ($result) {
 			delete_transient('baskerville_deflect_geoip_activation_result');
 
-			$class = $result['success'] ? 'notice-success' : 'notice-error';
+			$class   = $result['success'] ? 'notice-success' : 'notice-error';
 			$message = $result['message'] ?? __('Unknown result', 'baskerville-ai-security');
 
 			printf(
-				'<div class="notice %s is-dismissible"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> %s</p></div>',
+				'<div class="notice %s is-dismissible"><p><strong>' . esc_html__('Baskerville:', 'baskerville-ai-security') . '</strong> %s</p></div>',
 				esc_attr($class),
 				esc_html($message)
 			);
@@ -602,6 +720,22 @@ class Baskerville_Admin {
 			'baskerville_country_control_section'
 		);
 
+		add_settings_field(
+			'trust_deflect_country',
+			esc_html__('Deflect X-Country-Code', 'baskerville-ai-security'),
+			array($this, 'render_trust_deflect_country_field'),
+			'baskerville-country-control',
+			'baskerville_country_control_section'
+		);
+
+		add_settings_field(
+			'trust_cf_ipcountry',
+			esc_html__('Cloudflare CF-IPCountry', 'baskerville-ai-security'),
+			array($this, 'render_trust_cf_ipcountry_field'),
+			'baskerville-country-control',
+			'baskerville_country_control_section'
+		);
+
 		// ===== AI Bot Control Tab =====
 		add_settings_section(
 			'baskerville_ai_bot_control_section',
@@ -881,6 +1015,21 @@ class Baskerville_Admin {
 		// Flush rewrite rules when settings are saved (for honeypot route)
 		flush_rewrite_rules();
 
+		// Remote-controlled blocking opt-in (set from Cloud settings section).
+		$sanitized['cloud_remote_blocks'] = isset($input['cloud_remote_blocks'])
+			? (bool) $input['cloud_remote_blocks']
+			: (isset($existing['cloud_remote_blocks']) ? $existing['cloud_remote_blocks'] : true);
+
+		// Trust Deflect X-Deflect-Country-Code header (only enable when this site is behind Deflect).
+		$sanitized['trust_deflect_country'] = isset($input['trust_deflect_country'])
+			? (bool) $input['trust_deflect_country']
+			: (isset($existing['trust_deflect_country']) ? $existing['trust_deflect_country'] : false);
+
+		// Trust Cloudflare CF-IPCountry header (only enable when this site is behind Cloudflare).
+		$sanitized['trust_cf_ipcountry'] = isset($input['trust_cf_ipcountry'])
+			? (bool) $input['trust_cf_ipcountry']
+			: (isset($existing['trust_cf_ipcountry']) ? $existing['trust_cf_ipcountry'] : false);
+
 		// Merge with existing settings to preserve values not in current form
 		return array_merge($existing, $sanitized);
 	}
@@ -1071,6 +1220,38 @@ class Baskerville_Admin {
 		<?php
 	}
 
+	public function render_trust_deflect_country_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['trust_deflect_country']) ? $options['trust_deflect_country'] : false;
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[trust_deflect_country]" value="0">
+			<input type="checkbox" name="baskerville_settings[trust_deflect_country]" value="1" <?php checked($enabled, true); ?> />
+			<?php esc_html_e('Trust the X-Deflect-Country-Code header set by Deflect CDN', 'baskerville-ai-security'); ?>
+		</label>
+		<p class="description">
+			<?php esc_html_e('Enable only if this site is behind eQualitie Deflect CDN. When enabled, Baskerville reads the visitor country from the X-Deflect-Country-Code header that Deflect edge nodes inject.', 'baskerville-ai-security'); ?>
+			<br><strong class="baskerville-text-warning"><?php esc_html_e('Do not enable if this site is NOT behind Deflect — the header can be spoofed by clients.', 'baskerville-ai-security'); ?></strong>
+		</p>
+		<?php
+	}
+
+	public function render_trust_cf_ipcountry_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['trust_cf_ipcountry']) ? $options['trust_cf_ipcountry'] : false;
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[trust_cf_ipcountry]" value="0">
+			<input type="checkbox" name="baskerville_settings[trust_cf_ipcountry]" value="1" <?php checked($enabled, true); ?> />
+			<?php esc_html_e('Trust the CF-IPCountry header set by Cloudflare', 'baskerville-ai-security'); ?>
+		</label>
+		<p class="description">
+			<?php esc_html_e('Enable only if this site is behind Cloudflare (orange cloud). When enabled, Baskerville reads the visitor country from the CF-IPCountry header Cloudflare injects. Cloudflare strips any client-supplied copies of this header, so it is trustworthy when you are behind Cloudflare.', 'baskerville-ai-security'); ?>
+			<br><strong class="baskerville-text-warning"><?php esc_html_e('Do not enable if this site is NOT behind Cloudflare — the header can be spoofed by clients.', 'baskerville-ai-security'); ?></strong>
+		</p>
+		<?php
+	}
+
 	/* ===== New Enable/Disable Field Renderers ===== */
 
 	public function render_bot_protection_enabled_field() {
@@ -1167,6 +1348,8 @@ class Baskerville_Admin {
 	}
 
 	private function render_cloud_settings_section() {
+		$options = get_option( 'baskerville_settings', [] );
+		$remote_blocks_enabled = !empty( $options['cloud_remote_blocks'] );
 		?>
 		<h2><?php esc_html_e( 'Baskerville Cloud', 'baskerville-ai-security' ); ?></h2>
 		<p class="description">
@@ -1178,6 +1361,32 @@ class Baskerville_Admin {
 			do_settings_sections( 'baskerville-cloud-settings' );
 			submit_button( __( 'Save Cloud Settings', 'baskerville-ai-security' ) );
 			?>
+		</form>
+
+		<h3><?php esc_html_e( 'Remote-Controlled Blocking', 'baskerville-ai-security' ); ?></h3>
+		<p class="description">
+			<?php esc_html_e( 'When the Cloud API detects an active attack, it can send temporary block rules (by country, ASN, or User-Agent) that the firewall enforces immediately — without waiting for the next cron cycle. These rules expire automatically (default TTL: 2 hours).', 'baskerville-ai-security' ); ?>
+		</p>
+		<p class="description" style="margin-top:6px;">
+			<strong><?php esc_html_e( 'This means an API response from api.baskerville.ai can 403 your visitors.', 'baskerville-ai-security' ); ?></strong>
+			<?php esc_html_e( 'Enable only if you trust the Cloud API to issue blocking decisions for this site.', 'baskerville-ai-security' ); ?>
+		</p>
+		<form method="post" action="options.php">
+			<?php settings_fields( 'baskerville_settings_group' ); ?>
+			<input type="hidden" name="baskerville_settings[_preserve]" value="1">
+			<table class="form-table">
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Allow remote block rules', 'baskerville-ai-security' ); ?></th>
+					<td>
+						<label>
+							<input type="hidden"   name="baskerville_settings[cloud_remote_blocks]" value="0">
+							<input type="checkbox" name="baskerville_settings[cloud_remote_blocks]" value="1" <?php checked( $remote_blocks_enabled ); ?>>
+							<?php esc_html_e( 'Let the Cloud API apply temporary country/ASN/UA blocks on this site', 'baskerville-ai-security' ); ?>
+						</label>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button( __( 'Save', 'baskerville-ai-security' ) ); ?>
 		</form>
 		<?php
 	}
@@ -2364,6 +2573,9 @@ class Baskerville_Admin {
 				<?php esc_html_e('Live Bot Attack Dashboard', 'baskerville-ai-security'); ?>
 				<span class="live-indicator"></span>
 			</h2>
+			<p class="description" style="margin:0 0 12px;">
+				<?php esc_html_e('Counts reflect requests that reached PHP. Visitors served directly from the nginx page cache are not logged here — on a well-cached site this feed shows a fraction of total traffic.', 'baskerville-ai-security'); ?>
+			</p>
 
 			<!-- Live Stats Cards -->
 			<div class="live-stats-grid">
@@ -2392,7 +2604,7 @@ class Baskerville_Admin {
 				<h3 class="baskerville-heading-flex">
 						<span class="dashicons dashicons-admin-site"></span>
 						<?php esc_html_e('Live Feed', 'baskerville-ai-security'); ?>
-						<span class="feed-header-info"><?php esc_html_e('Auto-refresh: 10s', 'baskerville-ai-security'); ?></span>
+						<span class="feed-header-info"><?php esc_html_e('Auto-refresh: 60s', 'baskerville-ai-security'); ?></span>
 					</h3>
 					<div id="live-feed-items" class="baskerville-font-sm">
 						<div class="baskerville-loading">
@@ -2769,6 +2981,66 @@ class Baskerville_Admin {
 			'message' => sprintf(__('Cleared %d GeoIP cache entries', 'baskerville-ai-security'), $cleared),
 			'cleared' => $cleared
 		));
+	}
+
+	private function render_cache_status_section() {
+		$core = new Baskerville_Core();
+
+		if ($core->fc_has_apcu()) {
+			$backend = 'apcu';
+		} elseif (wp_using_ext_object_cache()) {
+			$backend = 'wpcache';
+		} else {
+			$backend = 'file';
+		}
+
+		$details = [];
+		if ($backend === 'apcu') {
+			$sma  = apcu_sma_info();
+			$info = apcu_cache_info(true);
+			$total_mb = $sma ? round(($sma['num_seg'] * $sma['seg_size']) / 1048576, 1) : '?';
+			$avail_mb = $sma ? round($sma['avail_mem'] / 1048576, 1) : '?';
+			$details[] = ['Memory', $total_mb . ' MB total, ' . $avail_mb . ' MB free'];
+			$details[] = ['Entries', (string)($info['num_entries'] ?? '?')];
+		} elseif ($backend === 'wpcache') {
+			global $wp_object_cache;
+			$details[] = ['Driver', $wp_object_cache ? get_class($wp_object_cache) : 'unknown'];
+		} else {
+			$cache_dir  = WP_CONTENT_DIR . '/cache/baskerville';
+			$file_count = is_dir($cache_dir) ? count((array) glob($cache_dir . '/*.cache')) : 0;
+			$details[] = ['Directory', $cache_dir];
+			$details[] = ['Cache files', (string) $file_count];
+		}
+
+		$label = [
+			'apcu'    => '✅ APCu (in-process memory)',
+			'wpcache' => '✅ WP Object Cache (persistent — Redis/Memcached)',
+			'file'    => '⚠️ File cache (slowest fallback)',
+		][$backend];
+		?>
+		<div class="card" style="max-width:800px;margin-top:20px;">
+			<h2><?php esc_html_e('Cache Backend', 'baskerville-ai-security'); ?></h2>
+			<table class="widefat" style="margin-bottom:10px;">
+				<tbody>
+					<tr>
+						<td style="width:160px"><strong><?php esc_html_e('Active backend', 'baskerville-ai-security'); ?></strong></td>
+						<td><strong><?php echo esc_html($label); ?></strong></td>
+					</tr>
+					<?php foreach ($details as [$k, $v]) : ?>
+					<tr>
+						<td><strong><?php echo esc_html($k); ?></strong></td>
+						<td><code><?php echo esc_html($v); ?></code></td>
+					</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+			<?php if ($backend === 'file') : ?>
+			<p style="color:#856404;">
+				<?php esc_html_e('File cache is active. For better performance, install APCu or configure a Redis/Memcached object cache drop-in (wp-content/object-cache.php).', 'baskerville-ai-security'); ?>
+			</p>
+			<?php endif; ?>
+		</div>
+		<?php
 	}
 
 	private function render_geoip_test_tab() {
@@ -3819,6 +4091,8 @@ class Baskerville_Admin {
 						<?php
 						// Render GeoIP Testing section
 						$this->render_geoip_test_tab();
+						// Render Cache Backend status
+						$this->render_cache_status_section();
 						// Render Cloud Settings section (separate options group)
 						$this->render_cloud_settings_section();
 						?>
@@ -5800,10 +6074,23 @@ done
 	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_feed() {
+		check_ajax_referer('baskerville_live_feed', 'nonce');
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville-ai-security')));
+		}
+
+		// Cache results for 30 s — polling every 10 s would otherwise run two
+		// full-table aggregations per tick against shared MySQL.
+		$cache_key = 'baskerville_live_feed_v1';
+		$cached    = get_transient($cache_key);
+		if ($cached !== false) {
+			wp_send_json_success($cached);
+		}
+
 		global $wpdb;
 		$table = $wpdb->prefix . 'baskerville_stats';
 
-		// Get last 30 unique IPs (blocked/suspicious) - one event per IP
+		// Get last 30 unique IPs (blocked/suspicious) - one event per IP, within last 24 hours.
 		// Note: using classification_reason (actual column name), aliasing as 'reason' for frontend
 		// Use subquery to get the latest record for each IP
 
@@ -5815,10 +6102,13 @@ done
 			 INNER JOIN (
 				 SELECT ip, MAX(id) as max_id
 				 FROM " . esc_sql($table) . "
-				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'verified_ai_bot', 'bot')
+				 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+				   AND (
+				       classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'verified_ai_bot', 'bot')
 				    OR (score >= 50 AND classification NOT IN ('verified_bot', 'verified_ai_bot'))
 				    OR (block_reason IS NOT NULL AND block_reason != '')
 				    OR event_type IN ('ts_fail', 'ac_fail', 'lf_fail', 'lf_pass')
+				   )
 				 GROUP BY ip
 			 ) t2 ON t1.id = t2.max_id
 			 ORDER BY t1.created_at DESC
@@ -5837,6 +6127,7 @@ done
 			$event['is_banned'] = !empty($event['block_reason']);
 		}
 
+		set_transient($cache_key, $events, 30);
 		wp_send_json_success($events);
 	}
 	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
@@ -5845,11 +6136,22 @@ done
 	 * AJAX: Get live statistics.
 	 *
 	 * Direct database queries are required for real-time AJAX statistics.
-	 * Caching is not applicable for live data updates.
+	 * Results are cached for 30 s to cap DB load when the page is open.
 	 *
 	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_stats() {
+		check_ajax_referer('baskerville_live_feed', 'nonce');
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville-ai-security')));
+		}
+
+		$cache_key = 'baskerville_live_stats_v1';
+		$cached    = get_transient($cache_key);
+		if ($cached !== false) {
+			wp_send_json_success($cached);
+		}
+
 		global $wpdb;
 		$table = $wpdb->prefix . 'baskerville_stats';
 
@@ -5902,12 +6204,14 @@ done
 			$country['country_name'] = isset($all_countries[$code]) ? $all_countries[$code] : $code;
 		}
 
-		wp_send_json_success([
+		$payload = [
 			'blocks_today'  => $blocks_today,
 			'blocks_hour'   => $blocks_hour,
 			'top_ips'       => $top_ips,
-			'top_countries' => $top_countries
-		]);
+			'top_countries' => $top_countries,
+		];
+		set_transient($cache_key, $payload, 30);
+		wp_send_json_success($payload);
 	}
 	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 

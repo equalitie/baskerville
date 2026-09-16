@@ -28,14 +28,6 @@ class Baskerville_Core {
             array(),
             BASKERVILLE_VERSION
         );
-
-        wp_enqueue_script(
-            'baskerville-script',
-            BASKERVILLE_PLUGIN_URL . 'assets/js/baskerville.js',
-            array('jquery'),
-            BASKERVILLE_VERSION,
-            true
-        );
     }
 
     public function enqueue_admin_scripts() {
@@ -147,6 +139,10 @@ class Baskerville_Core {
             // so the current request can use the id — inject into $_COOKIE
             $_COOKIE['baskerville_id'] = $value;
 
+            // Prevent nginx fastcgi_cache from storing this Set-Cookie header
+            // and replaying one visitor's identity cookie to all subsequent visitors.
+            header('X-Accel-Expires: 0');
+
             setcookie('baskerville_id', $value, [
                 'expires'  => time() + 60*60*24*365, // one year retention
                 'path'     => '/',
@@ -223,13 +219,16 @@ class Baskerville_Core {
         return $data;
     }
 
-    /* ===== Fast cache: APCu + file fallback ===== */
+    /* ===== Fast cache: APCu → WP persistent object cache → file fallback ===== */
 
     /** set arbitrary value with TTL */
     public function fc_set(string $key, $value, int $ttl): bool {
         $k = $this->fc_key($key);
         if ($this->fc_has_apcu()) {
             return apcu_store($k, $value, $ttl);
+        }
+        if (wp_using_ext_object_cache()) {
+            return wp_cache_set($k, $value, 'baskerville', $ttl);
         }
         $data = ['v'=>$value,'e'=>time()+$ttl];
         return (bool) @file_put_contents($this->fc_path($k), serialize($data), LOCK_EX);
@@ -241,6 +240,11 @@ class Baskerville_Core {
         if ($this->fc_has_apcu()) {
             $ok = false; $v = apcu_fetch($k, $ok);
             return $ok ? $v : null;
+        }
+        if (wp_using_ext_object_cache()) {
+            $found = false;
+            $v = wp_cache_get($k, 'baskerville', false, $found);
+            return $found ? $v : null;
         }
         $p = $this->fc_path($k);
         if (!is_file($p)) return null;
@@ -260,6 +264,16 @@ class Baskerville_Core {
                 return 1;
             }
             return (int) apcu_inc($k);
+        }
+        if (wp_using_ext_object_cache()) {
+            // wp_cache_add is atomic: sets key=1 with TTL only if key is absent (start of window).
+            // wp_cache_incr increments without changing TTL — correct for a fixed-window counter.
+            if (wp_cache_add($k, 1, 'baskerville', $window_sec)) {
+                return 1;
+            }
+            $val = wp_cache_incr($k, 1, 'baskerville');
+            // incr returns false if key vanished in a race; treat as new window.
+            return $val !== false ? (int) $val : 1;
         }
         // file fallback
         $p  = $this->fc_path($k);
@@ -281,6 +295,7 @@ class Baskerville_Core {
     public function fc_delete(string $key): void {
         $k = $this->fc_key($key);
         if ($this->fc_has_apcu()) { apcu_delete($k); return; }
+        if (wp_using_ext_object_cache()) { wp_cache_delete($k, 'baskerville'); return; }
         wp_delete_file($this->fc_path($k));
     }
 
@@ -290,8 +305,8 @@ class Baskerville_Core {
      * @return int Number of files deleted
      */
     public function fc_cleanup_old_files($max_age_sec = 86400) {
-        // APCu cleans itself automatically
-        if ($this->fc_has_apcu()) return 0;
+        // APCu and WP object cache backends expire entries automatically.
+        if ($this->fc_has_apcu() || wp_using_ext_object_cache()) return 0;
 
         $dir = $this->fc_dir();
         if (!is_dir($dir)) return 0;
@@ -349,6 +364,10 @@ class Baskerville_Core {
                     $cleared++;
                 }
             }
+        } elseif (wp_using_ext_object_cache()) {
+            // WP object cache has no pattern-delete API.
+            // Country entries will expire on their own TTL; nothing to do here.
+            return 0;
         } else {
             // File cache: find and delete country:* cache files
             $dir = $this->fc_dir();
@@ -469,20 +488,20 @@ class Baskerville_Core {
             return true;
         }
 
-        // Check URL patterns
-        $uri = strtolower(sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? '')));
+        // Check URL patterns — use path only to prevent /?utm_source=/v1/ from matching.
+        $raw_uri  = wp_unslash($_SERVER['REQUEST_URI'] ?? '');
+        $uri_path = strtolower(sanitize_text_field(parse_url($raw_uri, PHP_URL_PATH) ?? $raw_uri));
 
         $rest_prefix = '/' . strtolower(rest_get_url_prefix()) . '/';
         $api_paths = [
             '/api/', '/v1/', '/v2/', '/v3/', '/rest/', '/graphql/', '/gql/',
             '/auth/', '/oauth/', '/token/', '/webhook/', '/webhooks/',
-            '/callback/', '/payment/', '/checkout/', '/orders/',
-            '/system/', '/monitoring/', '/health/', '/status/',
+            '/callback/', '/system/', '/monitoring/', '/health/', '/status/',
             $rest_prefix,
         ];
 
         foreach ($api_paths as $path) {
-            if (strpos($uri, $path) !== false) {
+            if (strpos($uri_path, $path) !== false) {
                 return true;
             }
         }
@@ -522,23 +541,41 @@ class Baskerville_Core {
         if (empty($ip)) return null;
 
         // 1. Check request-level headers first — these are always authoritative and need no caching.
-        // NGINX GeoIP variables
+        //
+        // TRUSTED: set by the server/CDN, never forwarded from the client.
+        //   GEOIP2_COUNTRY_CODE / GEOIP_COUNTRY_CODE — fastcgi_param injected by nginx GeoIP module
+        //   HTTP_X_DEFLECT_COUNTRY_CODE              — injected by Deflect CDN edge
+        //
+        // NOT TRUSTED by default:
+        //   HTTP_X_COUNTRY_CODE  — plain HTTP header, trivially spoofed: curl -H 'X-Country-Code: US'
+        //   HTTP_CF_IPCOUNTRY    — trustworthy only when Cloudflare is the upstream proxy; enable via
+        //                          Settings > Country Control > "Trust CF-IPCountry header"
+
+        // nginx GeoIP module (server-set fastcgi_param, not an HTTP header)
         if (!empty($_SERVER['GEOIP2_COUNTRY_CODE'])) {
             return strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP2_COUNTRY_CODE'])));
         }
         if (!empty($_SERVER['GEOIP_COUNTRY_CODE'])) {
             return strtoupper(sanitize_text_field(wp_unslash($_SERVER['GEOIP_COUNTRY_CODE'])));
         }
-        if (!empty($_SERVER['HTTP_X_COUNTRY_CODE'])) {
-            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_COUNTRY_CODE'])));
-        }
-        // Cloudflare
-        if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
-            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
-        }
-        // Deflect CDN (X-Deflect-Country-Code header)
+        // Deflect CDN — only when explicitly enabled in settings.
+        // X-Deflect-Country-Code is an HTTP header injected by Deflect edge nodes; trustworthy
+        // when Deflect is the upstream proxy, but spoofable otherwise.
         if (!empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) {
-            return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])));
+            $options_deflect = get_option('baskerville_settings', array());
+            if (!empty($options_deflect['trust_deflect_country'])) {
+                return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])));
+            }
+        }
+        // Cloudflare CF-IPCountry — only when explicitly enabled in settings.
+        // Cloudflare strips client-supplied copies of this header, so it is trustworthy
+        // as long as Cloudflare is the upstream proxy (orange-cloud, not grey-cloud).
+        // Check the header exists before hitting get_option() to keep the hot path cheap.
+        if (!empty($_SERVER['HTTP_CF_IPCOUNTRY'])) {
+            $options_geo = get_option('baskerville_settings', array());
+            if (!empty($options_geo['trust_cf_ipcountry'])) {
+                return strtoupper(sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_IPCOUNTRY'])));
+            }
         }
 
         // 2. No header available — fall back to database lookup with 7-day cache.
@@ -835,8 +872,9 @@ class Baskerville_Core {
         ob_start();
         ?>
         (function () {
-          const REST_URL = '<?php echo esc_js($rest_url); ?>';
-          const WP_NONCE = '<?php echo esc_js($wp_nonce); ?>';
+          const REST_URL   = '<?php echo esc_js($rest_url); ?>';
+          const NONCE_URL  = '<?php echo esc_js(esc_url_raw(rest_url('baskerville/v1/nonce'))); ?>';
+          let   WP_NONCE   = '<?php echo esc_js($wp_nonce); ?>';
           const urlFlag = new URLSearchParams(location.search).get('baskerville_debug');
           const showFromUrl = ['1','on','true','yes'].includes((urlFlag||'').toLowerCase());
           const showFromCookie = document.cookie.split('; ').includes('baskerville_show_widgets=1');
@@ -1028,12 +1066,30 @@ class Baskerville_Core {
               } else {
                   const send = async () => {
                     try {
-                      const res = await fetch(REST_URL, {
+                      let res = await fetch(REST_URL, {
                         method: 'POST',
                         headers: {'Content-Type':'application/json','X-WP-Nonce': WP_NONCE},
                         body: JSON.stringify(payload),
                         keepalive: true
                       });
+                      // Stale nonce (cached page, nonce tick boundary) — refresh and retry once.
+                      if (res.status === 403) {
+                        try {
+                          const nr = await fetch(NONCE_URL);
+                          if (nr.ok) {
+                            const nd = await nr.json();
+                            if (nd.nonce) {
+                              WP_NONCE = nd.nonce;
+                              res = await fetch(REST_URL, {
+                                method: 'POST',
+                                headers: {'Content-Type':'application/json','X-WP-Nonce': WP_NONCE},
+                                body: JSON.stringify(payload),
+                                keepalive: true
+                              });
+                            }
+                          }
+                        } catch {}
+                      }
                       if (res.ok) {
                         const result = await res.json();
                         if (SHOW_WIDGET && result?.ok) {

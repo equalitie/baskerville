@@ -164,6 +164,13 @@ class Baskerville_AI_UA {
             // DeepSeek
             'deepseekbot',           // DeepSeek crawler
 
+            // xAI (Grok)
+            'xai-bot',               // xAI web crawler
+
+            // Jina.ai
+            'jinabot',               // JinaBot reader/crawler
+            'jina-reader',           // Jina Reader agent
+
             // Microsoft / Bing
             'bingbot',               // Bingbot (Microsoft Copilot/AI Search)
 
@@ -263,6 +270,13 @@ class Baskerville_AI_UA {
 
             // DeepSeek
             'deepseekbot'             => 'DeepSeek',
+
+            // xAI (Grok)
+            'xai-bot'                 => 'xAI',
+
+            // Jina.ai
+            'jinabot'                 => 'Jina.ai',
+            'jina-reader'             => 'Jina.ai',
 
             // Microsoft / Bing
             'bingbot'                 => 'Microsoft',
@@ -469,9 +483,26 @@ class Baskerville_AI_UA {
      * Cached for 1 hour via fc_get/fc_set (APCu or file).
      * Returns: ['ClaudeBot' => ['1.2.3.0/24', ...], 'GPTBot' => [...], ...]
      */
+    /**
+     * Return cached AI IP ranges. Never fetches — call refresh_ai_ip_ranges() via cron instead.
+     * Returns empty array if cache is cold (cron hasn't run yet or cache was cleared).
+     */
     private function get_ai_ip_ranges(): array {
         $cached = $this->core->fc_get('ai_ip_ranges');
-        if (is_array($cached)) return $cached;
+        return is_array($cached) ? $cached : [];
+    }
+
+    /**
+     * Fetch AI IP ranges from all upstream sources and store in cache.
+     * Called exclusively from WP-Cron (baskerville_refresh_ai_ip_ranges) — never on the request path.
+     * Uses a short-TTL mutex to prevent two concurrent cron runs from both fetching.
+     */
+    public function refresh_ai_ip_ranges(): void {
+        // Mutex: bail if another process is already refreshing.
+        if ($this->core->fc_get('ai_ip_ranges_refreshing')) {
+            return;
+        }
+        $this->core->fc_set('ai_ip_ranges_refreshing', 1, 90);
 
         $sources = [
             // Anthropic
@@ -500,43 +531,35 @@ class Baskerville_AI_UA {
             'AmazonBot'           => 'https://developer.amazon.com/amazonbot/ip-addresses/',
         ];
 
-        // Keep old data on partial failure so we don't lose valid ranges
-        $existing = is_array($cached) ? $cached : [];
+        // Stale-while-revalidate: keep existing data for any source that fails.
+        $existing = $this->get_ai_ip_ranges();
         $result   = [];
 
         foreach ($sources as $name => $url) {
             $response = wp_remote_get($url, [
-                'timeout'    => 5,
+                'timeout'    => 10,
                 'user-agent' => 'BaskervillePlugin/1.0',
             ]);
             if (is_wp_error($response)) {
-                if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
-                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
-                    error_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
-                }
+                wpsec_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $body = wp_remote_retrieve_body($response);
             $data = json_decode($body, true);
             if (!is_array($data)) {
-                if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
-                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
-                    error_log("[AiBotVerificator] {$name}: invalid JSON");
-                }
+                wpsec_log("[AiBotVerificator] {$name}: invalid JSON");
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $prefixes      = $this->parse_ai_prefixes($data);
             $result[$name] = $prefixes;
-            if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
-                // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
-                error_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
-            }
+            wpsec_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
         }
 
-        $this->core->fc_set('ai_ip_ranges', $result, HOUR_IN_SECONDS);
-        return $result;
+        // Store for 25 hours — survives one missed cron run.
+        $this->core->fc_set('ai_ip_ranges', $result, 25 * HOUR_IN_SECONDS);
+        $this->core->fc_delete('ai_ip_ranges_refreshing');
     }
 
     /**
@@ -567,6 +590,27 @@ class Baskerville_AI_UA {
         $cached = $this->core->fc_get($ck);
         if (is_array($cached)) return $cached;
 
+        // Fast path: check published IP ranges before doing blocking DNS lookup.
+        // Maps UA keywords to bot names in our IP range list.
+        $range_map = [
+            'googlebot'   => ['GoogleExtended', 'GoogleSpecial', 'GoogleUserTriggered'],
+            'bingbot'     => ['Bingbot'],
+            'duckduckbot' => ['DuckAssistBot'],
+        ];
+        $ip_bot_name = $this->get_ai_bot_name_by_ip($ip);
+        if ($ip_bot_name !== '') {
+            foreach ($range_map as $ua_keyword => $bot_names) {
+                if (strpos($ua, $ua_keyword) !== false && in_array($ip_bot_name, $bot_names, true)) {
+                    // IP is in the bot's published CIDR ranges — no DNS needed.
+                    $res = ['claimed' => true, 'verified' => true, 'host' => null];
+                    $this->core->fc_set($ck, $res, 6 * 3600);
+                    return $res;
+                }
+            }
+        }
+
+        // Slow path: DNS reverse+forward verification (blocking — only reached when
+        // the IP is not in any published range, i.e. likely a spoofed UA).
         $host = gethostbyaddr($ip);
         $ok = false;
         if ($host && $host !== $ip) {
@@ -641,11 +685,15 @@ class Baskerville_AI_UA {
             $contrib[] = ['key'=>'missing_hints_chrome', 'delta'=>5, 'why'=> __( 'Missing Client Hints for Chrome-like UA', 'baskerville-ai-security' )];
         }
 
-        // Check HTTP protocol version - modern browsers use HTTP/2 or HTTP/3
+        // Check HTTP protocol version - modern browsers use HTTP/2 or HTTP/3.
+        // Skip when behind a reverse proxy: SERVER_PROTOCOL then reflects the edge→origin
+        // hop (always HTTP/1.1), not the actual client→CDN protocol (which may be HTTP/2+).
+        // Presence of X-Forwarded-For, X-Real-IP, or X-Deflect-Country-Code signals a proxy.
         $server_protocol = strtoupper($svh['server_protocol'] ?? '');
-        if (!empty($server_protocol) && preg_match('~^HTTP/1\.[01]$~', $server_protocol)) {
-            // HTTP/1.0 or HTTP/1.1 - likely a bot/script
-            // Modern browsers (Chrome, Firefox, Safari, Edge) use HTTP/2 or HTTP/3
+        $behind_proxy    = !empty($_SERVER['HTTP_X_FORWARDED_FOR'])      ||
+                           !empty($_SERVER['HTTP_X_REAL_IP'])            ||
+                           !empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE']);
+        if (!$behind_proxy && !empty($server_protocol) && preg_match('~^HTTP/1\.[01]$~', $server_protocol)) {
             $score += 15;
             $reasons[] = __( 'Using HTTP/1.x (modern browsers use HTTP/2+)', 'baskerville-ai-security' );
             $contrib[] = ['key'=>'http1_protocol', 'delta'=>15, 'why'=> __( 'Using HTTP/1.x instead of HTTP/2+', 'baskerville-ai-security' )];
@@ -858,7 +906,7 @@ class Baskerville_AI_UA {
         // We never fetch IP ranges for normal requests — only when UA already claims to be an AI bot.
         if ($this->is_ai_bot_user_agent($user_agent)) {
             $company   = $this->get_ai_bot_company($user_agent);
-            $ai_ranges = $this->get_ai_ip_ranges(); // cached; HTTP only on hourly cache miss
+            $ai_ranges = $this->get_ai_ip_ranges(); // cache-only; refreshed by hourly cron
 
             // Check if the IP actually belongs to this company's published ranges
             $ip_bot_name = '';

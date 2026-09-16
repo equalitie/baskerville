@@ -71,7 +71,7 @@ class Baskerville_Firewall
 				'country_code'          => $country,
 				'baskerville_id'        => $cookie_id,
 				'timestamp_utc'         => current_time('mysql', true),
-				'score'                 => 0,
+				'score'                 => -1, // -1 = no score available (detected by IP/CIDR, no browser fingerprint)
 				'classification'        => (string)($classification['classification'] ?? 'ai_bot'),
 				'user_agent'            => $ua,
 				'evaluation_json'       => '{}',
@@ -151,6 +151,7 @@ class Baskerville_Firewall
 		if (!headers_sent()) {
 			status_header(403);
 			nocache_headers();
+			header('X-Accel-Expires: 0');
 			header('Content-Type: text/plain; charset=UTF-8');
 			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
 			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
@@ -187,6 +188,7 @@ class Baskerville_Firewall
 		if (!headers_sent()) {
 			status_header(403);
 			nocache_headers();
+			header('X-Accel-Expires: 0');
 			header('Content-Type: text/plain; charset=UTF-8');
 			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
 			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
@@ -227,7 +229,9 @@ class Baskerville_Firewall
 		}
 
 		// Cloud AI blocks — temporary pattern blocks from LLM agent (country/ASN/UA).
-		$cloud_blocks = get_transient('baskerville_cloud_blocks');
+		// Only enforced when the operator has explicitly opted in via Settings → Cloud.
+		$options_s    = get_option('baskerville_settings', []);
+		$cloud_blocks = (!isset($options_s['cloud_remote_blocks']) || $options_s['cloud_remote_blocks']) ? get_transient('baskerville_cloud_blocks') : false;
 		if (!empty($cloud_blocks)) {
 			$ua      = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
 			$country = null;
@@ -262,21 +266,31 @@ class Baskerville_Firewall
 			return;
 		}
 
+		// Reject already-banned IPs before the turnstile bypass check.
+		// Without this, a banned IP can flood /?baskerville_verify=1&r=RAND: each request
+		// bypasses the firewall AND misses the nginx page cache (query string ≠ ""),
+		// forcing a full WP bootstrap every time — a trivial FPM pool saturation attack.
+		// verified_bot bans are exempt so Googlebot/Bingbot are never blocked here.
+		if ($ban = $this->get_ban($ip)) {
+			if (($ban['cls'] ?? '') !== 'verified_bot') {
+				$this->send_403_and_exit([
+					'reason' => 'cached-ban:' . ($ban['reason'] ?? ''),
+					'score'  => $ban['score'] ?? 100,
+					'cls'    => $ban['cls'] ?? 'banned',
+					'until'  => $ban['until'] ?? 0,
+				]);
+			}
+		}
+
 		// Skip firewall for Turnstile challenge/verify pages to prevent redirect loops
 		// Support both rewrite rules (/baskerville-challenge/) and query params (?baskerville_challenge=1)
-		// Also check query string directly in case $_GET is not populated
+		// Use path-only for path checks to prevent /?foo=baskerville_challenge from bypassing firewall.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
-		$query_string = isset($_SERVER['QUERY_STRING']) ? sanitize_text_field(wp_unslash($_SERVER['QUERY_STRING'])) : '';
+		$request_path  = parse_url($request_uri, PHP_URL_PATH) ?? $request_uri;
 		$is_turnstile_page = (
-			strpos($request_uri, '/baskerville-challenge') !== false ||
-			strpos($request_uri, '/baskerville-verify') !== false ||
-			strpos($request_uri, '/baskerville-altcha-challenge') !== false ||
-			strpos($request_uri, 'baskerville_challenge') !== false ||
-			strpos($request_uri, 'baskerville_verify') !== false ||
-			strpos($request_uri, 'baskerville_altcha_challenge') !== false ||
-			strpos($query_string, 'baskerville_challenge') !== false ||
-			strpos($query_string, 'baskerville_verify') !== false ||
-			strpos($query_string, 'baskerville_altcha_challenge') !== false ||
+			strpos($request_path, '/baskerville-challenge') !== false ||
+			strpos($request_path, '/baskerville-verify') !== false ||
+			strpos($request_path, '/baskerville-altcha-challenge') !== false ||
 			filter_has_var(INPUT_GET, 'baskerville_challenge') ||
 			filter_has_var(INPUT_GET, 'baskerville_verify') ||
 			filter_has_var(INPUT_GET, 'baskerville_altcha_challenge') ||
