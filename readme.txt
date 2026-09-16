@@ -149,6 +149,7 @@ Statistics are automatically deleted after the retention period you configure (d
 * Improvement: Live Traffic Feed shows disclaimer that counts reflect PHP-reached requests only
 * Improvement: cache backend status visible in Settings (APCu / Redis / file fallback)
 * Improvement: CF-IPCountry header support restored as an opt-in setting — enable in Country Control when the site is behind Cloudflare (orange-cloud); disabled by default to prevent spoofing on non-Cloudflare stacks
+* Improvement: CDN auto-detection on activation — Cloudflare and Deflect CDN are detected from request headers and trust settings configured automatically; admin notice confirms what was detected
 
 = 1.0.5 =
 * AI Cloud integration: nightly AI Watchdog report in WordPress dashboard
