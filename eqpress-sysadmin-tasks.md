@@ -107,43 +107,6 @@ no-op.
 
 ---
 
-## 4. Trim redundant indexes on wp_baskerville_stats (per site, low-traffic window)
-
-`wp_baskerville_stats` has 11 single-column indexes on a write-heavy table. Four of them are
-never the leading column in any actual query — they add write overhead on every INSERT/UPDATE
-without helping any read path.
-
-Run during a low-traffic window (InnoDB rebuilds the table in place):
-
-```sql
-ALTER TABLE wp_baskerville_stats
-  DROP INDEX asn,
-  DROP INDEX score,
-  DROP INDEX block_reason,
-  DROP INDEX top_factor;
-```
-
-**Why these four:**
-- `asn` — GROUP BY aggregations always filter by `timestamp_utc` first; MySQL uses the time index
-- `score` — no query does a range scan on score as the primary filter
-- `block_reason` — mostly NULL (low selectivity), used only as an OR condition in the live feed
-- `top_factor` — nullable, always accessed via time-bounded GROUP BY
-
-The remaining indexes (`ip`, `timestamp_utc`, `classification`, `event_type`, `baskerville_id`,
-`visit_key`, `fingerprint_hash`, `country_code`) all serve active query patterns and should stay.
-
-Note: on MySQL 5.7 this locks the table briefly. On MySQL 8.0+ it is online (`ALGORITHM=INPLACE`).
-Check the table size first:
-
-```sql
-SELECT table_rows, ROUND(data_length/1024/1024,1) AS data_mb,
-       ROUND(index_length/1024/1024,1) AS index_mb
-FROM information_schema.tables
-WHERE table_name = 'wp_baskerville_stats';
-```
-
----
-
 ## Known risks (no code fix possible — operational awareness)
 
 ### Deflect edge IP lag → instant self-DoS

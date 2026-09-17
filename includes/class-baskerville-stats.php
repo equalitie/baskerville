@@ -54,15 +54,11 @@ class Baskerville_Stats
           UNIQUE KEY visit_key (visit_key),
           KEY ip (ip),
           KEY country_code (country_code),
-          KEY asn (asn),
           KEY baskerville_id (baskerville_id),
           KEY timestamp_utc (timestamp_utc),
           KEY classification (classification),
-          KEY score (score),
           KEY event_type (event_type),
-          KEY fingerprint_hash (fingerprint_hash),
-          KEY block_reason (block_reason),
-          KEY top_factor (top_factor)
+          KEY fingerprint_hash (fingerprint_hash)
         ) $charset_collate;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -168,16 +164,13 @@ class Baskerville_Stats
             );
         }
 
-        // Check and add 'block_reason' column with index.
+        // Check and add 'block_reason' column (no index — low-selectivity nullable column).
         $col = $wpdb->get_results(
             $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'block_reason' )
         );
         if ( ! $col ) {
             $wpdb->query(
                 $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN block_reason VARCHAR(128) NULL AFTER classification_reason', $table_name )
-            );
-            $wpdb->query(
-                $wpdb->prepare( 'CREATE INDEX block_reason ON %i (block_reason)', $table_name )
             );
         }
 
@@ -191,16 +184,13 @@ class Baskerville_Stats
             );
         }
 
-        // Check and add 'top_factor' column with index.
+        // Check and add 'top_factor' column (no index — always accessed via time-bounded GROUP BY).
         $col = $wpdb->get_results(
             $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'top_factor' )
         );
         if ( ! $col ) {
             $wpdb->query(
                 $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN top_factor VARCHAR(64) NULL AFTER top_factor_json', $table_name )
-            );
-            $wpdb->query(
-                $wpdb->prepare( 'CREATE INDEX top_factor ON %i (top_factor)', $table_name )
             );
         }
 
@@ -217,7 +207,7 @@ class Baskerville_Stats
             );
         }
 
-        // Check and add 'asn' column with index for LLM cloud analysis.
+        // Check and add 'asn' column for LLM cloud analysis (no index — GROUP BY always filters by timestamp first).
         $col = $wpdb->get_results(
             $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'asn' )
         );
@@ -225,9 +215,25 @@ class Baskerville_Stats
             $wpdb->query(
                 $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN asn VARCHAR(128) NULL AFTER country_code', $table_name )
             );
-            $wpdb->query(
-                $wpdb->prepare( 'CREATE INDEX asn ON %i (asn)', $table_name )
+        }
+
+        // Drop redundant single-column indexes that add write overhead without aiding any read path.
+        // Safe to run repeatedly — each DROP is guarded by an existence check.
+        foreach ( array( 'asn', 'score', 'block_reason', 'top_factor' ) as $idx ) {
+            $exists = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT 1 FROM information_schema.statistics
+                     WHERE table_schema = DATABASE()
+                     AND table_name = %s
+                     AND index_name = %s
+                     LIMIT 1",
+                    $table_name,
+                    $idx
+                )
             );
+            if ( $exists ) {
+                $wpdb->query( "DROP INDEX `{$idx}` ON `{$table_name}`" ); // phpcs:ignore WordPress.DB
+            }
         }
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
