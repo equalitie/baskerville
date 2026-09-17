@@ -54,15 +54,11 @@ class Baskerville_Stats
           UNIQUE KEY visit_key (visit_key),
           KEY ip (ip),
           KEY country_code (country_code),
-          KEY asn (asn),
           KEY baskerville_id (baskerville_id),
           KEY timestamp_utc (timestamp_utc),
           KEY classification (classification),
-          KEY score (score),
           KEY event_type (event_type),
-          KEY fingerprint_hash (fingerprint_hash),
-          KEY block_reason (block_reason),
-          KEY top_factor (top_factor)
+          KEY fingerprint_hash (fingerprint_hash)
         ) $charset_collate;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -168,16 +164,13 @@ class Baskerville_Stats
             );
         }
 
-        // Check and add 'block_reason' column with index.
+        // Check and add 'block_reason' column (no index — low-selectivity nullable column).
         $col = $wpdb->get_results(
             $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'block_reason' )
         );
         if ( ! $col ) {
             $wpdb->query(
                 $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN block_reason VARCHAR(128) NULL AFTER classification_reason', $table_name )
-            );
-            $wpdb->query(
-                $wpdb->prepare( 'CREATE INDEX block_reason ON %i (block_reason)', $table_name )
             );
         }
 
@@ -191,16 +184,13 @@ class Baskerville_Stats
             );
         }
 
-        // Check and add 'top_factor' column with index.
+        // Check and add 'top_factor' column (no index — always accessed via time-bounded GROUP BY).
         $col = $wpdb->get_results(
             $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'top_factor' )
         );
         if ( ! $col ) {
             $wpdb->query(
                 $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN top_factor VARCHAR(64) NULL AFTER top_factor_json', $table_name )
-            );
-            $wpdb->query(
-                $wpdb->prepare( 'CREATE INDEX top_factor ON %i (top_factor)', $table_name )
             );
         }
 
@@ -217,7 +207,7 @@ class Baskerville_Stats
             );
         }
 
-        // Check and add 'asn' column with index for LLM cloud analysis.
+        // Check and add 'asn' column for LLM cloud analysis (no index — GROUP BY always filters by timestamp first).
         $col = $wpdb->get_results(
             $wpdb->prepare( 'SHOW COLUMNS FROM %i LIKE %s', $table_name, 'asn' )
         );
@@ -225,9 +215,25 @@ class Baskerville_Stats
             $wpdb->query(
                 $wpdb->prepare( 'ALTER TABLE %i ADD COLUMN asn VARCHAR(128) NULL AFTER country_code', $table_name )
             );
-            $wpdb->query(
-                $wpdb->prepare( 'CREATE INDEX asn ON %i (asn)', $table_name )
+        }
+
+        // Drop redundant single-column indexes that add write overhead without aiding any read path.
+        // Safe to run repeatedly — each DROP is guarded by an existence check.
+        foreach ( array( 'asn', 'score', 'block_reason', 'top_factor' ) as $idx ) {
+            $exists = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT 1 FROM information_schema.statistics
+                     WHERE table_schema = DATABASE()
+                     AND table_name = %s
+                     AND index_name = %s
+                     LIMIT 1",
+                    $table_name,
+                    $idx
+                )
             );
+            if ( $exists ) {
+                $wpdb->query( "DROP INDEX `{$idx}` ON `{$table_name}`" ); // phpcs:ignore WordPress.DB
+            }
         }
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
@@ -257,24 +263,35 @@ class Baskerville_Stats
             return false;
         }
 
-        $result = $wpdb->query(
-            $wpdb->prepare(
+        // Delete in small batches to avoid a single long-running lock on shared MySQL.
+        // Cap at 20 batches (20 000 rows) per daily cron run — any remainder cleans
+        // up in the next scheduled run.
+        $batch_size    = 1000;
+        $max_batches   = 20;
+        $deleted_total = 0;
 
-                "DELETE FROM " . esc_sql($table_name) . " WHERE timestamp_utc < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)",
-                $retention_days
-            )
-        );
+        for ( $i = 0; $i < $max_batches; $i++ ) {
+            $deleted = $wpdb->query(
+                $wpdb->prepare(
+                    "DELETE FROM " . esc_sql($table_name) . "
+                     WHERE timestamp_utc < DATE_SUB(UTC_TIMESTAMP(), INTERVAL %d DAY)
+                     LIMIT " . $batch_size, // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $batch_size is a hardcoded integer, not user input
+                    $retention_days
+                )
+            );
 
-        if ($result === false) {
-            // error_log('Baskerville: Cleanup failed - ' . $wpdb->last_error);
-            return false;
+            if ( $deleted === false ) {
+                return $deleted_total > 0 ? $deleted_total : false;
+            }
+
+            $deleted_total += $deleted;
+
+            if ( $deleted < $batch_size ) {
+                break; // no more rows to delete
+            }
         }
 
-        if ($result > 0) {
-            // error_log("Baskerville: Cleaned up $result old statistics records (older than $retention_days days)");
-        }
-
-        return $result;
+        return $deleted_total;
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
@@ -445,6 +462,9 @@ class Baskerville_Stats
         $cookie_id = $this->core->get_cookie_id();
         $visit_key = $this->make_visit_key($ip, $cookie_id);
         $this->current_visit_key = $visit_key;
+
+        // Prevent nginx fastcgi_cache from storing this Set-Cookie header.
+        header('X-Accel-Expires: 0');
 
         // short-lived cookie for linking with fetch/beacon
         setcookie('baskerville_visit_key', $visit_key, [

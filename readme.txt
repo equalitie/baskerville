@@ -3,7 +3,7 @@ Contributors: equalitie, burdianov, mazhurin
 Tags: security, captcha, spam protection, firewall, anti-bot
 Requires at least: 6.4
 Tested up to: 7.1
-Stable tag: 1.0.5
+Stable tag: 1.0.6
 Requires PHP: 7.4
 License: GPL v3
 
@@ -25,7 +25,7 @@ Baskerville is a comprehensive WordPress security plugin that protects your site
 * **High-Risk Page Protection** - Login, registration, and comment pages hardened automatically
 * **Under Attack Mode** - Emergency mode to challenge all visitors
 * **IP Whitelist** - Trusted IPs always bypass all enforcement
-* **Near-Zero Latency** - Firewall runs from local cache (~1ms with page cache active), no outbound calls on request path
+* **Near-Zero Latency** - Firewall runs from local cache, no outbound calls on request path. On cached pages: zero PHP overhead per page serve, plus one fingerprint POST per new visitor per 6h
 * **AI Cloud Analysis** (optional, paid) - Nightly watchdog report and natural language query interface powered by LLM
 
 **Bot Score System:**
@@ -36,8 +36,9 @@ Baskerville is a comprehensive WordPress security plugin that protects your site
 
 **Performance:**
 
-* Minimal overhead (~1ms with page cache, ~30-50ms without)
-* APCu + file-based caching for GeoIP lookups
+* Zero PHP overhead per cached page serve
+* One fingerprint POST per new visitor per 6h (full WP bootstrap — this is the real cost on cached sites)
+* APCu / Redis / file-based caching for GeoIP lookups and ban entries
 * Compatible with all major caching plugins
 
 == Installation ==
@@ -64,7 +65,7 @@ Emergency mode that shows Turnstile challenge to ALL visitors. Use this when you
 
 = Will this slow down my site? =
 
-With page caching enabled, overhead is near zero. Without caching, expect ~30-50ms overhead per request.
+With page caching enabled, each cached page serve has zero PHP overhead. The real cost is one fingerprint POST per new visitor every 6 hours — this is a full WordPress bootstrap used for bot scoring. Without page caching, expect ~30-50ms overhead per request.
 
 == External Services ==
 
@@ -128,6 +129,28 @@ Statistics are automatically deleted after the retention period you configure (d
 * Consider adding disclosure to your site's privacy policy
 
 == Changelog ==
+= 1.0.6 =
+* Security: removed trust of spoofable X-Country-Code and CF-IPCountry headers — only server-set GEOIP2_COUNTRY_CODE, GEOIP_COUNTRY_CODE and X-Deflect-Country-Code are trusted
+* Security: AJAX live feed and live stats endpoints now require manage_options capability and nonce
+* Security: honeypot no longer bans verified crawlers (Googlebot, Bingbot) — verify_crawler_ip() called before ban
+* Security: honeypot and firewall 403 responses now send X-Accel-Expires: 0 to prevent nginx caching
+* Security: ban check now runs before challenge URL bypass to close DoS amplification vector
+* Security: challenge URL bypass uses exact GET key matching instead of substring matching in query string
+* Security: is_api_request() path matching strips query string before comparison
+* Performance: fingerprint POST retries with fresh nonce on 403 to handle nonce tick boundary edge case
+* Performance: live feed and live stats results cached for 30s server-side; JS poll interval increased to 60s
+* Performance: snapshot aggregation skipped when no traffic in current 5-minute window
+* Performance: stats cleanup uses batched DELETE (1000 rows/batch) instead of unbounded single query
+* Performance: AI bot IP ranges fetched via WP-Cron (hourly) instead of on the request path
+* Performance: HTTP/1.x score penalty skipped when request comes through a reverse proxy
+* Performance: removed jQuery dependency from frontend (was loaded for a no-op console.log)
+* Improvement: remote-controlled blocking (cloud action enforcement) is now a configurable opt-in setting (default: on)
+* Improvement: GeoIP download notice shows inline button and checks for header-based GeoIP sources before showing
+* Improvement: Live Traffic Feed shows disclaimer that counts reflect PHP-reached requests only
+* Improvement: cache backend status visible in Settings (APCu / Redis / file fallback)
+* Improvement: CF-IPCountry header support restored as an opt-in setting — enable in Country Control when the site is behind Cloudflare (orange-cloud); disabled by default to prevent spoofing on non-Cloudflare stacks
+* Improvement: CDN auto-detection on activation — Cloudflare and Deflect CDN are detected from request headers and trust settings configured automatically; admin notice confirms what was detected
+
 = 1.0.5 =
 * AI Cloud integration: nightly AI Watchdog report in WordPress dashboard
 * AI query interface: ask questions about your traffic in plain English

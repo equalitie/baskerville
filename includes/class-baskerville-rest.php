@@ -23,6 +23,19 @@ class Baskerville_REST {
             'callback'            => [$this, 'handle_fp'],
             'permission_callback' => '__return_true', // Intentionally public: collects browser fingerprints from all visitors
         ]);
+
+        // Nonce refresh endpoint: returns a fresh wp_rest nonce.
+        // Needed because the nonce is baked into cached pages — at nonce-tick
+        // boundaries (every 12h) the cached nonce may be stale and the /fp POST
+        // returns 403. The JS retries with a fresh nonce from here.
+        // No auth required — wp_create_nonce('wp_rest') is not a secret.
+        register_rest_route('baskerville/v1', '/nonce', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => function() {
+                return new WP_REST_Response(['nonce' => wp_create_nonce('wp_rest')], 200);
+            },
+            'permission_callback' => '__return_true',
+        ]);
     }
 
     /**

@@ -279,6 +279,9 @@ class Baskerville_Turnstile {
 		$hash = $this->generate_pass_hash($timestamp);
 		$value = $timestamp . '.' . $hash;
 
+		// Prevent nginx fastcgi_cache from storing this Set-Cookie header.
+		header('X-Accel-Expires: 0');
+
 		setcookie(
 			'baskerville_pass',
 			$value,

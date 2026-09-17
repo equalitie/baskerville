@@ -13,7 +13,7 @@ A WordPress security plugin with AI bot detection, GeoIP access control, CAPTCHA
 - 📊 **Live Traffic Feed** - Real-time visual dashboard showing every request, score, and decision as it happens
 - 🔒 **High-Risk Page Protection** - Login, registration, and comment pages hardened automatically
 - 🔐 **Per-Provider Bot Rules** - Allow Googlebot, block GPTBot, challenge everything in between; custom allowlist for trusted bots
-- ⚡ **Near-Zero Latency** - Firewall runs entirely from local cache (APCu or file), ~1ms overhead with page cache active. LLM analysis is fully asynchronous — no visitor ever waits for an AI call
+- ⚡ **Near-Zero Latency** - Firewall runs entirely from local cache (APCu or file). LLM analysis is fully asynchronous — no visitor ever waits for an AI call
 - 🚀 **No Configuration Required** - Sensible defaults protect from the moment the plugin is activated
 - 🚨 **Under Attack Mode** - Emergency mode to challenge all visitors
 - 🔐 **IP Whitelist** - Bypass firewall for trusted IPs
@@ -114,11 +114,35 @@ Configure how bots are detected and banned.
 
 **Example**: With threshold set to 70, a visitor with score 75 and suspicious headers will be banned immediately.
 
+### Performance on cached sites
+
+Baskerville is designed to work alongside a full-page cache (WP Rocket, W3TC, LiteSpeed, nginx
+fastcgi_cache, etc.). Understanding the actual cost model matters before deployment:
+
+**Per cached page serve** — the firewall does not run. PHP is not invoked. Cost: 0ms.
+
+**Per new visitor** (once every 6 hours per browser) — the fingerprint script in the page footer
+sends a `POST /wp-json/baskerville/v1/fp` request. This is a full WordPress bootstrap, identical
+in cost to an uncached page load. This is where bot scoring, classification, and logging happen.
+On a site with a high cache hit ratio this is the dominant cost of running the plugin — not the
+firewall, which mostly sees cache misses.
+
+**What the plugin sees and doesn't see behind nginx fastcgi_cache:**
+- Requests that hit cache: nginx serves the response; PHP never runs; the firewall never runs; the
+  visitor is not logged. On a well-cached site this is 80–90% of traffic.
+- Cache misses (first hit per URL, query strings, POSTs): firewall runs, visitor is scored and logged.
+- FP POST per new visitor: always reaches PHP regardless of cache. This is how bots are detected
+  even on heavily cached sites.
+
+The Live Traffic Feed and statistics reflect only requests that reached PHP — they undercount
+total traffic by the cache hit ratio. The data is accurate for triage but the absolute numbers
+are not representative of total site traffic.
+
 ### Performance Optimization Tips
 
 #### 1. Enable Page Caching (Critical!)
 
-**Impact**: -95% response time
+**Impact**: -95% response time on page serves
 
 ```bash
 # Install one of:
@@ -129,9 +153,9 @@ Configure how bots are detected and banned.
 ```
 
 **Why it helps**:
-- Cached pages bypass WordPress PHP execution
-- Baskerville firewall is not executed for cached pages
-- Overhead drops from 50ms → 0ms
+- Cached pages bypass WordPress PHP execution entirely
+- Firewall overhead on cached pages: 0ms
+- Real cost: one WP bootstrap per new unique visitor per 6h (fingerprint POST)
 
 ---
 
@@ -281,7 +305,7 @@ baskerville/
 │   ├── class-baskerville-altcha.php     # Altcha built-in CAPTCHA
 │   └── class-baskerville-honeypot.php   # Honeypot for AI crawler detection
 ├── assets/
-│   ├── js/baskerville.js                # Frontend fingerprinting script
+│   ├── js/                              # Admin scripts (live feed, etc.)
 │   └── css/                             # Styles
 ├── vendor/                              # MaxMind GeoIP2 library (auto-installed)
 └── baskerville.php                      # Main plugin file
