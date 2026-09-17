@@ -24,63 +24,7 @@ Place it before the catch-all `location /` block.
 
 ---
 
-## 2. Scrub spoofable GeoIP headers at the nginx edge
-
-`X-Country-Code` can be forged by any client (`curl -H 'X-Country-Code: US'`). Strip it at the
-edge as defence-in-depth so it never reaches PHP.
-
-`CF-IPCountry` is trustworthy **only when this site is behind Cloudflare** (orange-cloud).
-Cloudflare strips any client-supplied copy of this header before injecting its own. Without
-Cloudflare upstream, a client can freely forge it.
-
-**For EQPress sites (behind Deflect, not behind Cloudflare):**
-
-Add to `common_fastcgi.conf` or the per-vhost fastcgi location:
-
-```nginx
-# Prevent clients from spoofing GeoIP headers.
-fastcgi_param HTTP_X_COUNTRY_CODE  "";
-fastcgi_param HTTP_CF_IPCOUNTRY    "";
-```
-
-Then enable **Settings > Country Control > Trust X-Deflect-Country-Code header** in the plugin.
-Deflect injects this header at the edge; with the scrub above in place, only the Deflect-injected
-value can reach PHP.
-
-**For EQPress sites that are ALSO behind Cloudflare (Cloudflare → EQPress nginx → PHP):**
-
-Cloudflare injects `CF-IPCountry` and `CF-Connecting-IP` before the request reaches nginx. Since
-Cloudflare is a trusted upstream (its IP ranges are in `set_real_ip.conf`), these headers arrive
-at nginx already authenticated — do NOT scrub them. Do NOT add `fastcgi_param HTTP_CF_IPCOUNTRY ""`
-for these vhosts.
-
-- Enable **Settings > Country Control > Trust CF-IPCountry header** in the plugin.
-- Baskerville's CDN auto-detection (runs on plugin activation) sets this automatically.
-- Ensure Cloudflare IP ranges are in `set_real_ip.conf` so nginx unwraps `X-Forwarded-For`
-  correctly (otherwise the real visitor IP is not available to PHP).
-
-**For sites that ARE behind Cloudflare (orange-cloud, no nginx in front):**
-
-- Do NOT scrub `HTTP_CF_IPCOUNTRY` (Cloudflare delivers directly to origin — there is no nginx).
-- Enable **Settings > Country Control > Trust CF-IPCountry header** in the plugin.
-- Cloudflare strips any client-supplied copies before injecting its own value.
-
-**For standalone sites (no CDN):**
-
-Scrub both headers and enable neither setting. Use the MaxMind or Deflect GeoIP database instead.
-
-```nginx
-fastcgi_param HTTP_X_COUNTRY_CODE       "";
-fastcgi_param HTTP_CF_IPCOUNTRY         "";
-fastcgi_param HTTP_X_DEFLECT_COUNTRY_CODE "";
-```
-
-The plugin trusts `GEOIP2_COUNTRY_CODE` / `GEOIP_COUNTRY_CODE` unconditionally — these are
-nginx fastcgi_params injected server-side, never forwarded from the client.
-
----
-
-## 3. Enable Redis as the WordPress object cache backend
+## 2. Enable Redis as the WordPress object cache backend
 
 Without a persistent object cache Baskerville falls back to flat files for every counter, ban
 entry, GeoIP result, and rDNS result — roughly 10–14 file reads/writes per uncached page view.
