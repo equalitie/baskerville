@@ -170,7 +170,7 @@ class Baskerville_Firewall
 			esc_html_e( 'Forbidden - Too many requests without session cookie', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'nojs-burst') === 0) {
 			esc_html_e( 'Forbidden - Too many requests without JavaScript', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'nojs-burst') === 0) {
+		} elseif (strpos($reason, 'nonbrowser-ua-burst') === 0) {
 			esc_html_e( 'Forbidden - Non-browser client rate limit exceeded', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'ai-bot') === 0) {
 			esc_html_e( 'Forbidden - AI bot detected', 'baskerville-ai-security' );
