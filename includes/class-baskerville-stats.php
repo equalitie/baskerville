@@ -264,13 +264,11 @@ class Baskerville_Stats
         }
 
         // Delete in small batches to avoid a single long-running lock on shared MySQL.
-        // Cap at 20 batches (20 000 rows) per daily cron run — any remainder cleans
-        // up in the next scheduled run.
+        // No hard cap — loop until the window is clear. Each batch yields to other queries.
         $batch_size    = 1000;
-        $max_batches   = 20;
         $deleted_total = 0;
 
-        for ( $i = 0; $i < $max_batches; $i++ ) {
+        while ( true ) {
             $deleted = $wpdb->query(
                 $wpdb->prepare(
                     "DELETE FROM " . esc_sql($table_name) . "
@@ -462,9 +460,6 @@ class Baskerville_Stats
         $cookie_id = $this->core->get_cookie_id();
         $visit_key = $this->make_visit_key($ip, $cookie_id);
         $this->current_visit_key = $visit_key;
-
-        // Prevent nginx fastcgi_cache from storing this Set-Cookie header.
-        header('X-Accel-Expires: 0');
 
         // short-lived cookie for linking with fetch/beacon
         setcookie('baskerville_visit_key', $visit_key, [

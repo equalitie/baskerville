@@ -92,17 +92,15 @@ class Baskerville_Honeypot {
 		$is_ai_bot = $this->aiua->is_ai_bot_user_agent($ua);
 		$company = $is_ai_bot ? $this->aiua->get_ai_bot_company($ua) : null;
 
-		// Verify legitimate crawlers before penalising them.
-		// Real Googlebot/Bingbot/etc. may follow honeypot links during routine crawls;
-		// banning them would break search-engine indexing.  The CIDR fast-path in
-		// verify_crawler_ip() makes this cheap when IP ranges are cached.
-		if ($is_ai_bot) {
-			$vc = $this->aiua->verify_crawler_ip($ip, $ua);
-			if (!empty($vc['verified'])) {
-				wpsec_log("Baskerville Honeypot: verified crawler $ip, skipping ban");
-				$this->render_honeypot_page();
-				exit;
-			}
+		// Verify legitimate crawlers before penalising them — unconditionally, not just for
+		// known AI bots. Googlebot, Applebot, DuckDuckBot etc. are not in is_ai_bot_user_agent()
+		// but verify_crawler_ip() knows how to check them. Only skip the ban when the crawler
+		// both claims a verifiable identity AND the IP matches the published range.
+		$vc = $this->aiua->verify_crawler_ip($ip, $ua);
+		if (!empty($vc['claimed']) && !empty($vc['verified'])) {
+			wpsec_log("Baskerville Honeypot: verified crawler $ip ($ua), skipping ban");
+			$this->render_honeypot_page();
+			exit;
 		}
 
 		// Evaluate and classify

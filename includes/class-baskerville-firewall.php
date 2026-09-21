@@ -288,9 +288,7 @@ class Baskerville_Firewall
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
 		$request_path  = parse_url($request_uri, PHP_URL_PATH) ?? $request_uri;
 		$is_turnstile_page = (
-			strpos($request_path, '/baskerville-challenge') !== false ||
-			strpos($request_path, '/baskerville-verify') !== false ||
-			strpos($request_path, '/baskerville-altcha-challenge') !== false ||
+			preg_match( '~^/baskerville-(challenge|verify|altcha-challenge)/?$~', $request_path ) ||
 			filter_has_var(INPUT_GET, 'baskerville_challenge') ||
 			filter_has_var(INPUT_GET, 'baskerville_verify') ||
 			filter_has_var(INPUT_GET, 'baskerville_altcha_challenge') ||
