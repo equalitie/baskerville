@@ -9,7 +9,7 @@ jQuery(document).ready(function($) {
 		$.ajax({
 			url: ajaxurl,
 			type: 'POST',
-			data: { action: 'baskerville_get_live_feed' },
+			data: { action: 'baskerville_get_live_feed', nonce: baskervilleAdmin.liveFeedNonce },
 			success: function(response) {
 				if (response.success && response.data) {
 					renderLiveFeed(response.data);
@@ -22,7 +22,7 @@ jQuery(document).ready(function($) {
 		$.ajax({
 			url: ajaxurl,
 			type: 'POST',
-			data: { action: 'baskerville_get_live_stats' },
+			data: { action: 'baskerville_get_live_stats', nonce: baskervilleAdmin.liveFeedNonce },
 			success: function(response) {
 				if (response.success && response.data) {
 					$('#blocks-today').text(response.data.blocks_today.toLocaleString());
@@ -160,7 +160,7 @@ jQuery(document).ready(function($) {
 				'<span class="baskerville-feed-time">' + timeAgo + '</span><br>' +
 				'<span class="baskerville-feed-score">' +
 				reasonText +
-				(event.score ? ' (' + i18n.score + ': ' + event.score + ')' : '') +
+				(event.score === -1 ? ' (' + i18n.score + ': N/A)' : (event.score ? ' (' + i18n.score + ': ' + event.score + ')' : '')) +
 				(event.block_reason ? ' | ' + i18n.banReason + ': ' + event.block_reason : '') +
 				'</span>' +
 				userAgentInfo
@@ -275,6 +275,6 @@ jQuery(document).ready(function($) {
 
 	updateLiveFeed();
 	updateLiveStats();
-	setInterval(updateLiveFeed, 10000);
-	setInterval(updateLiveStats, 10000);
+	setInterval(updateLiveFeed, 60000);
+	setInterval(updateLiveStats, 60000);
 });

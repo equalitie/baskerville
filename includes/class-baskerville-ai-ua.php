@@ -26,6 +26,7 @@ class Baskerville_AI_UA {
         'Bingbot'             => 'Microsoft',
         'CCBot'               => 'Common Crawl',
         'AmazonBot'           => 'Amazon',
+        'Applebot'            => 'Apple',
     ];
 
     /**
@@ -160,12 +161,28 @@ class Baskerville_AI_UA {
             // Mistral
             'mistralbot',            // MistralBot (index crawler)
             'mistralai-user',        // MistralAI-User
+            'mistralai-index',       // MistralAI-Index
+            'mistralai-training',    // MistralAI-Training
 
             // DeepSeek
             'deepseekbot',           // DeepSeek crawler
 
+            // xAI (Grok)
+            'xai-bot',               // xAI web crawler
+            'grok',                  // Grok (xAI)
+            'grok-deepsearch',       // Grok DeepSearch
+            'xai-web-crawler',       // xAI web crawler (alternate)
+            'xai-searchbot',         // xAI SearchBot
+
+            // Jina.ai
+            'jinabot',               // JinaBot reader/crawler
+            'jina-reader',           // Jina Reader agent
+
             // Microsoft / Bing
             'bingbot',               // Bingbot (Microsoft Copilot/AI Search)
+
+            // Apple
+            'applebot',              // Applebot (Siri, Spotlight, Apple Intelligence)
 
             // DuckDuckGo
             'duckassistbot',         // DuckAssist AI
@@ -260,12 +277,28 @@ class Baskerville_AI_UA {
             // Mistral
             'mistralbot'              => 'Mistral',
             'mistralai-user'          => 'Mistral',
+            'mistralai-index'         => 'Mistral',
+            'mistralai-training'      => 'Mistral',
 
             // DeepSeek
             'deepseekbot'             => 'DeepSeek',
 
+            // xAI (Grok)
+            'xai-bot'                 => 'xAI',
+            'grok'                    => 'xAI',
+            'grok-deepsearch'         => 'xAI',
+            'xai-web-crawler'         => 'xAI',
+            'xai-searchbot'           => 'xAI',
+
+            // Jina.ai
+            'jinabot'                 => 'Jina.ai',
+            'jina-reader'             => 'Jina.ai',
+
             // Microsoft / Bing
             'bingbot'                 => 'Microsoft',
+
+            // Apple
+            'applebot'                => 'Apple',
 
             // DuckDuckGo
             'duckassistbot'           => 'DuckDuckGo',
@@ -302,6 +335,47 @@ class Baskerville_AI_UA {
         }
 
         return esc_html__('Unknown', 'baskerville-ai-security');
+    }
+
+    /**
+     * Get the category of an AI bot user agent.
+     * Returns 'search', 'assistant', or 'training'.
+     */
+    public function get_ai_bot_category(string $user_agent): string {
+        $ua = strtolower($user_agent);
+        // AI Search
+        $search_patterns = ['oai-searchbot', 'claude-searchbot', 'perplexitybot', 'mistralai-index', 'xai-searchbot', 'google-extended', 'applebot'];
+        foreach ($search_patterns as $p) {
+            if (strpos($ua, $p) !== false) return 'search';
+        }
+        // AI Assistant
+        $assistant_patterns = ['chatgpt-user', 'claude-user', 'meta-externalfetcher', 'duckassistbot', 'perplexity-user', 'mistralai-user', 'amazonbot-live'];
+        foreach ($assistant_patterns as $p) {
+            if (strpos($ua, $p) !== false) return 'assistant';
+        }
+        // Default: training
+        return 'training';
+    }
+
+    /**
+     * Map a company name to a slug key.
+     */
+    public function get_company_key(string $company): string {
+        $map = [
+            'OpenAI' => 'openai', 'Anthropic' => 'anthropic', 'Google' => 'google',
+            'Meta' => 'meta', 'Amazon' => 'amazon', 'Perplexity' => 'perplexity',
+            'Mistral' => 'mistral', 'ByteDance' => 'bytedance', 'Common Crawl' => 'commoncrawl',
+            'Diffbot' => 'diffbot', 'xAI' => 'xai', 'Huawei' => 'huawei',
+            'Cohere' => 'cohere', 'Baidu' => 'baidu', 'Apple' => 'apple',
+        ];
+        return $map[$company] ?? strtolower(preg_replace('/[^a-z0-9]/i', '', $company));
+    }
+
+    /**
+     * Returns company keys that have IP range verification.
+     */
+    public static function get_verified_company_keys(): array {
+        return ['openai', 'anthropic', 'google', 'meta', 'amazon', 'perplexity', 'mistral', 'commoncrawl', 'apple'];
     }
 
     /**
@@ -469,9 +543,26 @@ class Baskerville_AI_UA {
      * Cached for 1 hour via fc_get/fc_set (APCu or file).
      * Returns: ['ClaudeBot' => ['1.2.3.0/24', ...], 'GPTBot' => [...], ...]
      */
+    /**
+     * Return cached AI IP ranges. Never fetches — call refresh_ai_ip_ranges() via cron instead.
+     * Returns empty array if cache is cold (cron hasn't run yet or cache was cleared).
+     */
     private function get_ai_ip_ranges(): array {
         $cached = $this->core->fc_get('ai_ip_ranges');
-        if (is_array($cached)) return $cached;
+        return is_array($cached) ? $cached : [];
+    }
+
+    /**
+     * Fetch AI IP ranges from all upstream sources and store in cache.
+     * Called exclusively from WP-Cron (baskerville_refresh_ai_ip_ranges) — never on the request path.
+     * Uses a short-TTL mutex to prevent two concurrent cron runs from both fetching.
+     */
+    public function refresh_ai_ip_ranges(): void {
+        // Mutex: bail if another process is already refreshing.
+        if ($this->core->fc_get('ai_ip_ranges_refreshing')) {
+            return;
+        }
+        $this->core->fc_set('ai_ip_ranges_refreshing', 1, 90);
 
         $sources = [
             // Anthropic
@@ -490,53 +581,52 @@ class Baskerville_AI_UA {
             // Mistral
             'MistralBot'          => 'https://mistral.ai/mistralai-index-ips.json',
             'MistralAIUser'       => 'https://mistral.ai/mistralai-user-ips.json',
+            'MistralIndex'        => 'https://mistral.ai/mistralai-index-ips.json',
+            'MistralUser'         => 'https://mistral.ai/mistralai-user-ips.json',
+            // Apple
+            'Applebot'            => 'https://search.developer.apple.com/applebot.json',
             // DuckDuckGo
-            'DuckAssistBot'       => 'https://duckduckgo.com/duckduckbot.json',
+            'DuckAssistBot'       => 'https://duckduckgo.com/duckassistbot.json',
             // Microsoft / Bing
             'Bingbot'             => 'https://www.bing.com/toolbox/bingbot.json',
             // Common Crawl
             'CCBot'               => 'https://index.commoncrawl.org/ccbot.json',
             // Amazon
             'AmazonBot'           => 'https://developer.amazon.com/amazonbot/ip-addresses/',
+            'AmazonbotTraining'   => 'https://developer.amazon.com/amazonbot/ip-addresses/',
+            'AmazonbotSearch'     => 'https://developer.amazon.com/amazonbot/searchbot-ip-addresses/',
+            'AmazonbotLive'       => 'https://developer.amazon.com/amazonbot/live-ip-addresses/',
         ];
 
-        // Keep old data on partial failure so we don't lose valid ranges
-        $existing = is_array($cached) ? $cached : [];
+        // Stale-while-revalidate: keep existing data for any source that fails.
+        $existing = $this->get_ai_ip_ranges();
         $result   = [];
 
         foreach ($sources as $name => $url) {
             $response = wp_remote_get($url, [
-                'timeout'    => 5,
+                'timeout'    => 10,
                 'user-agent' => 'BaskervillePlugin/1.0',
             ]);
             if (is_wp_error($response)) {
-                if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
-                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
-                    error_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
-                }
+                wpsec_log("[AiBotVerificator] {$name} fetch failed: " . $response->get_error_message());
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $body = wp_remote_retrieve_body($response);
             $data = json_decode($body, true);
             if (!is_array($data)) {
-                if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
-                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
-                    error_log("[AiBotVerificator] {$name}: invalid JSON");
-                }
+                wpsec_log("[AiBotVerificator] {$name}: invalid JSON");
                 $result[$name] = $existing[$name] ?? [];
                 continue;
             }
             $prefixes      = $this->parse_ai_prefixes($data);
             $result[$name] = $prefixes;
-            if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
-                // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- debug-only, gated by BASKERVILLE_DEBUG
-                error_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
-            }
+            wpsec_log("[AiBotVerificator] {$name}: loaded " . count($prefixes) . ' prefixes');
         }
 
-        $this->core->fc_set('ai_ip_ranges', $result, HOUR_IN_SECONDS);
-        return $result;
+        // Store for 25 hours — survives one missed cron run.
+        $this->core->fc_set('ai_ip_ranges', $result, 25 * HOUR_IN_SECONDS);
+        $this->core->fc_delete('ai_ip_ranges_refreshing');
     }
 
     /**
@@ -567,6 +657,27 @@ class Baskerville_AI_UA {
         $cached = $this->core->fc_get($ck);
         if (is_array($cached)) return $cached;
 
+        // Fast path: check published IP ranges before doing blocking DNS lookup.
+        // Maps UA keywords to bot names in our IP range list.
+        $range_map = [
+            'googlebot'   => ['GoogleExtended', 'GoogleSpecial', 'GoogleUserTriggered'],
+            'bingbot'     => ['Bingbot'],
+            'duckduckbot' => ['DuckAssistBot'],
+        ];
+        $ip_bot_name = $this->get_ai_bot_name_by_ip($ip);
+        if ($ip_bot_name !== '') {
+            foreach ($range_map as $ua_keyword => $bot_names) {
+                if (strpos($ua, $ua_keyword) !== false && in_array($ip_bot_name, $bot_names, true)) {
+                    // IP is in the bot's published CIDR ranges — no DNS needed.
+                    $res = ['claimed' => true, 'verified' => true, 'host' => null];
+                    $this->core->fc_set($ck, $res, 6 * 3600);
+                    return $res;
+                }
+            }
+        }
+
+        // Slow path: DNS reverse+forward verification (blocking — only reached when
+        // the IP is not in any published range, i.e. likely a spoofed UA).
         $host = gethostbyaddr($ip);
         $ok = false;
         if ($host && $host !== $ip) {
@@ -641,11 +752,15 @@ class Baskerville_AI_UA {
             $contrib[] = ['key'=>'missing_hints_chrome', 'delta'=>5, 'why'=> __( 'Missing Client Hints for Chrome-like UA', 'baskerville-ai-security' )];
         }
 
-        // Check HTTP protocol version - modern browsers use HTTP/2 or HTTP/3
+        // Check HTTP protocol version - modern browsers use HTTP/2 or HTTP/3.
+        // Skip when behind a reverse proxy: SERVER_PROTOCOL then reflects the edge→origin
+        // hop (always HTTP/1.1), not the actual client→CDN protocol (which may be HTTP/2+).
+        // Presence of X-Forwarded-For, X-Real-IP, or X-Deflect-Country-Code signals a proxy.
         $server_protocol = strtoupper($svh['server_protocol'] ?? '');
-        if (!empty($server_protocol) && preg_match('~^HTTP/1\.[01]$~', $server_protocol)) {
-            // HTTP/1.0 or HTTP/1.1 - likely a bot/script
-            // Modern browsers (Chrome, Firefox, Safari, Edge) use HTTP/2 or HTTP/3
+        $behind_proxy    = !empty($_SERVER['HTTP_X_FORWARDED_FOR'])      ||
+                           !empty($_SERVER['HTTP_X_REAL_IP'])            ||
+                           !empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE']);
+        if (!$behind_proxy && !empty($server_protocol) && preg_match('~^HTTP/1\.[01]$~', $server_protocol)) {
             $score += 15;
             $reasons[] = __( 'Using HTTP/1.x (modern browsers use HTTP/2+)', 'baskerville-ai-security' );
             $contrib[] = ['key'=>'http1_protocol', 'delta'=>15, 'why'=> __( 'Using HTTP/1.x instead of HTTP/2+', 'baskerville-ai-security' )];
@@ -858,7 +973,7 @@ class Baskerville_AI_UA {
         // We never fetch IP ranges for normal requests — only when UA already claims to be an AI bot.
         if ($this->is_ai_bot_user_agent($user_agent)) {
             $company   = $this->get_ai_bot_company($user_agent);
-            $ai_ranges = $this->get_ai_ip_ranges(); // cached; HTTP only on hourly cache miss
+            $ai_ranges = $this->get_ai_ip_ranges(); // cache-only; refreshed by hourly cron
 
             // Check if the IP actually belongs to this company's published ranges
             $ip_bot_name = '';

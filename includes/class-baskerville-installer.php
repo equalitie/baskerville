@@ -93,6 +93,13 @@ class Baskerville_Installer {
 			wp_schedule_event(time(), 'baskerville_weekly', 'baskerville_update_deflect_geoip');
 		}
 
+		// Cron for hourly AI bot IP ranges refresh (offloaded from request path)
+		if (!wp_next_scheduled('baskerville_refresh_ai_ip_ranges')) {
+			wp_schedule_event(time(), 'hourly', 'baskerville_refresh_ai_ip_ranges');
+		}
+		// Populate cache immediately on activation (runs on next page load via WP-Cron)
+		wp_schedule_single_event(time(), 'baskerville_refresh_ai_ip_ranges');
+
 		// Cron for Baskerville Cloud LLM incident analysis + snapshot saving (every 5 min)
 		if (!wp_next_scheduled('baskerville_cloud_analyze')) {
 			wp_schedule_event(time(), 'baskerville_5min', 'baskerville_cloud_analyze');
@@ -108,8 +115,15 @@ class Baskerville_Installer {
 			wp_schedule_event(time(), 'daily', 'baskerville_cleanup_snapshots');
 		}
 
-		// Download Deflect GeoIP database on activation
-		self::install_deflect_geoip();
+		// Do NOT download GeoIP on activation — the var_export() of the 88 MB ASN array
+		// requires 300-400 MB RAM and kills activation on memory-constrained servers.
+		// An admin notice with a download button is shown until the database is installed.
+
+		// Auto-detect CDN and configure trust settings accordingly.
+		self::maybe_autodetect_cdn();
+
+		// Reset CDN notice so it re-appears after each activation.
+		delete_option('baskerville_cdn_notice_shown');
 
 		// Rebuild rewrite rules (in case there are custom endpoints/rewriting)
 		flush_rewrite_rules();
@@ -173,6 +187,46 @@ class Baskerville_Installer {
 	}
 
 	/**
+	 * Detect which CDN is in front of this site based on request headers.
+	 * Called during activation (where the admin browser request passes through the CDN).
+	 *
+	 * @return array ['cloudflare' => bool, 'deflect' => bool]
+	 */
+	public static function detect_cdn() {
+		$cloudflare = !empty($_SERVER['HTTP_CF_RAY'])          // Cloudflare Ray-ID — most reliable signal
+		           || !empty($_SERVER['HTTP_CF_IPCOUNTRY'])    // CF-IPCountry injected by Cloudflare
+		           || !empty($_SERVER['HTTP_CF_CONNECTING_IP']);// CF-Connecting-IP
+
+		$deflect    = !empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])
+		           || !empty($_SERVER['HTTP_X_DEFLECT_BACKEND'])
+		           || !empty($_SERVER['HTTP_X_DEFLECT']);
+
+		return [ 'cloudflare' => $cloudflare, 'deflect' => $deflect ];
+	}
+
+	/**
+	 * Detect CDN, update trust settings, and store a transient for the admin notice.
+	 * Always runs on activation — overwrites trust settings based on current detection
+	 * so that upgrades from older versions are handled correctly even if sanitize_settings()
+	 * had previously written a default false value.
+	 */
+	public static function maybe_autodetect_cdn() {
+		$cdn      = self::detect_cdn();
+		$detected = array();
+
+		if ($cdn['cloudflare']) $detected[] = 'cloudflare';
+		if ($cdn['deflect'])    $detected[] = 'deflect';
+
+		// Nothing detected — nothing to do.
+		if (empty($detected)) return;
+
+		$settings = get_option('baskerville_settings', array());
+		$settings['trust_cf_ipcountry']    = $cdn['cloudflare'];
+		$settings['trust_deflect_country'] = $cdn['deflect'];
+		update_option('baskerville_settings', $settings);
+	}
+
+	/**
 	 * Called upon plugin deactivation.
 	 */
 	public static function deactivate() {
@@ -182,6 +236,7 @@ class Baskerville_Installer {
 		wp_clear_scheduled_hook('baskerville_process_log_files');
 		wp_clear_scheduled_hook('baskerville_cleanup_log_files');
 		wp_clear_scheduled_hook('baskerville_update_deflect_geoip');
+		wp_clear_scheduled_hook('baskerville_refresh_ai_ip_ranges');
 		wp_clear_scheduled_hook('baskerville_cloud_analyze');
 		wp_clear_scheduled_hook('baskerville_daily_rollup');
 		wp_clear_scheduled_hook('baskerville_cleanup_snapshots');

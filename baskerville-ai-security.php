@@ -3,7 +3,7 @@
  * Plugin Name: Baskerville AI Security
  * Plugin URI: https://wordpress.org/plugins/baskerville-ai-security/
  * Description: Advanced WordPress security plugin with AI bot detection, GeoIP access control, and Cloudflare Turnstile integration.
- * Version: 1.0.5
+ * Version: 1.0.6
  * Requires at least: 6.4
  * Requires PHP: 7.4
  * Author: eQualitie
@@ -15,7 +15,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BASKERVILLE_VERSION', '1.0.5');
+define('BASKERVILLE_VERSION', '1.0.6');
 define('BASKERVILLE_PLUGIN_FILE', __FILE__);
 define('BASKERVILLE_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('BASKERVILLE_PLUGIN_URL',  plugin_dir_url(__FILE__));
@@ -171,6 +171,9 @@ add_action('plugins_loaded', function () {
 	// periodic old log file cleanup
 	add_action('baskerville_cleanup_log_files', [$stats, 'cleanup_old_log_files']);
 
+	// hourly refresh of AI bot IP ranges (offloaded from request path to prevent thundering herd)
+	add_action('baskerville_refresh_ai_ip_ranges', [$aiua, 'refresh_ai_ip_ranges']);
+
 	// periodic Deflect GeoIP database update (weekly)
 	add_action('baskerville_update_deflect_geoip', function() {
 		try {
@@ -201,3 +204,11 @@ add_action('plugins_loaded', function () {
 // activation/deactivation
 register_activation_hook(__FILE__,   ['Baskerville_Installer', 'activate']);
 register_deactivation_hook(__FILE__, ['Baskerville_Installer', 'deactivate']);
+
+// Set a transient when THIS plugin is activated so the admin notice fires once on the next page load.
+// This runs inside the activation request (WP includes the plugin file before firing activated_plugin).
+add_action('activated_plugin', function( $plugin ) {
+	if ( plugin_basename( BASKERVILLE_PLUGIN_FILE ) === $plugin ) {
+		set_transient( 'baskerville_cdn_notice_pending', 1, HOUR_IN_SECONDS );
+	}
+});

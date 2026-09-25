@@ -28,6 +28,15 @@ class Baskerville_Admin {
 		add_action('wp_ajax_baskerville_clear_pass_cache', array($this, 'ajax_clear_pass_cache'));
 		add_action('wp_ajax_baskerville_run_watchdog', array($this, 'ajax_run_watchdog'));
 		add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+		add_action('wp_ajax_baskerville_dismiss_cdn_notice', array($this, 'ajax_dismiss_cdn_notice'));
+	}
+
+	public function ajax_dismiss_cdn_notice() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( 'unauthorized' );
+		}
+		update_user_meta( get_current_user_id(), 'baskerville_cdn_notice_dismissed', 1 );
+		wp_send_json_success();
 	}
 
 	public function enqueue_admin_scripts($hook) {
@@ -59,6 +68,7 @@ class Baskerville_Admin {
 			'clearGeoipCacheNonce' => wp_create_nonce('baskerville_clear_geoip_cache'),
 			'ipLookupNonce'        => wp_create_nonce('baskerville_ip_lookup'),
 			'benchmarkNonce'       => wp_create_nonce('baskerville_benchmark'),
+			'liveFeedNonce'        => wp_create_nonce('baskerville_live_feed'),
 			'i18n' => array(
 				// Import logs
 				'importing'     => __( 'Importing...', 'baskerville-ai-security' ),
@@ -200,16 +210,124 @@ class Baskerville_Admin {
 	 * Show activation notices (e.g., Deflect GeoIP download result)
 	 */
 	public function show_activation_notices() {
-		// Check for Deflect GeoIP activation result
+		if (!current_user_can('manage_options')) {
+			return;
+		}
+
+		// Show a download button if GeoIP database file is missing AND no header-based
+		// GeoIP source is present (Deflect CDN, nginx GeoIP module, Cloudflare).
+		// If any header source is active, country detection works without the database file.
+		$upload_dir = wp_upload_dir();
+		$geoip_file = trailingslashit($upload_dir['basedir']) . 'baskerville-geoip/countrydb.php';
+		$has_db     = file_exists($geoip_file) && filesize($geoip_file) > 0;
+		$options_check = get_option('baskerville_settings', array());
+		$has_header = !empty($_SERVER['GEOIP2_COUNTRY_CODE']) ||
+		              !empty($_SERVER['GEOIP_COUNTRY_CODE'])  ||
+		              // Deflect and CF-IPCountry count only when explicitly enabled
+		              (!empty($options_check['trust_deflect_country']) && !empty($_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'])) ||
+		              (!empty($options_check['trust_cf_ipcountry'])    && !empty($_SERVER['HTTP_CF_IPCOUNTRY']));
+		$geoip_missing = !$has_db && !$has_header;
+
+		if ($geoip_missing) {
+			$nonce = wp_create_nonce('baskerville_update_deflect_geoip');
+			?>
+			<div class="notice notice-warning" id="baskerville-geoip-notice">
+				<p>
+					<strong><?php esc_html_e('Baskerville:', 'baskerville-ai-security'); ?></strong>
+					<?php esc_html_e('GeoIP database is not installed — country blocking and ASN detection are disabled.', 'baskerville-ai-security'); ?>
+				</p>
+				<p>
+					<button type="button" class="button button-primary" id="baskerville-install-geoip-btn"
+							data-nonce="<?php echo esc_attr($nonce); ?>">
+						<?php esc_html_e('Finish setup: Download GeoIP Database', 'baskerville-ai-security'); ?>
+					</button>
+					<span id="baskerville-install-geoip-status" style="margin-left:10px;display:inline-block;"></span>
+				</p>
+			</div>
+			<script>
+			jQuery(function($) {
+				$('#baskerville-install-geoip-btn').on('click', function() {
+					var $btn    = $(this);
+					var $status = $('#baskerville-install-geoip-status');
+					$btn.prop('disabled', true).text(<?php echo wp_json_encode(__('Downloading… this may take a minute', 'baskerville-ai-security')); ?>);
+					$status.text('');
+					$.post(ajaxurl, { action: 'baskerville_update_deflect_geoip', nonce: $btn.data('nonce'), force: 'true' })
+						.done(function(response) {
+							if (response.success) {
+								$('#baskerville-geoip-notice').fadeOut(400, function() { $(this).remove(); });
+							} else {
+								var msg = (response.data && response.data.message) ? response.data.message : <?php echo wp_json_encode(__('Download failed. Please try again.', 'baskerville-ai-security')); ?>;
+								$btn.prop('disabled', false).text(<?php echo wp_json_encode(__('Retry Download', 'baskerville-ai-security')); ?>);
+								$status.css('color', '#d63638').text(msg);
+							}
+						})
+						.fail(function() {
+							$btn.prop('disabled', false).text(<?php echo wp_json_encode(__('Retry Download', 'baskerville-ai-security')); ?>);
+							$status.css('color', '#d63638').text(<?php echo wp_json_encode(__('Request failed. Please try again.', 'baskerville-ai-security')); ?>);
+						});
+				});
+			});
+			</script>
+			<?php
+		}
+
+		// CDN auto-detection notice.
+		// On plugins.php?activate=true: store CF/Deflect detection in an option and reset per-user dismissed flag.
+		// On any subsequent admin page: show once per user, mark as seen immediately (no AJAX needed).
+		if ( ! empty( $_GET['activate'] ) ) {
+			$opts       = get_option( 'baskerville_settings', array() );
+			$cf_active  = ! empty( $opts['trust_cf_ipcountry'] ) && (
+				! empty( $_SERVER['HTTP_CF_RAY'] ) ||
+				! empty( $_SERVER['HTTP_CF_IPCOUNTRY'] ) ||
+				! empty( $_SERVER['HTTP_CF_CONNECTING_IP'] )
+			);
+			$def_active = ! empty( $opts['trust_deflect_country'] ) && ! empty( $_SERVER['HTTP_X_DEFLECT_COUNTRY_CODE'] );
+			if ( $cf_active || $def_active ) {
+				$labels = array();
+				if ( $cf_active )  $labels[] = 'cloudflare';
+				if ( $def_active ) $labels[] = 'deflect';
+				update_option( 'baskerville_cdn_notice_pending', $labels, false );
+				// Reset dismissed flag so the notice re-appears after each activation.
+				delete_user_meta( get_current_user_id(), 'baskerville_cdn_notice_dismissed' );
+			}
+		} else {
+			$cdn_pending = get_option( 'baskerville_cdn_notice_pending' );
+			$user_id     = get_current_user_id();
+			$dismissed   = get_user_meta( $user_id, 'baskerville_cdn_notice_dismissed', true );
+
+			if ( $cdn_pending && ! $dismissed ) {
+				$cdn_labels = array();
+				if ( in_array( 'cloudflare', $cdn_pending, true ) ) $cdn_labels[] = '<strong>Cloudflare</strong>';
+				if ( in_array( 'deflect',    $cdn_pending, true ) ) $cdn_labels[] = '<strong>Deflect CDN</strong>';
+				$cdn_string = wp_kses( implode( ' and ', $cdn_labels ), array( 'strong' => array() ) );
+				printf(
+					'<div class="notice notice-info is-dismissible baskerville-cdn-notice"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> ' .
+					/* translators: %s: CDN name(s) */
+					esc_html__( 'Detected %s — automatically enabled country detection from its header. If this is incorrect, disable the setting in Country Control.', 'baskerville-ai-security' ) . '</p></div>',
+					$cdn_string
+				);
+				?>
+				<script>
+				jQuery(function($) {
+					$(document).on('click', '.baskerville-cdn-notice .notice-dismiss', function() {
+						$.post(ajaxurl, { action: 'baskerville_dismiss_cdn_notice' });
+					});
+				});
+				</script>
+				<?php
+			}
+		}
+
+		// Show result of a manual or cron-triggered GeoIP download.
 		$result = get_transient('baskerville_deflect_geoip_activation_result');
 		if ($result) {
 			delete_transient('baskerville_deflect_geoip_activation_result');
 
-			$class = $result['success'] ? 'notice-success' : 'notice-error';
+			$class   = $result['success'] ? 'notice-success' : 'notice-error';
 			$message = $result['message'] ?? __('Unknown result', 'baskerville-ai-security');
 
 			printf(
-				'<div class="notice %s is-dismissible"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> %s</p></div>',
+				'<div class="notice %s is-dismissible"><p><strong>' . esc_html__('Baskerville:', 'baskerville-ai-security') . '</strong> %s</p></div>',
 				esc_attr($class),
 				esc_html($message)
 			);
@@ -602,10 +720,26 @@ class Baskerville_Admin {
 			'baskerville_country_control_section'
 		);
 
+		add_settings_field(
+			'trust_deflect_country',
+			esc_html__('Deflect X-Country-Code', 'baskerville-ai-security'),
+			array($this, 'render_trust_deflect_country_field'),
+			'baskerville-country-control',
+			'baskerville_country_control_section'
+		);
+
+		add_settings_field(
+			'trust_cf_ipcountry',
+			esc_html__('Cloudflare CF-IPCountry', 'baskerville-ai-security'),
+			array($this, 'render_trust_cf_ipcountry_field'),
+			'baskerville-country-control',
+			'baskerville_country_control_section'
+		);
+
 		// ===== AI Bot Control Tab =====
 		add_settings_section(
 			'baskerville_ai_bot_control_section',
-			esc_html__('AI Bot Access Control', 'baskerville-ai-security'),
+			'',
 			array($this, 'render_ai_bot_control_section'),
 			'baskerville-ai-bot-control'
 		);
@@ -613,25 +747,9 @@ class Baskerville_Admin {
 		// ai_bot_control_enabled - now rendered manually at top of form
 
 		add_settings_field(
-			'ai_bot_blocking_mode',
-			esc_html__('AI Bot Access Mode', 'baskerville-ai-security'),
-			array($this, 'render_ai_bot_mode_field'),
-			'baskerville-ai-bot-control',
-			'baskerville_ai_bot_control_section'
-		);
-
-		add_settings_field(
-			'blacklist_ai_companies',
-			esc_html__('Block List Companies', 'baskerville-ai-security'),
-			array($this, 'render_blacklist_ai_companies_field'),
-			'baskerville-ai-bot-control',
-			'baskerville_ai_bot_control_section'
-		);
-
-		add_settings_field(
-			'whitelist_ai_companies',
-			esc_html__('Allow List Companies', 'baskerville-ai-security'),
-			array($this, 'render_whitelist_ai_companies_field'),
+			'ai_bot_companies',
+			'',
+			array($this, 'render_ai_bot_companies_field'),
 			'baskerville-ai-bot-control',
 			'baskerville_ai_bot_control_section'
 		);
@@ -752,32 +870,33 @@ class Baskerville_Admin {
 			$sanitized['banned_countries'] = $countries;
 		}
 
-		// AI Bot blocking mode
+		// AI Bot blocking mode (kept for backward compat during migration)
 		if (isset($input['ai_bot_blocking_mode'])) {
 			$mode = sanitize_text_field($input['ai_bot_blocking_mode']);
 			$sanitized['ai_bot_blocking_mode'] = in_array($mode, array('blacklist', 'whitelist', 'allow_all', 'block_all')) ? $mode : 'allow_all';
 		}
 
-		// Blacklist AI companies
-		if (isset($input['blacklist_ai_companies'])) {
-			if (is_array($input['blacklist_ai_companies'])) {
-				$companies = array_map('sanitize_text_field', $input['blacklist_ai_companies']);
-				$sanitized['blacklist_ai_companies'] = implode(',', $companies);
-			} else {
-				$companies = sanitize_text_field($input['blacklist_ai_companies']);
-				$sanitized['blacklist_ai_companies'] = trim($companies);
-			}
+		// Blacklist AI companies (kept for backward compat during migration)
+		if (isset($input['blacklist_ai_companies']) && !is_array($input['blacklist_ai_companies'])) {
+			$companies = sanitize_text_field($input['blacklist_ai_companies']);
+			$sanitized['blacklist_ai_companies'] = trim($companies);
 		}
 
-		// Whitelist AI companies
-		if (isset($input['whitelist_ai_companies'])) {
-			if (is_array($input['whitelist_ai_companies'])) {
-				$companies = array_map('sanitize_text_field', $input['whitelist_ai_companies']);
-				$sanitized['whitelist_ai_companies'] = implode(',', $companies);
+		// Whitelist AI companies (kept for backward compat during migration)
+		if (isset($input['whitelist_ai_companies']) && !is_array($input['whitelist_ai_companies'])) {
+			$companies = sanitize_text_field($input['whitelist_ai_companies']);
+			$sanitized['whitelist_ai_companies'] = trim($companies);
+		}
+
+		// Per-company blocking (new system)
+		if (isset($input['ai_blocked_companies']) || isset($input['ai_bot_control_tab'])) {
+			if (isset($input['ai_blocked_companies']) && is_array($input['ai_blocked_companies'])) {
+				$keys = array_map('sanitize_key', $input['ai_blocked_companies']);
+				$sanitized['ai_blocked_companies'] = implode(',', array_filter($keys));
 			} else {
-				$companies = sanitize_text_field($input['whitelist_ai_companies']);
-				$sanitized['whitelist_ai_companies'] = trim($companies);
+				$sanitized['ai_blocked_companies'] = isset($existing['ai_blocked_companies']) ? $existing['ai_blocked_companies'] : '';
 			}
+			$sanitized['ai_block_unknown'] = isset($input['ai_block_unknown']) ? (bool)$input['ai_block_unknown'] : (isset($existing['ai_block_unknown']) ? $existing['ai_block_unknown'] : true);
 		}
 
 		// Honeypot settings - if AI bot control tab submitted, unchecked = false; otherwise preserve existing
@@ -880,6 +999,21 @@ class Baskerville_Admin {
 
 		// Flush rewrite rules when settings are saved (for honeypot route)
 		flush_rewrite_rules();
+
+		// Remote-controlled blocking opt-in (set from Cloud settings section).
+		$sanitized['cloud_remote_blocks'] = isset($input['cloud_remote_blocks'])
+			? (bool) $input['cloud_remote_blocks']
+			: (isset($existing['cloud_remote_blocks']) ? $existing['cloud_remote_blocks'] : true);
+
+		// Trust Deflect X-Deflect-Country-Code header (only enable when this site is behind Deflect).
+		$sanitized['trust_deflect_country'] = isset($input['trust_deflect_country'])
+			? (bool) $input['trust_deflect_country']
+			: (isset($existing['trust_deflect_country']) ? $existing['trust_deflect_country'] : false);
+
+		// Trust Cloudflare CF-IPCountry header (only enable when this site is behind Cloudflare).
+		$sanitized['trust_cf_ipcountry'] = isset($input['trust_cf_ipcountry'])
+			? (bool) $input['trust_cf_ipcountry']
+			: (isset($existing['trust_cf_ipcountry']) ? $existing['trust_cf_ipcountry'] : false);
 
 		// Merge with existing settings to preserve values not in current form
 		return array_merge($existing, $sanitized);
@@ -1071,6 +1205,38 @@ class Baskerville_Admin {
 		<?php
 	}
 
+	public function render_trust_deflect_country_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['trust_deflect_country']) ? $options['trust_deflect_country'] : false;
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[trust_deflect_country]" value="0">
+			<input type="checkbox" name="baskerville_settings[trust_deflect_country]" value="1" <?php checked($enabled, true); ?> />
+			<?php esc_html_e('Trust the X-Deflect-Country-Code header set by Deflect CDN', 'baskerville-ai-security'); ?>
+		</label>
+		<p class="description">
+			<?php esc_html_e('Enable only if this site is behind eQualitie Deflect CDN. When enabled, Baskerville reads the visitor country from the X-Deflect-Country-Code header that Deflect edge nodes inject.', 'baskerville-ai-security'); ?>
+			<br><strong class="baskerville-text-warning"><?php esc_html_e('Do not enable if this site is NOT behind Deflect — the header can be spoofed by clients.', 'baskerville-ai-security'); ?></strong>
+		</p>
+		<?php
+	}
+
+	public function render_trust_cf_ipcountry_field() {
+		$options = get_option('baskerville_settings', array());
+		$enabled = isset($options['trust_cf_ipcountry']) ? $options['trust_cf_ipcountry'] : false;
+		?>
+		<label>
+			<input type="hidden" name="baskerville_settings[trust_cf_ipcountry]" value="0">
+			<input type="checkbox" name="baskerville_settings[trust_cf_ipcountry]" value="1" <?php checked($enabled, true); ?> />
+			<?php esc_html_e('Trust the CF-IPCountry header set by Cloudflare', 'baskerville-ai-security'); ?>
+		</label>
+		<p class="description">
+			<?php esc_html_e('Enable only if this site is behind Cloudflare (orange cloud). When enabled, Baskerville reads the visitor country from the CF-IPCountry header Cloudflare injects. Cloudflare strips any client-supplied copies of this header, so it is trustworthy when you are behind Cloudflare.', 'baskerville-ai-security'); ?>
+			<br><strong class="baskerville-text-warning"><?php esc_html_e('Do not enable if this site is NOT behind Cloudflare — the header can be spoofed by clients.', 'baskerville-ai-security'); ?></strong>
+		</p>
+		<?php
+	}
+
 	/* ===== New Enable/Disable Field Renderers ===== */
 
 	public function render_bot_protection_enabled_field() {
@@ -1167,6 +1333,8 @@ class Baskerville_Admin {
 	}
 
 	private function render_cloud_settings_section() {
+		$options = get_option( 'baskerville_settings', [] );
+		$remote_blocks_enabled = !empty( $options['cloud_remote_blocks'] );
 		?>
 		<h2><?php esc_html_e( 'Baskerville Cloud', 'baskerville-ai-security' ); ?></h2>
 		<p class="description">
@@ -1178,6 +1346,32 @@ class Baskerville_Admin {
 			do_settings_sections( 'baskerville-cloud-settings' );
 			submit_button( __( 'Save Cloud Settings', 'baskerville-ai-security' ) );
 			?>
+		</form>
+
+		<h3><?php esc_html_e( 'Remote-Controlled Blocking', 'baskerville-ai-security' ); ?></h3>
+		<p class="description">
+			<?php esc_html_e( 'When the Cloud API detects an active attack, it can send temporary block rules (by country, ASN, or User-Agent) that the firewall enforces immediately — without waiting for the next cron cycle. These rules expire automatically (default TTL: 2 hours).', 'baskerville-ai-security' ); ?>
+		</p>
+		<p class="description" style="margin-top:6px;">
+			<strong><?php esc_html_e( 'This means an API response from api.baskerville.ai can 403 your visitors.', 'baskerville-ai-security' ); ?></strong>
+			<?php esc_html_e( 'Enable only if you trust the Cloud API to issue blocking decisions for this site.', 'baskerville-ai-security' ); ?>
+		</p>
+		<form method="post" action="options.php">
+			<?php settings_fields( 'baskerville_settings_group' ); ?>
+			<input type="hidden" name="baskerville_settings[_preserve]" value="1">
+			<table class="form-table">
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Allow remote block rules', 'baskerville-ai-security' ); ?></th>
+					<td>
+						<label>
+							<input type="hidden"   name="baskerville_settings[cloud_remote_blocks]" value="0">
+							<input type="checkbox" name="baskerville_settings[cloud_remote_blocks]" value="1" <?php checked( $remote_blocks_enabled ); ?>>
+							<?php esc_html_e( 'Let the Cloud API apply temporary country/ASN/UA blocks on this site', 'baskerville-ai-security' ); ?>
+						</label>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button( __( 'Save', 'baskerville-ai-security' ) ); ?>
 		</form>
 		<?php
 	}
@@ -1215,125 +1409,267 @@ class Baskerville_Admin {
 	}
 
 	public function render_ai_bot_control_section() {
-		?>
-		<p><?php esc_html_e('Control access from AI bot crawlers based on their company ownership.', 'baskerville-ai-security'); ?></p>
-		<?php
 	}
 
-	public function render_ai_bot_mode_field() {
-		$options = get_option('baskerville_settings', array());
-		$mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
-		?>
-		<fieldset>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="allow_all"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'allow_all'); ?> />
-				<strong><?php esc_html_e('Allow All AI Bots', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('No AI bot restrictions (allow all companies)', 'baskerville-ai-security'); ?>
-			</label>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="block_all"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'block_all'); ?> />
-				<strong class="baskerville-text-danger"><?php esc_html_e('Block All AI Bots', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('Block all AI bot crawlers (no exceptions)', 'baskerville-ai-security'); ?>
-			</label>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="blacklist"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'blacklist'); ?> />
-				<strong><?php esc_html_e('Block List', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('Block access from specified companies', 'baskerville-ai-security'); ?>
-			</label>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="whitelist"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'whitelist'); ?> />
-				<strong><?php esc_html_e('Allow List', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('Allow access ONLY from specified companies', 'baskerville-ai-security'); ?>
-			</label>
-		</fieldset>
-		<p class="description">
-			<?php esc_html_e('Choose whether to allow all AI bots, block all AI bots, block specific companies, or allow only specific companies.', 'baskerville-ai-security'); ?>
-		</p>
-
-		<?php
+	/**
+	 * Per-company flat data. Each company has up to three category slots.
+	 * null = this company has no verified bot in that category.
+	 */
+	private function get_ai_bot_companies_data(): array {
+		// [ name, training => [key, ua] | null, search => [...] | null, assistant => [...] | null ]
+		return [
+			['name' => 'OpenAI',
+				'training'  => ['key' => 'openai_training',      'ua' => 'GPTBot'],
+				'search'    => ['key' => 'openai_search',        'ua' => 'OAI-SearchBot'],
+				'assistant' => ['key' => 'openai_assistant',     'ua' => 'ChatGPT-User'],
+			],
+			['name' => 'Anthropic',
+				'training'  => ['key' => 'anthropic_training',   'ua' => 'ClaudeBot'],
+				'search'    => ['key' => 'anthropic_search',     'ua' => 'Claude-SearchBot'],
+				'assistant' => ['key' => 'anthropic_assistant',  'ua' => 'Claude-User'],
+			],
+			['name' => 'Meta',
+				'training'  => ['key' => 'meta_training',        'ua' => 'meta-externalagent'],
+				'search'    => null,
+				'assistant' => ['key' => 'meta_assistant',       'ua' => 'meta-externalfetcher'],
+			],
+			['name' => 'Google AI',
+				'training'  => ['key' => 'google_training',      'ua' => 'Google-Extended, Google-CloudVertexBot'],
+				'search'    => null,
+				'assistant' => null,
+			],
+			['name' => 'Amazon',
+				'training'  => ['key' => 'amazon_training',      'ua' => 'Amazonbot'],
+				'search'    => ['key' => 'amazon_search',        'ua' => 'Amazonbot (search)'],
+				'assistant' => ['key' => 'amazon_assistant',     'ua' => 'Amazonbot (live)'],
+			],
+			['name' => 'Common Crawl',
+				'training'  => ['key' => 'commoncrawl_training', 'ua' => 'CCBot'],
+				'search'    => null,
+				'assistant' => null,
+			],
+			['name' => 'Apple',
+				'training'  => null,
+				'search'    => ['key' => 'apple_search',         'ua' => 'Applebot'],
+				'assistant' => null,
+			],
+			['name' => 'Perplexity',
+				'training'  => null,
+				'search'    => ['key' => 'perplexity_search',    'ua' => 'PerplexityBot'],
+				'assistant' => ['key' => 'perplexity_assistant', 'ua' => 'Perplexity-User'],
+			],
+			['name' => 'Mistral',
+				'training'  => null,
+				'search'    => ['key' => 'mistral_search',       'ua' => 'MistralAI-Index'],
+				'assistant' => ['key' => 'mistral_assistant',    'ua' => 'MistralAI-User'],
+			],
+			['name' => 'DuckDuckGo',
+				'training'  => null,
+				'search'    => null,
+				'assistant' => ['key' => 'duckduckgo_assistant', 'ua' => 'DuckAssistBot'],
+			],
+		];
 	}
 
-	public function render_blacklist_ai_companies_field() {
-		$options = get_option('baskerville_settings', array());
-		$blacklist_companies = isset($options['blacklist_ai_companies']) ? $options['blacklist_ai_companies'] : '';
+	public function render_ai_bot_companies_field() {
+		$options       = get_option('baskerville_settings', []);
+		$blocked_raw   = isset($options['ai_blocked_companies']) ? $options['ai_blocked_companies'] : '';
+		$block_unknown = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
+		$blocked_keys  = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
 
-		// Parse selected companies from comma-separated string
-		$selected_companies = array();
-		if (!empty($blacklist_companies)) {
-			$selected_companies = array_map('trim', explode(',', $blacklist_companies));
+		// Default: all verified companies blocked (all categories)
+		$all_keys = [
+			'openai_training','openai_search','openai_assistant',
+			'anthropic_training','anthropic_search','anthropic_assistant',
+			'meta_training','meta_assistant',
+			'google_training',
+			'amazon_training','amazon_search','amazon_assistant',
+			'commoncrawl_training',
+			'apple_search',
+			'perplexity_search','perplexity_assistant',
+			'mistral_search','mistral_assistant',
+			'duckduckgo_assistant',
+		];
+		if (empty($blocked_raw) && !isset($options['ai_blocked_companies'])) {
+			$blocked_keys = $all_keys;
 		}
 
-		// Get list of known AI bot companies
-		$companies = $this->get_ai_companies_list();
+		$companies  = $this->get_ai_bot_companies_data();
+		$categories = ['training', 'search', 'assistant'];
+		$cat_labels = [
+			'training'  => __('AI Training',  'baskerville-ai-security'),
+			'search'    => __('AI Search',     'baskerville-ai-security'),
+			'assistant' => __('AI Assistant',  'baskerville-ai-security'),
+		];
+		$cat_descs = [
+			'training'  => __('Trains AI models on your content', 'baskerville-ai-security'),
+			'search'    => __('Indexes your content to answer questions', 'baskerville-ai-security'),
+			'assistant' => __('Acts in real-time on behalf of a user', 'baskerville-ai-security'),
+		];
+
+		// Collect keys per category for Block All / Allow All
+		$cat_keys = ['training' => [], 'search' => [], 'assistant' => []];
+		foreach ($companies as $row) {
+			foreach ($categories as $cat) {
+				if (!empty($row[$cat]['key'])) {
+					$cat_keys[$cat][] = $row[$cat]['key'];
+				}
+			}
+		}
+
+		$th_green = 'background:var(--bsk-color-success-bg-light); border-bottom:2px solid var(--bsk-color-success); padding:8px 10px; text-align:left; white-space:nowrap;';
 		?>
-		<div>
-			<select name="baskerville_settings[blacklist_ai_companies][]"
-					id="baskerville_blacklist_ai_companies"
-					class="baskerville-aibot-select baskerville-input-full"
-					multiple="multiple">
-				<?php foreach ($companies as $company): ?>
-					<option value="<?php echo esc_attr($company); ?>"
-							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
-						<?php echo esc_html($company); ?>
-					</option>
-				<?php endforeach; ?>
-			</select>
-			<p class="description">
-				<strong class="baskerville-text-danger"><?php esc_html_e('Block access from these AI bot companies', 'baskerville-ai-security'); ?></strong><br>
-				<?php esc_html_e('Search and select companies to block. You can select multiple companies.', 'baskerville-ai-security'); ?><br>
-				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville-ai-security'); ?></em>
+		<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
+
+		<table class="wp-list-table widefat fixed" style="table-layout:fixed; margin-bottom:24px;">
+			<colgroup>
+				<col style="width:140px;">
+				<col style="width:120px;">
+				<col style="width:120px;">
+				<col style="width:120px;">
+			</colgroup>
+			<thead>
+				<tr>
+					<th style="padding:8px 10px;"><?php esc_html_e('Company', 'baskerville-ai-security'); ?></th>
+					<?php foreach ($categories as $cat): ?>
+					<th style="<?php echo esc_attr($th_green); ?>">
+						<div style="font-weight:600;"><?php echo esc_html($cat_labels[$cat]); ?></div>
+						<div style="font-size:11px; font-weight:400; color:#555; margin-top:2px;"><?php echo esc_html($cat_descs[$cat]); ?></div>
+						<div style="margin-top:6px; display:flex; gap:4px;">
+							<button type="button" class="button button-small baskerville-cat-block-all"
+									data-cat="<?php echo esc_attr($cat); ?>">
+								<?php esc_html_e('Block All', 'baskerville-ai-security'); ?>
+							</button>
+							<button type="button" class="button button-small baskerville-cat-allow-all"
+									data-cat="<?php echo esc_attr($cat); ?>">
+								<?php esc_html_e('None', 'baskerville-ai-security'); ?>
+							</button>
+						</div>
+					</th>
+					<?php endforeach; ?>
+				</tr>
+			</thead>
+			<tbody>
+			<?php foreach ($companies as $row): ?>
+				<tr>
+					<td><strong><?php echo esc_html($row['name']); ?></strong></td>
+					<?php foreach ($categories as $cat):
+						$slot = $row[$cat] ?? null;
+					?>
+					<td style="padding:8px 10px;">
+						<?php if ($slot):
+							$is_blocked = in_array($slot['key'], $blocked_keys, true);
+						?>
+							<div style="display:flex; align-items:center; gap:8px;">
+								<label class="bsk-aib-toggle" style="position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0;">
+									<input type="checkbox"
+										   name="baskerville_settings[ai_blocked_companies][]"
+										   value="<?php echo esc_attr($slot['key']); ?>"
+										   class="baskerville-company-checkbox"
+										   data-cat="<?php echo esc_attr($cat); ?>"
+										   style="opacity:0; width:0; height:0; position:absolute;"
+										   <?php checked($is_blocked); ?>>
+									<span class="bsk-aib-slider" style="position:absolute; cursor:pointer; inset:0; border-radius:20px; transition:.3s; background:<?php echo $is_blocked ? 'var(--bsk-color-success)' : '#ccc'; ?>;"></span>
+									<span class="bsk-aib-knob" style="position:absolute; content:''; height:14px; width:14px; left:<?php echo $is_blocked ? '19px' : '3px'; ?>; bottom:3px; background:#fff; border-radius:50%; transition:.3s;"></span>
+								</label>
+								<span class="bsk-aib-label" style="font-size:11px; font-weight:600; color:<?php echo $is_blocked ? 'var(--bsk-color-success-dark)' : '#999'; ?>;">
+									<?php echo $is_blocked ? esc_html__('Blocked', 'baskerville-ai-security') : esc_html__('Allowed', 'baskerville-ai-security'); ?>
+								</span>
+							</div>
+							<div style="font-size:12px; color:#1d2327; margin-top:3px;"><?php echo esc_html($slot['ua']); ?></div>
+						<?php else: ?>
+							<span style="color:#ddd;">—</span>
+						<?php endif; ?>
+					</td>
+					<?php endforeach; ?>
+				</tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
+
+		<!-- Unknown AI Bots -->
+		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa; margin-bottom:12px;">
+			<div style="display:flex; align-items:center; gap:12px;">
+				<?php $this->render_inline_toggle('baskerville_settings[ai_block_unknown]', $block_unknown, 'bsk-card-toggle'); ?>
+				<strong><?php esc_html_e('Block Unknown AI Bots', 'baskerville-ai-security'); ?></strong>
+			</div>
+			<p class="description" style="margin:6px 0 0 0;">
+				<?php esc_html_e('Block AI bots not in the list above, matched by User-Agent string only. Covers unverified crawlers including xAI (Grok), ByteDance (Bytespider), Diffbot, Cohere, and others that do not publish IP ranges.', 'baskerville-ai-security'); ?>
 			</p>
 		</div>
 
+		<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			var green = getComputedStyle(document.documentElement).getPropertyValue('--bsk-color-success').trim() || '#46b450';
+			var greenDark = getComputedStyle(document.documentElement).getPropertyValue('--bsk-color-success-dark').trim() || '#2e7d32';
+
+			function updateToggle(cb) {
+				var label  = cb.closest('.bsk-aib-toggle');
+				var slider = label.querySelector('.bsk-aib-slider');
+				var knob   = label.querySelector('.bsk-aib-knob');
+				var text   = label.parentElement.querySelector('.bsk-aib-label');
+				if (cb.checked) {
+					slider.style.background = green;
+					knob.style.left = '19px';
+					text.textContent = '<?php echo esc_js(__('Blocked', 'baskerville-ai-security')); ?>';
+					text.style.color = greenDark;
+				} else {
+					slider.style.background = '#ccc';
+					knob.style.left = '3px';
+					text.textContent = '<?php echo esc_js(__('Allowed', 'baskerville-ai-security')); ?>';
+					text.style.color = '#999';
+				}
+			}
+
+			document.querySelectorAll('.baskerville-company-checkbox').forEach(function(cb) {
+				cb.addEventListener('change', function() { updateToggle(this); });
+			});
+
+			document.querySelectorAll('.baskerville-cat-block-all').forEach(function(btn) {
+				btn.addEventListener('click', function() {
+					var cat = this.dataset.cat;
+					document.querySelectorAll('.baskerville-company-checkbox[data-cat="' + cat + '"]').forEach(function(cb) {
+						cb.checked = true;
+						updateToggle(cb);
+					});
+				});
+			});
+			document.querySelectorAll('.baskerville-cat-allow-all').forEach(function(btn) {
+				btn.addEventListener('click', function() {
+					var cat = this.dataset.cat;
+					document.querySelectorAll('.baskerville-company-checkbox[data-cat="' + cat + '"]').forEach(function(cb) {
+						cb.checked = false;
+						updateToggle(cb);
+					});
+				});
+			});
+
+			// Card toggles (Block Unknown / Always block spoofers)
+			document.querySelectorAll('.bsk-card-toggle-cb').forEach(function(cb) {
+				cb.addEventListener('change', function() { updateToggle(this); });
+			});
+		});
+		</script>
 		<?php
 	}
 
-	public function render_whitelist_ai_companies_field() {
-		$options = get_option('baskerville_settings', array());
-		$whitelist_companies = isset($options['whitelist_ai_companies']) ? $options['whitelist_ai_companies'] : '';
-
-		// Parse selected companies from comma-separated string
-		$selected_companies = array();
-		if (!empty($whitelist_companies)) {
-			$selected_companies = array_map('trim', explode(',', $whitelist_companies));
-		}
-
-		// Get list of known AI bot companies
-		$companies = $this->get_ai_companies_list();
+	private function render_inline_toggle(string $name, bool $checked, string $extra_class = ''): void {
+		$bg  = $checked ? 'var(--bsk-color-success)' : '#ccc';
+		$lft = $checked ? '19px' : '3px';
+		$lbl = $checked ? __('Blocked', 'baskerville-ai-security') : __('Allowed', 'baskerville-ai-security');
+		$col = $checked ? 'var(--bsk-color-success-dark)' : '#999';
 		?>
-		<div>
-			<select name="baskerville_settings[whitelist_ai_companies][]"
-					id="baskerville_whitelist_ai_companies"
-					class="baskerville-aibot-select baskerville-input-full"
-					multiple="multiple">
-				<?php foreach ($companies as $company): ?>
-					<option value="<?php echo esc_attr($company); ?>"
-							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
-						<?php echo esc_html($company); ?>
-					</option>
-				<?php endforeach; ?>
-			</select>
-			<p class="description">
-				<strong class="baskerville-text-primary"><?php esc_html_e('Allow access ONLY from these AI bot companies', 'baskerville-ai-security'); ?></strong><br>
-				<?php esc_html_e('Search and select companies to allow. You can select multiple companies.', 'baskerville-ai-security'); ?><br>
-				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville-ai-security'); ?></em>
-			</p>
+		<div style="display:flex; align-items:center; gap:8px;">
+			<label class="bsk-aib-toggle <?php echo esc_attr($extra_class); ?>" style="position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0;">
+				<input type="hidden" name="<?php echo esc_attr($name); ?>" value="0">
+				<input type="checkbox" name="<?php echo esc_attr($name); ?>" value="1"
+					   style="opacity:0; width:0; height:0; position:absolute;"
+					   class="bsk-card-toggle-cb"
+					   <?php checked($checked); ?>>
+				<span class="bsk-aib-slider" style="position:absolute; cursor:pointer; inset:0; border-radius:20px; transition:.3s; background:<?php echo esc_attr($bg); ?>;"></span>
+				<span class="bsk-aib-knob"   style="position:absolute; height:14px; width:14px; left:<?php echo esc_attr($lft); ?>; bottom:3px; background:#fff; border-radius:50%; transition:.3s;"></span>
+			</label>
+			<span class="bsk-aib-label" style="font-size:12px; font-weight:600; color:<?php echo esc_attr($col); ?>;"><?php echo esc_html($lbl); ?></span>
 		</div>
 		<?php
 	}
@@ -1342,37 +1678,19 @@ class Baskerville_Admin {
 		$options = get_option('baskerville_settings', array());
 		$enabled = !isset($options['block_ai_bot_unverified']) || $options['block_ai_bot_unverified'];
 		?>
-		<label>
-			<input type="hidden" name="baskerville_settings[block_ai_bot_unverified]" value="0">
-			<input type="checkbox" name="baskerville_settings[block_ai_bot_unverified]" value="1" <?php checked($enabled, true); ?> />
-			<strong><?php esc_html_e('Always block AI spoofers', 'baskerville-ai-security'); ?></strong>
-		</label>
-		<p class="description">
-			<?php esc_html_e(
-				'When enabled, any request using a known AI bot user agent (OpenAI, Anthropic, Google, Meta, Amazon, Perplexity, and others) but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
-				'baskerville-ai-security'
-			); ?>
-		</p>
+		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
+			<div style="display:flex; align-items:center; gap:12px;">
+				<?php $this->render_inline_toggle('baskerville_settings[block_ai_bot_unverified]', $enabled, 'bsk-card-toggle'); ?>
+				<strong><?php esc_html_e('Always block AI spoofers', 'baskerville-ai-security'); ?></strong>
+			</div>
+			<p class="description" style="margin:6px 0 0 0;">
+				<?php esc_html_e(
+					'When enabled, any request using a known AI bot user agent (OpenAI, Anthropic, Google, Meta, Amazon, Perplexity, and others) but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
+					'baskerville-ai-security'
+				); ?>
+			</p>
+		</div>
 		<?php
-	}
-
-	private function get_ai_companies_list() {
-		return array(
-			'OpenAI',
-			'Anthropic',
-			'Google',
-			'Meta',
-			'ByteDance',
-			'Amazon',
-			'Baidu',
-			'Perplexity',
-			'Cohere',
-			'Common Crawl',
-			'Huawei',
-			'NetEase',
-			'Generic',
-			'Unknown',
-		);
 	}
 
 	private function get_geoip_source_name() {
@@ -2364,6 +2682,9 @@ class Baskerville_Admin {
 				<?php esc_html_e('Live Bot Attack Dashboard', 'baskerville-ai-security'); ?>
 				<span class="live-indicator"></span>
 			</h2>
+			<p class="description" style="margin:0 0 12px;">
+				<?php esc_html_e('Counts reflect requests that reached PHP. Visitors served directly from the nginx page cache are not logged here — on a well-cached site this feed shows a fraction of total traffic.', 'baskerville-ai-security'); ?>
+			</p>
 
 			<!-- Live Stats Cards -->
 			<div class="live-stats-grid">
@@ -2392,7 +2713,7 @@ class Baskerville_Admin {
 				<h3 class="baskerville-heading-flex">
 						<span class="dashicons dashicons-admin-site"></span>
 						<?php esc_html_e('Live Feed', 'baskerville-ai-security'); ?>
-						<span class="feed-header-info"><?php esc_html_e('Auto-refresh: 10s', 'baskerville-ai-security'); ?></span>
+						<span class="feed-header-info"><?php esc_html_e('Auto-refresh: 60s', 'baskerville-ai-security'); ?></span>
 					</h3>
 					<div id="live-feed-items" class="baskerville-font-sm">
 						<div class="baskerville-loading">
@@ -2692,11 +3013,6 @@ class Baskerville_Admin {
 				<canvas id="aiBotsChart"></canvas>
 			</div>
 
-			<!-- AI Bots — Unverified / Spoofers -->
-			<div class="chart-container" style="margin-top: 24px;">
-				<canvas id="aiBotsUnverifiedChart"></canvas>
-			</div>
-
 			<?php
 			wp_add_inline_script('baskerville-admin', 'window.baskervilleAIBotData = ' . wp_json_encode($data) . ';', 'before');
 			?>
@@ -2769,6 +3085,66 @@ class Baskerville_Admin {
 			'message' => sprintf(__('Cleared %d GeoIP cache entries', 'baskerville-ai-security'), $cleared),
 			'cleared' => $cleared
 		));
+	}
+
+	private function render_cache_status_section() {
+		$core = new Baskerville_Core();
+
+		if ($core->fc_has_apcu()) {
+			$backend = 'apcu';
+		} elseif (wp_using_ext_object_cache()) {
+			$backend = 'wpcache';
+		} else {
+			$backend = 'file';
+		}
+
+		$details = [];
+		if ($backend === 'apcu') {
+			$sma  = apcu_sma_info();
+			$info = apcu_cache_info(true);
+			$total_mb = $sma ? round(($sma['num_seg'] * $sma['seg_size']) / 1048576, 1) : '?';
+			$avail_mb = $sma ? round($sma['avail_mem'] / 1048576, 1) : '?';
+			$details[] = ['Memory', $total_mb . ' MB total, ' . $avail_mb . ' MB free'];
+			$details[] = ['Entries', (string)($info['num_entries'] ?? '?')];
+		} elseif ($backend === 'wpcache') {
+			global $wp_object_cache;
+			$details[] = ['Driver', $wp_object_cache ? get_class($wp_object_cache) : 'unknown'];
+		} else {
+			$cache_dir  = WP_CONTENT_DIR . '/cache/baskerville';
+			$file_count = is_dir($cache_dir) ? count((array) glob($cache_dir . '/*.cache')) : 0;
+			$details[] = ['Directory', $cache_dir];
+			$details[] = ['Cache files', (string) $file_count];
+		}
+
+		$label = [
+			'apcu'    => '✅ APCu (in-process memory)',
+			'wpcache' => '✅ WP Object Cache (persistent — Redis/Memcached)',
+			'file'    => '⚠️ File cache (slowest fallback)',
+		][$backend];
+		?>
+		<div class="card" style="max-width:800px;margin-top:20px;">
+			<h2><?php esc_html_e('Cache Backend', 'baskerville-ai-security'); ?></h2>
+			<table class="widefat" style="margin-bottom:10px;">
+				<tbody>
+					<tr>
+						<td style="width:160px"><strong><?php esc_html_e('Active backend', 'baskerville-ai-security'); ?></strong></td>
+						<td><strong><?php echo esc_html($label); ?></strong></td>
+					</tr>
+					<?php foreach ($details as [$k, $v]) : ?>
+					<tr>
+						<td><strong><?php echo esc_html($k); ?></strong></td>
+						<td><code><?php echo esc_html($v); ?></code></td>
+					</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+			<?php if ($backend === 'file') : ?>
+			<p style="color:#856404;">
+				<?php esc_html_e('File cache is active. For better performance, install APCu or configure a Redis/Memcached object cache drop-in (wp-content/object-cache.php).', 'baskerville-ai-security'); ?>
+			</p>
+			<?php endif; ?>
+		</div>
+		<?php
 	}
 
 	private function render_geoip_test_tab() {
@@ -3539,12 +3915,11 @@ class Baskerville_Admin {
 						</table>
 						<?php
 						submit_button();
-
-						// Display AI bot statistics
-						$this->render_ai_bots_tab();
-
-						do_settings_sections('baskerville-ai-bot-control');
 						?>
+						<style>#baskerville-ai-bot-control .form-table > tbody > tr > th { display:none; } #baskerville-ai-bot-control .form-table > tbody > tr > td { padding-left:0; }</style>
+						<div id="baskerville-ai-bot-control">
+						<?php do_settings_sections('baskerville-ai-bot-control'); ?>
+						</div>
 						<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
 						<?php
 						submit_button();
@@ -3819,6 +4194,8 @@ class Baskerville_Admin {
 						<?php
 						// Render GeoIP Testing section
 						$this->render_geoip_test_tab();
+						// Render Cache Backend status
+						$this->render_cache_status_section();
 						// Render Cloud Settings section (separate options group)
 						$this->render_cloud_settings_section();
 						?>
@@ -4481,13 +4858,6 @@ class Baskerville_Admin {
 			<div class="baskerville-charts-container">
 				<div class="baskerville-chart-card" style="flex: 1 1 100%; max-width: 100%;">
 					<canvas id="aiBotsChart"></canvas>
-				</div>
-			</div>
-
-			<!-- AI Bots — Unverified / Spoofers -->
-			<div class="baskerville-charts-container">
-				<div class="baskerville-chart-card" style="flex: 1 1 100%; max-width: 100%;">
-					<canvas id="aiBotsUnverifiedChart"></canvas>
 				</div>
 			</div>
 
@@ -5365,21 +5735,37 @@ done
 	}
 
 	public function render_honeypot_ban_field() {
-		$options = get_option('baskerville_settings', array());
-		// Default to true if not set
+		$options     = get_option('baskerville_settings', array());
 		$ban_enabled = !isset($options['honeypot_ban']) || $options['honeypot_ban'];
 		?>
-		<label>
-			<input type="checkbox"
-				   name="baskerville_settings[honeypot_ban]"
-				   value="1"
-				   <?php checked($ban_enabled, true); ?> />
-			<?php esc_html_e('Ban IPs that trigger honeypot', 'baskerville-ai-security'); ?>
-		</label>
-		<p class="description">
-			<?php esc_html_e('When enabled, IPs accessing the honeypot will be banned for 24 hours.', 'baskerville-ai-security'); ?><br>
-			<?php esc_html_e('When disabled, the visit is still logged as AI bot.', 'baskerville-ai-security'); ?>
-		</p>
+		<div id="bsk-honeypot-ban-card" style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
+			<div style="display:flex; align-items:center; gap:12px;">
+				<?php $this->render_inline_toggle('baskerville_settings[honeypot_ban]', $ban_enabled, 'bsk-card-toggle'); ?>
+				<strong><?php esc_html_e('Block IPs that trigger honeypot', 'baskerville-ai-security'); ?></strong>
+			</div>
+			<p class="description" style="margin:6px 0 0 0;">
+				<?php esc_html_e('When enabled, IPs accessing the honeypot will be blocked for 24 hours.', 'baskerville-ai-security'); ?><br>
+				<?php esc_html_e('When disabled, the visit is still logged as AI bot.', 'baskerville-ai-security'); ?>
+			</p>
+		</div>
+		<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			var honeypotCb = document.querySelector('input[name="baskerville_settings[honeypot_enabled]"]');
+			var banCard    = document.getElementById('bsk-honeypot-ban-card');
+			if (!honeypotCb || !banCard) return;
+			var banCb = banCard.querySelector('input[type="checkbox"]');
+
+			function syncBanCard() {
+				var on = honeypotCb.checked;
+				banCard.style.opacity       = on ? '1' : '0.45';
+				banCard.style.pointerEvents = on ? '' : 'none';
+				if (banCb) banCb.disabled   = !on;
+			}
+
+			honeypotCb.addEventListener('change', syncBanCard);
+			syncBanCard();
+		});
+		</script>
 		<?php
 	}
 
@@ -5800,10 +6186,23 @@ done
 	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_feed() {
+		check_ajax_referer('baskerville_live_feed', 'nonce');
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville-ai-security')));
+		}
+
+		// Cache results for 30 s — polling every 10 s would otherwise run two
+		// full-table aggregations per tick against shared MySQL.
+		$cache_key = 'baskerville_live_feed_v1';
+		$cached    = get_transient($cache_key);
+		if ($cached !== false) {
+			wp_send_json_success($cached);
+		}
+
 		global $wpdb;
 		$table = $wpdb->prefix . 'baskerville_stats';
 
-		// Get last 30 unique IPs (blocked/suspicious) - one event per IP
+		// Get last 30 unique IPs (blocked/suspicious) - one event per IP, within last 24 hours.
 		// Note: using classification_reason (actual column name), aliasing as 'reason' for frontend
 		// Use subquery to get the latest record for each IP
 
@@ -5815,10 +6214,13 @@ done
 			 INNER JOIN (
 				 SELECT ip, MAX(id) as max_id
 				 FROM " . esc_sql($table) . "
-				 WHERE classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'verified_ai_bot', 'bot')
+				 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+				   AND (
+				       classification IN ('bad_bot', 'ai_bot', 'ai_bot_unverified', 'verified_ai_bot', 'bot')
 				    OR (score >= 50 AND classification NOT IN ('verified_bot', 'verified_ai_bot'))
 				    OR (block_reason IS NOT NULL AND block_reason != '')
 				    OR event_type IN ('ts_fail', 'ac_fail', 'lf_fail', 'lf_pass')
+				   )
 				 GROUP BY ip
 			 ) t2 ON t1.id = t2.max_id
 			 ORDER BY t1.created_at DESC
@@ -5837,6 +6239,7 @@ done
 			$event['is_banned'] = !empty($event['block_reason']);
 		}
 
+		set_transient($cache_key, $events, 30);
 		wp_send_json_success($events);
 	}
 	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
@@ -5845,11 +6248,22 @@ done
 	 * AJAX: Get live statistics.
 	 *
 	 * Direct database queries are required for real-time AJAX statistics.
-	 * Caching is not applicable for live data updates.
+	 * Results are cached for 30 s to cap DB load when the page is open.
 	 *
 	 * @phpcs:disable WordPress.DB.DirectDatabaseQuery
 	 */
 	public function ajax_get_live_stats() {
+		check_ajax_referer('baskerville_live_feed', 'nonce');
+		if (!current_user_can('manage_options')) {
+			wp_send_json_error(array('message' => esc_html__('Insufficient permissions.', 'baskerville-ai-security')));
+		}
+
+		$cache_key = 'baskerville_live_stats_v1';
+		$cached    = get_transient($cache_key);
+		if ($cached !== false) {
+			wp_send_json_success($cached);
+		}
+
 		global $wpdb;
 		$table = $wpdb->prefix . 'baskerville_stats';
 
@@ -5902,12 +6316,14 @@ done
 			$country['country_name'] = isset($all_countries[$code]) ? $all_countries[$code] : $code;
 		}
 
-		wp_send_json_success([
+		$payload = [
 			'blocks_today'  => $blocks_today,
 			'blocks_hour'   => $blocks_hour,
 			'top_ips'       => $top_ips,
-			'top_countries' => $top_countries
-		]);
+			'top_countries' => $top_countries,
+		];
+		set_transient($cache_key, $payload, 30);
+		wp_send_json_success($payload);
 	}
 	// @phpcs:enable WordPress.DB.DirectDatabaseQuery
 

@@ -92,6 +92,17 @@ class Baskerville_Honeypot {
 		$is_ai_bot = $this->aiua->is_ai_bot_user_agent($ua);
 		$company = $is_ai_bot ? $this->aiua->get_ai_bot_company($ua) : null;
 
+		// Verify legitimate crawlers before penalising them — unconditionally, not just for
+		// known AI bots. Googlebot, Applebot, DuckDuckBot etc. are not in is_ai_bot_user_agent()
+		// but verify_crawler_ip() knows how to check them. Only skip the ban when the crawler
+		// both claims a verifiable identity AND the IP matches the published range.
+		$vc = $this->aiua->verify_crawler_ip($ip, $ua);
+		if (!empty($vc['claimed']) && !empty($vc['verified'])) {
+			wpsec_log("Baskerville Honeypot: verified crawler $ip ($ua), skipping ban");
+			$this->render_honeypot_page();
+			exit;
+		}
+
 		// Evaluate and classify
 		$evaluation = $this->aiua->baskerville_score_fp(['fingerprint' => []], ['headers' => $headers]);
 
@@ -140,17 +151,8 @@ class Baskerville_Honeypot {
 			$block_reason
 		);
 
-		// error_log("Baskerville Honeypot: Saved to DB for IP $ip, result: " . ($result ? 'SUCCESS' : 'FAILED'));
-
 		// Mark IP with long-term cache flag (24 hours)
 		$this->core->fc_set("honeypot_caught:{$ip}", 1, 86400);
-
-		// Log to error log for monitoring
-		// error_log(sprintf(
-		//     'Baskerville Honeypot: AI bot detected from IP %s | UA: %s',
-		//     $ip,
-		//     substr($ua, 0, 100)
-		// ));
 
 		// Ban if enabled (default: 24 hours)
 		if ($master_enabled && $bot_protection_enabled && $honeypot_ban_enabled) {
@@ -167,6 +169,7 @@ class Baskerville_Honeypot {
 			// Send 403 response
 			status_header(403);
 			nocache_headers();
+			header('X-Accel-Expires: 0');
 			echo "<!DOCTYPE html>\n<html>\n<head>\n<title>" . esc_html__( '403 Forbidden', 'baskerville-ai-security' ) . "</title>\n</head>\n<body>\n";
 			echo "<h1>" . esc_html__( '403 Forbidden', 'baskerville-ai-security' ) . "</h1>\n";
 			echo "<p>" . esc_html__( 'Access denied. Automated bot detected.', 'baskerville-ai-security' ) . "</p>\n";
@@ -187,6 +190,7 @@ class Baskerville_Honeypot {
 	private function render_honeypot_page() {
 		status_header(200);
 		nocache_headers();
+		header('X-Accel-Expires: 0'); // tell nginx fastcgi_cache never to cache this
 
 		?>
 <!DOCTYPE html>
