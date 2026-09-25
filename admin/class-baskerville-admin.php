@@ -1517,16 +1517,14 @@ class Baskerville_Admin {
 
 		<table class="wp-list-table widefat fixed" style="table-layout:fixed; margin-bottom:24px;">
 			<colgroup>
-				<col style="width:130px;">
-				<col><!-- agent col auto -->
-				<col style="width:110px;">
-				<col style="width:110px;">
-				<col style="width:110px;">
+				<col style="width:140px;">
+				<col style="width:120px;">
+				<col style="width:120px;">
+				<col style="width:120px;">
 			</colgroup>
 			<thead>
 				<tr>
 					<th style="padding:8px 10px;"><?php esc_html_e('Company', 'baskerville-ai-security'); ?></th>
-					<th style="padding:8px 10px;"><?php esc_html_e('User Agent', 'baskerville-ai-security'); ?></th>
 					<?php foreach ($categories as $cat): ?>
 					<th style="<?php echo esc_attr($th_green); ?>">
 						<div style="font-weight:600;"><?php echo esc_html($cat_labels[$cat]); ?></div>
@@ -1546,18 +1544,9 @@ class Baskerville_Admin {
 				</tr>
 			</thead>
 			<tbody>
-			<?php foreach ($companies as $row):
-				// Collect all UAs for the agent column
-				$all_uas = [];
-				foreach ($categories as $cat) {
-					if (!empty($row[$cat]['ua'])) $all_uas[] = $row[$cat]['ua'];
-				}
-			?>
+			<?php foreach ($companies as $row): ?>
 				<tr>
 					<td><strong><?php echo esc_html($row['name']); ?></strong></td>
-					<td style="font-size:11px; color:#555;">
-						<?php echo esc_html(implode(', ', array_unique($all_uas))); ?>
-					</td>
 					<?php foreach ($categories as $cat):
 						$slot = $row[$cat] ?? null;
 					?>
