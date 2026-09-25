@@ -26,6 +26,7 @@ class Baskerville_AI_UA {
         'Bingbot'             => 'Microsoft',
         'CCBot'               => 'Common Crawl',
         'AmazonBot'           => 'Amazon',
+        'Applebot'            => 'Apple',
     ];
 
     /**
@@ -180,6 +181,9 @@ class Baskerville_AI_UA {
             // Microsoft / Bing
             'bingbot',               // Bingbot (Microsoft Copilot/AI Search)
 
+            // Apple
+            'applebot',              // Applebot (Siri, Spotlight, Apple Intelligence)
+
             // DuckDuckGo
             'duckassistbot',         // DuckAssist AI
 
@@ -293,6 +297,9 @@ class Baskerville_AI_UA {
             // Microsoft / Bing
             'bingbot'                 => 'Microsoft',
 
+            // Apple
+            'applebot'                => 'Apple',
+
             // DuckDuckGo
             'duckassistbot'           => 'DuckDuckGo',
 
@@ -337,7 +344,7 @@ class Baskerville_AI_UA {
     public function get_ai_bot_category(string $user_agent): string {
         $ua = strtolower($user_agent);
         // AI Search
-        $search_patterns = ['oai-searchbot', 'claude-searchbot', 'perplexitybot', 'mistralai-index', 'xai-searchbot', 'google-extended', 'applebot-extended'];
+        $search_patterns = ['oai-searchbot', 'claude-searchbot', 'perplexitybot', 'mistralai-index', 'xai-searchbot', 'google-extended', 'applebot'];
         foreach ($search_patterns as $p) {
             if (strpos($ua, $p) !== false) return 'search';
         }
@@ -359,7 +366,7 @@ class Baskerville_AI_UA {
             'Meta' => 'meta', 'Amazon' => 'amazon', 'Perplexity' => 'perplexity',
             'Mistral' => 'mistral', 'ByteDance' => 'bytedance', 'Common Crawl' => 'commoncrawl',
             'Diffbot' => 'diffbot', 'xAI' => 'xai', 'Huawei' => 'huawei',
-            'Cohere' => 'cohere', 'Baidu' => 'baidu',
+            'Cohere' => 'cohere', 'Baidu' => 'baidu', 'Apple' => 'apple',
         ];
         return $map[$company] ?? strtolower(preg_replace('/[^a-z0-9]/i', '', $company));
     }
@@ -368,7 +375,7 @@ class Baskerville_AI_UA {
      * Returns company keys that have IP range verification.
      */
     public static function get_verified_company_keys(): array {
-        return ['openai', 'anthropic', 'google', 'meta', 'amazon', 'perplexity', 'mistral', 'commoncrawl'];
+        return ['openai', 'anthropic', 'google', 'meta', 'amazon', 'perplexity', 'mistral', 'commoncrawl', 'apple'];
     }
 
     /**
@@ -576,6 +583,8 @@ class Baskerville_AI_UA {
             'MistralAIUser'       => 'https://mistral.ai/mistralai-user-ips.json',
             'MistralIndex'        => 'https://mistral.ai/mistralai-index-ips.json',
             'MistralUser'         => 'https://mistral.ai/mistralai-user-ips.json',
+            // Apple
+            'Applebot'            => 'https://search.developer.apple.com/applebot.json',
             // DuckDuckGo
             'DuckAssistBot'       => 'https://duckduckgo.com/duckassistbot.json',
             // Microsoft / Bing

@@ -246,9 +246,22 @@ class Baskerville_Stats
                 'google_training',
                 'amazon_training','amazon_search','amazon_assistant',
                 'commoncrawl_training',
+                'apple_search',
                 'perplexity_search','perplexity_assistant',
                 'mistral_search','mistral_assistant',
                 'duckduckgo_assistant',
+            ];
+            $name_to_keys = [
+                'OpenAI'       => ['openai_training','openai_search','openai_assistant'],
+                'Anthropic'    => ['anthropic_training','anthropic_search','anthropic_assistant'],
+                'Google'       => ['google_training'],
+                'Meta'         => ['meta_training','meta_assistant'],
+                'Amazon'       => ['amazon_training','amazon_search','amazon_assistant'],
+                'Common Crawl' => ['commoncrawl_training'],
+                'Apple'        => ['apple_search'],
+                'Perplexity'   => ['perplexity_search','perplexity_assistant'],
+                'Mistral'      => ['mistral_search','mistral_assistant'],
+                'DuckDuckGo'   => ['duckduckgo_assistant'],
             ];
             $old_mode = $options['ai_bot_blocking_mode'];
             if ( $old_mode === 'allow_all' ) {
@@ -258,42 +271,17 @@ class Baskerville_Stats
                 $options['ai_blocked_companies'] = implode( ',', $all_keys );
                 $options['ai_block_unknown']     = true;
             } elseif ( $old_mode === 'blacklist' ) {
-                // Old blacklist stored company names; expand each to all its category keys
                 $blacklist_str = isset( $options['blacklist_ai_companies'] ) ? $options['blacklist_ai_companies'] : '';
                 $blacklisted   = array_filter( array_map( 'trim', explode( ',', $blacklist_str ) ) );
-                $name_to_keys  = [
-                    'OpenAI'       => ['openai_training','openai_search','openai_assistant'],
-                    'Anthropic'    => ['anthropic_training','anthropic_search','anthropic_assistant'],
-                    'Google'       => ['google_training'],
-                    'Meta'         => ['meta_training','meta_assistant'],
-                    'Amazon'       => ['amazon_training','amazon_search','amazon_assistant'],
-                    'Common Crawl' => ['commoncrawl_training'],
-                    'Perplexity'   => ['perplexity_search','perplexity_assistant'],
-                    'Mistral'      => ['mistral_search','mistral_assistant'],
-                    'DuckDuckGo'   => ['duckduckgo_assistant'],
-                ];
                 $blocked = [];
                 foreach ( $blacklisted as $name ) {
-                    $keys    = $name_to_keys[ $name ] ?? [];
-                    $blocked = array_merge( $blocked, $keys );
+                    $blocked = array_merge( $blocked, $name_to_keys[ $name ] ?? [] );
                 }
                 $options['ai_blocked_companies'] = implode( ',', array_unique( $blocked ) );
                 $options['ai_block_unknown']     = false;
             } elseif ( $old_mode === 'whitelist' ) {
-                // Invert: block everything NOT in the whitelist (across all categories)
                 $whitelist_str = isset( $options['whitelist_ai_companies'] ) ? $options['whitelist_ai_companies'] : '';
                 $whitelisted   = array_filter( array_map( 'trim', explode( ',', $whitelist_str ) ) );
-                $name_to_keys  = [
-                    'OpenAI'       => ['openai_training','openai_search','openai_assistant'],
-                    'Anthropic'    => ['anthropic_training','anthropic_search','anthropic_assistant'],
-                    'Google'       => ['google_training'],
-                    'Meta'         => ['meta_training','meta_assistant'],
-                    'Amazon'       => ['amazon_training','amazon_search','amazon_assistant'],
-                    'Common Crawl' => ['commoncrawl_training'],
-                    'Perplexity'   => ['perplexity_search','perplexity_assistant'],
-                    'Mistral'      => ['mistral_search','mistral_assistant'],
-                    'DuckDuckGo'   => ['duckduckgo_assistant'],
-                ];
                 $allowed = [];
                 foreach ( $whitelisted as $name ) {
                     $allowed = array_merge( $allowed, $name_to_keys[ $name ] ?? [] );
