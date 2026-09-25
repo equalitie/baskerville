@@ -1411,40 +1411,66 @@ class Baskerville_Admin {
 	public function render_ai_bot_control_section() {
 	}
 
+	/**
+	 * Per-company flat data. Each company has up to three category slots.
+	 * null = this company has no verified bot in that category.
+	 */
 	private function get_ai_bot_companies_data(): array {
+		// [ name, training => [key, ua] | null, search => [...] | null, assistant => [...] | null ]
 		return [
-			'training' => [
-				['key' => 'openai_training',      'name' => 'OpenAI',        'uas' => 'GPTBot'],
-				['key' => 'anthropic_training',   'name' => 'Anthropic',     'uas' => 'ClaudeBot'],
-				['key' => 'meta_training',        'name' => 'Meta',          'uas' => 'meta-externalagent'],
-				['key' => 'google_training',      'name' => 'Google AI',     'uas' => 'Google-Extended'],
-				['key' => 'amazon_training',      'name' => 'Amazon',        'uas' => 'Amazonbot'],
-				['key' => 'commoncrawl_training', 'name' => 'Common Crawl',  'uas' => 'CCBot'],
+			['name' => 'OpenAI',
+				'training'  => ['key' => 'openai_training',      'ua' => 'GPTBot'],
+				'search'    => ['key' => 'openai_search',        'ua' => 'OAI-SearchBot'],
+				'assistant' => ['key' => 'openai_assistant',     'ua' => 'ChatGPT-User'],
 			],
-			'search' => [
-				['key' => 'openai_search',      'name' => 'OpenAI',       'uas' => 'OAI-SearchBot'],
-				['key' => 'anthropic_search',   'name' => 'Anthropic',    'uas' => 'Claude-SearchBot'],
-				['key' => 'perplexity_search',  'name' => 'Perplexity',   'uas' => 'PerplexityBot'],
-				['key' => 'amazon_search',      'name' => 'Amazon',       'uas' => 'Amazonbot (search)'],
-				['key' => 'mistral_search',     'name' => 'Mistral',      'uas' => 'MistralAI-Index'],
+			['name' => 'Anthropic',
+				'training'  => ['key' => 'anthropic_training',   'ua' => 'ClaudeBot'],
+				'search'    => ['key' => 'anthropic_search',     'ua' => 'Claude-SearchBot'],
+				'assistant' => ['key' => 'anthropic_assistant',  'ua' => 'Claude-User'],
 			],
-			'assistant' => [
-				['key' => 'openai_assistant',      'name' => 'OpenAI',       'uas' => 'ChatGPT-User'],
-				['key' => 'anthropic_assistant',   'name' => 'Anthropic',    'uas' => 'Claude-User'],
-				['key' => 'meta_assistant',        'name' => 'Meta',         'uas' => 'meta-externalfetcher'],
-				['key' => 'perplexity_assistant',  'name' => 'Perplexity',   'uas' => 'Perplexity-User'],
-				['key' => 'amazon_assistant',      'name' => 'Amazon',       'uas' => 'Amazonbot (live)'],
-				['key' => 'mistral_assistant',     'name' => 'Mistral',      'uas' => 'MistralAI-User'],
-				['key' => 'duckduckgo_assistant',  'name' => 'DuckDuckGo',   'uas' => 'DuckAssistBot'],
+			['name' => 'Meta',
+				'training'  => ['key' => 'meta_training',        'ua' => 'meta-externalagent'],
+				'search'    => null,
+				'assistant' => ['key' => 'meta_assistant',       'ua' => 'meta-externalfetcher'],
+			],
+			['name' => 'Google AI',
+				'training'  => ['key' => 'google_training',      'ua' => 'Google-Extended'],
+				'search'    => null,
+				'assistant' => null,
+			],
+			['name' => 'Amazon',
+				'training'  => ['key' => 'amazon_training',      'ua' => 'Amazonbot'],
+				'search'    => ['key' => 'amazon_search',        'ua' => 'Amazonbot (search)'],
+				'assistant' => ['key' => 'amazon_assistant',     'ua' => 'Amazonbot (live)'],
+			],
+			['name' => 'Common Crawl',
+				'training'  => ['key' => 'commoncrawl_training', 'ua' => 'CCBot'],
+				'search'    => null,
+				'assistant' => null,
+			],
+			['name' => 'Perplexity',
+				'training'  => null,
+				'search'    => ['key' => 'perplexity_search',    'ua' => 'PerplexityBot'],
+				'assistant' => ['key' => 'perplexity_assistant', 'ua' => 'Perplexity-User'],
+			],
+			['name' => 'Mistral',
+				'training'  => null,
+				'search'    => ['key' => 'mistral_search',       'ua' => 'MistralAI-Index'],
+				'assistant' => ['key' => 'mistral_assistant',    'ua' => 'MistralAI-User'],
+			],
+			['name' => 'DuckDuckGo',
+				'training'  => null,
+				'search'    => null,
+				'assistant' => ['key' => 'duckduckgo_assistant', 'ua' => 'DuckAssistBot'],
 			],
 		];
 	}
 
 	public function render_ai_bot_companies_field() {
-		$options = get_option('baskerville_settings', []);
-		$blocked_raw  = isset($options['ai_blocked_companies']) ? $options['ai_blocked_companies'] : '';
+		$options       = get_option('baskerville_settings', []);
+		$blocked_raw   = isset($options['ai_blocked_companies']) ? $options['ai_blocked_companies'] : '';
 		$block_unknown = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
-		$blocked_keys = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
+		$blocked_keys  = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
 
 		// Default: all verified companies blocked (all categories)
 		$all_keys = [
@@ -1462,82 +1488,102 @@ class Baskerville_Admin {
 			$blocked_keys = $all_keys;
 		}
 
-		$companies_data = $this->get_ai_bot_companies_data();
-		$category_labels = [
-			'training'  => __('AI Training', 'baskerville-ai-security'),
-			'search'    => __('AI Search', 'baskerville-ai-security'),
-			'assistant' => __('AI Assistant', 'baskerville-ai-security'),
+		$companies  = $this->get_ai_bot_companies_data();
+		$categories = ['training', 'search', 'assistant'];
+		$cat_labels = [
+			'training'  => __('AI Training',  'baskerville-ai-security'),
+			'search'    => __('AI Search',     'baskerville-ai-security'),
+			'assistant' => __('AI Assistant',  'baskerville-ai-security'),
 		];
-		$category_descs = [
-			'training'  => __('Bots that scrape your content for AI model training.', 'baskerville-ai-security'),
-			'search'    => __('Bots that index your content to answer user questions.', 'baskerville-ai-security'),
-			'assistant' => __('Bots acting in real-time on behalf of a user (AI agents).', 'baskerville-ai-security'),
+		$cat_descs = [
+			'training'  => __('Trains AI models on your content', 'baskerville-ai-security'),
+			'search'    => __('Indexes your content to answer questions', 'baskerville-ai-security'),
+			'assistant' => __('Acts in real-time on behalf of a user', 'baskerville-ai-security'),
 		];
 
-		// Collect unique keys per category for Block All / Allow All
-		$cat_keys = [];
-		foreach ($companies_data as $cat => $rows) {
-			$cat_keys[$cat] = array_unique(array_column($rows, 'key'));
+		// Collect keys per category for Block All / Allow All
+		$cat_keys = ['training' => [], 'search' => [], 'assistant' => []];
+		foreach ($companies as $row) {
+			foreach ($categories as $cat) {
+				if (!empty($row[$cat]['key'])) {
+					$cat_keys[$cat][] = $row[$cat]['key'];
+				}
+			}
 		}
+
+		$th_green = 'background:var(--bsk-color-success-bg-light); border-bottom:2px solid var(--bsk-color-success); padding:8px 10px; text-align:center; white-space:nowrap;';
 		?>
 		<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
 
-		<?php foreach ($companies_data as $cat => $rows): ?>
-		<div class="baskerville-aibot-category" style="margin-bottom: 32px;">
-			<div style="background:var(--bsk-color-success-bg-light); border-left:4px solid var(--bsk-color-success); padding:10px 14px; margin-bottom:8px; border-radius:0 4px 4px 0;">
-				<h2 style="margin:0 0 2px 0; font-size:1.2em;"><?php echo esc_html($category_labels[$cat]); ?></h2>
-				<p class="description" style="margin:0;"><?php echo esc_html($category_descs[$cat]); ?></p>
-			</div>
-			<div style="margin-bottom:8px;">
-				<button type="button" class="button button-small baskerville-cat-block-all"
-						data-cat="<?php echo esc_attr($cat); ?>"
-						data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
-					<?php esc_html_e('Block All', 'baskerville-ai-security'); ?>
-				</button>
-				<button type="button" class="button button-small baskerville-cat-allow-all"
-						data-cat="<?php echo esc_attr($cat); ?>"
-						data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
-					<?php esc_html_e('Allow All', 'baskerville-ai-security'); ?>
-				</button>
-			</div>
-			<table class="wp-list-table widefat fixed striped" style="table-layout:fixed;">
-				<thead>
-					<tr>
-						<th style="width:36px;"><?php esc_html_e('Block', 'baskerville-ai-security'); ?></th>
-						<th style="width:160px;"><?php esc_html_e('Company', 'baskerville-ai-security'); ?></th>
-						<th><?php esc_html_e('User Agent', 'baskerville-ai-security'); ?></th>
-					</tr>
-				</thead>
-				<tbody>
-				<?php
-				$shown_keys = [];
-				foreach ($rows as $row):
-					// deduplicate within category (same company appears once per category)
-					$row_id = $cat . '_' . $row['key'];
-					if (in_array($row_id, $shown_keys, true)) continue;
-					$shown_keys[] = $row_id;
-					$is_blocked = in_array($row['key'], $blocked_keys, true);
-				?>
-					<tr>
-						<td>
-							<input type="checkbox"
-								   name="baskerville_settings[ai_blocked_companies][]"
-								   value="<?php echo esc_attr($row['key']); ?>"
-								   class="baskerville-company-checkbox"
-								   data-cat="<?php echo esc_attr($cat); ?>"
-								   <?php checked($is_blocked); ?>>
-						</td>
-						<td><strong><?php echo esc_html($row['name']); ?></strong></td>
-						<td><code style="font-size:11px;"><?php echo esc_html($row['uas']); ?></code></td>
-					</tr>
-				<?php endforeach; ?>
-				</tbody>
-			</table>
-		</div>
-		<?php endforeach; ?>
+		<table class="wp-list-table widefat fixed" style="table-layout:fixed; margin-bottom:24px;">
+			<colgroup>
+				<col style="width:130px;">
+				<col><!-- agent col auto -->
+				<col style="width:110px;">
+				<col style="width:110px;">
+				<col style="width:110px;">
+			</colgroup>
+			<thead>
+				<tr>
+					<th style="padding:8px 10px;"><?php esc_html_e('Company', 'baskerville-ai-security'); ?></th>
+					<th style="padding:8px 10px;"><?php esc_html_e('User Agent', 'baskerville-ai-security'); ?></th>
+					<?php foreach ($categories as $cat): ?>
+					<th style="<?php echo esc_attr($th_green); ?>">
+						<div style="font-weight:600;"><?php echo esc_html($cat_labels[$cat]); ?></div>
+						<div style="font-size:11px; font-weight:400; color:#555; margin-top:2px;"><?php echo esc_html($cat_descs[$cat]); ?></div>
+						<div style="margin-top:6px; display:flex; gap:4px; justify-content:center;">
+							<button type="button" class="button button-small baskerville-cat-block-all"
+									data-cat="<?php echo esc_attr($cat); ?>">
+								<?php esc_html_e('All', 'baskerville-ai-security'); ?>
+							</button>
+							<button type="button" class="button button-small baskerville-cat-allow-all"
+									data-cat="<?php echo esc_attr($cat); ?>">
+								<?php esc_html_e('None', 'baskerville-ai-security'); ?>
+							</button>
+						</div>
+					</th>
+					<?php endforeach; ?>
+				</tr>
+			</thead>
+			<tbody>
+			<?php foreach ($companies as $row):
+				// Collect all UAs for the agent column
+				$all_uas = [];
+				foreach ($categories as $cat) {
+					if (!empty($row[$cat]['ua'])) $all_uas[] = $row[$cat]['ua'];
+				}
+			?>
+				<tr>
+					<td><strong><?php echo esc_html($row['name']); ?></strong></td>
+					<td style="font-size:11px; color:#555;">
+						<?php echo esc_html(implode(', ', array_unique($all_uas))); ?>
+					</td>
+					<?php foreach ($categories as $cat):
+						$slot = $row[$cat] ?? null;
+					?>
+					<td style="text-align:center;">
+						<?php if ($slot): ?>
+							<label style="display:block;">
+								<input type="checkbox"
+									   name="baskerville_settings[ai_blocked_companies][]"
+									   value="<?php echo esc_attr($slot['key']); ?>"
+									   class="baskerville-company-checkbox"
+									   data-cat="<?php echo esc_attr($cat); ?>"
+									   <?php checked(in_array($slot['key'], $blocked_keys, true)); ?>>
+								<span style="font-size:11px; color:#555; display:block;"><?php echo esc_html($slot['ua']); ?></span>
+							</label>
+						<?php else: ?>
+							<span style="color:#ccc;">—</span>
+						<?php endif; ?>
+					</td>
+					<?php endforeach; ?>
+				</tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
 
 		<!-- Unknown AI Bots -->
-		<div style="margin-top:20px; padding:16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
+		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
 			<label>
 				<input type="checkbox"
 					   name="baskerville_settings[ai_block_unknown]"
