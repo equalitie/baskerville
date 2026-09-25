@@ -1414,34 +1414,28 @@ class Baskerville_Admin {
 	private function get_ai_bot_companies_data(): array {
 		return [
 			'training' => [
-				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'GPTBot',                    'verified' => true],
-				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'ClaudeBot',                 'verified' => true],
-				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalagent',        'verified' => true],
-				['key' => 'google',      'name' => 'Google AI',     'uas' => 'Google-Extended',           'verified' => true],
-				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot',                 'verified' => true],
-				['key' => 'commoncrawl', 'name' => 'Common Crawl',  'uas' => 'CCBot',                     'verified' => true],
-				['key' => 'bytedance',   'name' => 'ByteDance',     'uas' => 'Bytespider',                'verified' => false],
-				['key' => 'diffbot',     'name' => 'Diffbot',       'uas' => 'Diffbot',                   'verified' => false],
-				['key' => 'xai',         'name' => 'xAI',           'uas' => 'xAI-Bot, Grok',             'verified' => false],
-				['key' => 'huawei',      'name' => 'Huawei',        'uas' => 'PetalBot',                  'verified' => false],
-				['key' => 'cohere',      'name' => 'Cohere',        'uas' => 'cohere-ai',                 'verified' => false],
+				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'GPTBot'],
+				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'ClaudeBot'],
+				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalagent'],
+				['key' => 'google',      'name' => 'Google AI',     'uas' => 'Google-Extended'],
+				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot'],
+				['key' => 'commoncrawl', 'name' => 'Common Crawl',  'uas' => 'CCBot'],
 			],
 			'search' => [
-				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'OAI-SearchBot',             'verified' => true],
-				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-SearchBot',          'verified' => true],
-				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'PerplexityBot',             'verified' => true],
-				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (search)',        'verified' => true],
-				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-Index',           'verified' => true],
-				['key' => 'xai',         'name' => 'xAI',           'uas' => 'xAI-SearchBot',             'verified' => false],
+				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'OAI-SearchBot'],
+				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-SearchBot'],
+				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'PerplexityBot'],
+				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (search)'],
+				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-Index'],
 			],
 			'assistant' => [
-				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'ChatGPT-User',              'verified' => true],
-				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-User',               'verified' => true],
-				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalfetcher',      'verified' => true],
-				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'Perplexity-User',           'verified' => true],
-				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (live)',          'verified' => true],
-				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-User',            'verified' => true],
-				['key' => 'duckduckgo',  'name' => 'DuckDuckGo',    'uas' => 'DuckAssistBot',             'verified' => true],
+				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'ChatGPT-User'],
+				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-User'],
+				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalfetcher'],
+				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'Perplexity-User'],
+				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (live)'],
+				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-User'],
+				['key' => 'duckduckgo',  'name' => 'DuckDuckGo',    'uas' => 'DuckAssistBot'],
 			],
 		];
 	}
@@ -1452,8 +1446,8 @@ class Baskerville_Admin {
 		$block_unknown = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
 		$blocked_keys = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
 
-		// Default: all companies blocked
-		$all_keys = ['openai','anthropic','meta','google','amazon','commoncrawl','bytedance','diffbot','xai','huawei','cohere','perplexity','mistral','duckduckgo'];
+		// Default: all verified companies blocked
+		$all_keys = ['openai','anthropic','meta','google','amazon','commoncrawl','perplexity','mistral','duckduckgo'];
 		if (empty($blocked_raw) && !isset($options['ai_blocked_companies'])) {
 			$blocked_keys = $all_keys;
 		}
@@ -1500,9 +1494,8 @@ class Baskerville_Admin {
 				<thead>
 					<tr>
 						<th style="width:36px;"><?php esc_html_e('Block', 'baskerville-ai-security'); ?></th>
-						<th style="width:130px;"><?php esc_html_e('Company', 'baskerville-ai-security'); ?></th>
+						<th style="width:160px;"><?php esc_html_e('Company', 'baskerville-ai-security'); ?></th>
 						<th><?php esc_html_e('User Agent', 'baskerville-ai-security'); ?></th>
-						<th style="width:110px;"><?php esc_html_e('Verification', 'baskerville-ai-security'); ?></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -1526,13 +1519,6 @@ class Baskerville_Admin {
 						</td>
 						<td><strong><?php echo esc_html($row['name']); ?></strong></td>
 						<td><code style="font-size:11px;"><?php echo esc_html($row['uas']); ?></code></td>
-						<td>
-							<?php if ($row['verified']): ?>
-								<span style="color:#16a34a;">&#10003; <?php esc_html_e('verified', 'baskerville-ai-security'); ?></span>
-							<?php else: ?>
-								<span style="color:#9ca3af;"><?php esc_html_e('unverified', 'baskerville-ai-security'); ?></span>
-							<?php endif; ?>
-						</td>
 					</tr>
 				<?php endforeach; ?>
 				</tbody>
@@ -1550,7 +1536,7 @@ class Baskerville_Admin {
 				<strong><?php esc_html_e('Block Unknown AI Bots', 'baskerville-ai-security'); ?></strong>
 			</label>
 			<p class="description" style="margin-top:4px;">
-				<?php esc_html_e('Block AI bots not in the list above, matched by User-Agent string only (no IP verification).', 'baskerville-ai-security'); ?>
+				<?php esc_html_e('Block AI bots not in the list above, matched by User-Agent string only. Covers unverified crawlers including xAI (Grok), ByteDance (Bytespider), Diffbot, Cohere, and others that do not publish IP ranges.', 'baskerville-ai-security'); ?>
 			</p>
 		</div>
 
