@@ -1556,19 +1556,29 @@ class Baskerville_Admin {
 					<?php foreach ($categories as $cat):
 						$slot = $row[$cat] ?? null;
 					?>
-					<td>
-						<?php if ($slot): ?>
-							<label>
-								<input type="checkbox"
-									   name="baskerville_settings[ai_blocked_companies][]"
-									   value="<?php echo esc_attr($slot['key']); ?>"
-									   class="baskerville-company-checkbox"
-									   data-cat="<?php echo esc_attr($cat); ?>"
-									   <?php checked(in_array($slot['key'], $blocked_keys, true)); ?>>
-								<span style="font-size:11px; color:#555;"><?php echo esc_html($slot['ua']); ?></span>
-							</label>
+					<td style="padding:8px 10px;">
+						<?php if ($slot):
+							$is_blocked = in_array($slot['key'], $blocked_keys, true);
+						?>
+							<div style="display:flex; align-items:center; gap:8px;">
+								<label class="bsk-aib-toggle" style="position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0;">
+									<input type="checkbox"
+										   name="baskerville_settings[ai_blocked_companies][]"
+										   value="<?php echo esc_attr($slot['key']); ?>"
+										   class="baskerville-company-checkbox"
+										   data-cat="<?php echo esc_attr($cat); ?>"
+										   style="opacity:0; width:0; height:0; position:absolute;"
+										   <?php checked($is_blocked); ?>>
+									<span class="bsk-aib-slider" style="position:absolute; cursor:pointer; inset:0; border-radius:20px; transition:.3s; background:<?php echo $is_blocked ? 'var(--bsk-color-success)' : '#ccc'; ?>;"></span>
+									<span class="bsk-aib-knob" style="position:absolute; content:''; height:14px; width:14px; left:<?php echo $is_blocked ? '19px' : '3px'; ?>; bottom:3px; background:#fff; border-radius:50%; transition:.3s;"></span>
+								</label>
+								<span class="bsk-aib-label" style="font-size:11px; font-weight:600; color:<?php echo $is_blocked ? 'var(--bsk-color-success-dark)' : '#999'; ?>;">
+									<?php echo $is_blocked ? esc_html__('Blocked', 'baskerville-ai-security') : esc_html__('Allowed', 'baskerville-ai-security'); ?>
+								</span>
+							</div>
+							<div style="font-size:10px; color:#888; margin-top:3px;"><?php echo esc_html($slot['ua']); ?></div>
 						<?php else: ?>
-							<span style="color:#ccc;">—</span>
+							<span style="color:#ddd;">—</span>
 						<?php endif; ?>
 					</td>
 					<?php endforeach; ?>
@@ -1593,11 +1603,37 @@ class Baskerville_Admin {
 
 		<script>
 		document.addEventListener('DOMContentLoaded', function() {
+			var green = getComputedStyle(document.documentElement).getPropertyValue('--bsk-color-success').trim() || '#46b450';
+			var greenDark = getComputedStyle(document.documentElement).getPropertyValue('--bsk-color-success-dark').trim() || '#2e7d32';
+
+			function updateToggle(cb) {
+				var label  = cb.closest('.bsk-aib-toggle');
+				var slider = label.querySelector('.bsk-aib-slider');
+				var knob   = label.querySelector('.bsk-aib-knob');
+				var text   = label.parentElement.querySelector('.bsk-aib-label');
+				if (cb.checked) {
+					slider.style.background = green;
+					knob.style.left = '19px';
+					text.textContent = '<?php echo esc_js(__('Blocked', 'baskerville-ai-security')); ?>';
+					text.style.color = greenDark;
+				} else {
+					slider.style.background = '#ccc';
+					knob.style.left = '3px';
+					text.textContent = '<?php echo esc_js(__('Allowed', 'baskerville-ai-security')); ?>';
+					text.style.color = '#999';
+				}
+			}
+
+			document.querySelectorAll('.baskerville-company-checkbox').forEach(function(cb) {
+				cb.addEventListener('change', function() { updateToggle(this); });
+			});
+
 			document.querySelectorAll('.baskerville-cat-block-all').forEach(function(btn) {
 				btn.addEventListener('click', function() {
 					var cat = this.dataset.cat;
 					document.querySelectorAll('.baskerville-company-checkbox[data-cat="' + cat + '"]').forEach(function(cb) {
 						cb.checked = true;
+						updateToggle(cb);
 					});
 				});
 			});
@@ -1606,6 +1642,7 @@ class Baskerville_Admin {
 					var cat = this.dataset.cat;
 					document.querySelectorAll('.baskerville-company-checkbox[data-cat="' + cat + '"]').forEach(function(cb) {
 						cb.checked = false;
+						updateToggle(cb);
 					});
 				});
 			});
