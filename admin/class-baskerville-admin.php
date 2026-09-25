@@ -1589,14 +1589,11 @@ class Baskerville_Admin {
 
 		<!-- Unknown AI Bots -->
 		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa; margin-bottom:12px;">
-			<label style="display:flex; align-items:center; gap:8px; font-weight:600;">
-				<input type="checkbox"
-					   name="baskerville_settings[ai_block_unknown]"
-					   value="1"
-					   <?php checked($block_unknown); ?>>
-				<?php esc_html_e('Block Unknown AI Bots', 'baskerville-ai-security'); ?>
-			</label>
-			<p class="description" style="margin:6px 0 0 24px;">
+			<div style="display:flex; align-items:center; gap:12px;">
+				<?php $this->render_inline_toggle('baskerville_settings[ai_block_unknown]', $block_unknown, 'bsk-card-toggle'); ?>
+				<strong><?php esc_html_e('Block Unknown AI Bots', 'baskerville-ai-security'); ?></strong>
+			</div>
+			<p class="description" style="margin:6px 0 0 0;">
 				<?php esc_html_e('Block AI bots not in the list above, matched by User-Agent string only. Covers unverified crawlers including xAI (Grok), ByteDance (Bytespider), Diffbot, Cohere, and others that do not publish IP ranges.', 'baskerville-ai-security'); ?>
 			</p>
 		</div>
@@ -1646,8 +1643,34 @@ class Baskerville_Admin {
 					});
 				});
 			});
+
+			// Card toggles (Block Unknown / Always block spoofers)
+			document.querySelectorAll('.bsk-card-toggle-cb').forEach(function(cb) {
+				cb.addEventListener('change', function() { updateToggle(this); });
+			});
 		});
 		</script>
+		<?php
+	}
+
+	private function render_inline_toggle(string $name, bool $checked, string $extra_class = ''): void {
+		$bg  = $checked ? 'var(--bsk-color-success)' : '#ccc';
+		$lft = $checked ? '19px' : '3px';
+		$lbl = $checked ? __('Blocked', 'baskerville-ai-security') : __('Allowed', 'baskerville-ai-security');
+		$col = $checked ? 'var(--bsk-color-success-dark)' : '#999';
+		?>
+		<div style="display:flex; align-items:center; gap:8px;">
+			<label class="bsk-aib-toggle <?php echo esc_attr($extra_class); ?>" style="position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0;">
+				<input type="hidden" name="<?php echo esc_attr($name); ?>" value="0">
+				<input type="checkbox" name="<?php echo esc_attr($name); ?>" value="1"
+					   style="opacity:0; width:0; height:0; position:absolute;"
+					   class="bsk-card-toggle-cb"
+					   <?php checked($checked); ?>>
+				<span class="bsk-aib-slider" style="position:absolute; cursor:pointer; inset:0; border-radius:20px; transition:.3s; background:<?php echo esc_attr($bg); ?>;"></span>
+				<span class="bsk-aib-knob"   style="position:absolute; height:14px; width:14px; left:<?php echo esc_attr($lft); ?>; bottom:3px; background:#fff; border-radius:50%; transition:.3s;"></span>
+			</label>
+			<span class="bsk-aib-label" style="font-size:12px; font-weight:600; color:<?php echo esc_attr($col); ?>;"><?php echo esc_html($lbl); ?></span>
+		</div>
 		<?php
 	}
 
@@ -1656,12 +1679,11 @@ class Baskerville_Admin {
 		$enabled = !isset($options['block_ai_bot_unverified']) || $options['block_ai_bot_unverified'];
 		?>
 		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
-			<label style="display:flex; align-items:center; gap:8px; font-weight:600;">
-				<input type="hidden" name="baskerville_settings[block_ai_bot_unverified]" value="0">
-				<input type="checkbox" name="baskerville_settings[block_ai_bot_unverified]" value="1" <?php checked($enabled, true); ?>>
-				<?php esc_html_e('Always block AI spoofers', 'baskerville-ai-security'); ?>
-			</label>
-			<p class="description" style="margin:6px 0 0 24px;">
+			<div style="display:flex; align-items:center; gap:12px;">
+				<?php $this->render_inline_toggle('baskerville_settings[block_ai_bot_unverified]', $enabled, 'bsk-card-toggle'); ?>
+				<strong><?php esc_html_e('Always block AI spoofers', 'baskerville-ai-security'); ?></strong>
+			</div>
+			<p class="description" style="margin:6px 0 0 0;">
 				<?php esc_html_e(
 					'When enabled, any request using a known AI bot user agent (OpenAI, Anthropic, Google, Meta, Amazon, Perplexity, and others) but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
 					'baskerville-ai-security'
