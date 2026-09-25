@@ -1578,15 +1578,15 @@ class Baskerville_Admin {
 		</table>
 
 		<!-- Unknown AI Bots -->
-		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
-			<label>
+		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa; margin-bottom:12px;">
+			<label style="display:flex; align-items:center; gap:8px; font-weight:600;">
 				<input type="checkbox"
 					   name="baskerville_settings[ai_block_unknown]"
 					   value="1"
 					   <?php checked($block_unknown); ?>>
-				<strong><?php esc_html_e('Block Unknown AI Bots', 'baskerville-ai-security'); ?></strong>
+				<?php esc_html_e('Block Unknown AI Bots', 'baskerville-ai-security'); ?>
 			</label>
-			<p class="description" style="margin-top:4px;">
+			<p class="description" style="margin:6px 0 0 24px;">
 				<?php esc_html_e('Block AI bots not in the list above, matched by User-Agent string only. Covers unverified crawlers including xAI (Grok), ByteDance (Bytespider), Diffbot, Cohere, and others that do not publish IP ranges.', 'baskerville-ai-security'); ?>
 			</p>
 		</div>
@@ -1618,17 +1618,19 @@ class Baskerville_Admin {
 		$options = get_option('baskerville_settings', array());
 		$enabled = !isset($options['block_ai_bot_unverified']) || $options['block_ai_bot_unverified'];
 		?>
-		<label>
-			<input type="hidden" name="baskerville_settings[block_ai_bot_unverified]" value="0">
-			<input type="checkbox" name="baskerville_settings[block_ai_bot_unverified]" value="1" <?php checked($enabled, true); ?> />
-			<strong><?php esc_html_e('Always block AI spoofers', 'baskerville-ai-security'); ?></strong>
-		</label>
-		<p class="description">
-			<?php esc_html_e(
-				'When enabled, any request using a known AI bot user agent (OpenAI, Anthropic, Google, Meta, Amazon, Perplexity, and others) but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
-				'baskerville-ai-security'
-			); ?>
-		</p>
+		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
+			<label style="display:flex; align-items:center; gap:8px; font-weight:600;">
+				<input type="hidden" name="baskerville_settings[block_ai_bot_unverified]" value="0">
+				<input type="checkbox" name="baskerville_settings[block_ai_bot_unverified]" value="1" <?php checked($enabled, true); ?>>
+				<?php esc_html_e('Always block AI spoofers', 'baskerville-ai-security'); ?>
+			</label>
+			<p class="description" style="margin:6px 0 0 24px;">
+				<?php esc_html_e(
+					'When enabled, any request using a known AI bot user agent (OpenAI, Anthropic, Google, Meta, Amazon, Perplexity, and others) but coming from an IP not in their published ranges is immediately blocked — regardless of the access mode above. These are likely scrapers spoofing AI bot user agents.',
+					'baskerville-ai-security'
+				); ?>
+			</p>
+		</div>
 		<?php
 	}
 
