@@ -160,12 +160,18 @@ class Baskerville_AI_UA {
             // Mistral
             'mistralbot',            // MistralBot (index crawler)
             'mistralai-user',        // MistralAI-User
+            'mistralai-index',       // MistralAI-Index
+            'mistralai-training',    // MistralAI-Training
 
             // DeepSeek
             'deepseekbot',           // DeepSeek crawler
 
             // xAI (Grok)
             'xai-bot',               // xAI web crawler
+            'grok',                  // Grok (xAI)
+            'grok-deepsearch',       // Grok DeepSearch
+            'xai-web-crawler',       // xAI web crawler (alternate)
+            'xai-searchbot',         // xAI SearchBot
 
             // Jina.ai
             'jinabot',               // JinaBot reader/crawler
@@ -267,12 +273,18 @@ class Baskerville_AI_UA {
             // Mistral
             'mistralbot'              => 'Mistral',
             'mistralai-user'          => 'Mistral',
+            'mistralai-index'         => 'Mistral',
+            'mistralai-training'      => 'Mistral',
 
             // DeepSeek
             'deepseekbot'             => 'DeepSeek',
 
             // xAI (Grok)
             'xai-bot'                 => 'xAI',
+            'grok'                    => 'xAI',
+            'grok-deepsearch'         => 'xAI',
+            'xai-web-crawler'         => 'xAI',
+            'xai-searchbot'           => 'xAI',
 
             // Jina.ai
             'jinabot'                 => 'Jina.ai',
@@ -316,6 +328,47 @@ class Baskerville_AI_UA {
         }
 
         return esc_html__('Unknown', 'baskerville-ai-security');
+    }
+
+    /**
+     * Get the category of an AI bot user agent.
+     * Returns 'search', 'assistant', or 'training'.
+     */
+    public function get_ai_bot_category(string $user_agent): string {
+        $ua = strtolower($user_agent);
+        // AI Search
+        $search_patterns = ['oai-searchbot', 'claude-searchbot', 'perplexitybot', 'mistralai-index', 'xai-searchbot', 'google-extended', 'applebot-extended'];
+        foreach ($search_patterns as $p) {
+            if (strpos($ua, $p) !== false) return 'search';
+        }
+        // AI Assistant
+        $assistant_patterns = ['chatgpt-user', 'claude-user', 'meta-externalfetcher', 'duckassistbot', 'perplexity-user', 'mistralai-user', 'amazonbot-live'];
+        foreach ($assistant_patterns as $p) {
+            if (strpos($ua, $p) !== false) return 'assistant';
+        }
+        // Default: training
+        return 'training';
+    }
+
+    /**
+     * Map a company name to a slug key.
+     */
+    public function get_company_key(string $company): string {
+        $map = [
+            'OpenAI' => 'openai', 'Anthropic' => 'anthropic', 'Google' => 'google',
+            'Meta' => 'meta', 'Amazon' => 'amazon', 'Perplexity' => 'perplexity',
+            'Mistral' => 'mistral', 'ByteDance' => 'bytedance', 'Common Crawl' => 'commoncrawl',
+            'Diffbot' => 'diffbot', 'xAI' => 'xai', 'Huawei' => 'huawei',
+            'Cohere' => 'cohere', 'Baidu' => 'baidu',
+        ];
+        return $map[$company] ?? strtolower(preg_replace('/[^a-z0-9]/i', '', $company));
+    }
+
+    /**
+     * Returns company keys that have IP range verification.
+     */
+    public static function get_verified_company_keys(): array {
+        return ['openai', 'anthropic', 'google', 'meta', 'amazon', 'perplexity', 'mistral', 'commoncrawl'];
     }
 
     /**
@@ -521,14 +574,19 @@ class Baskerville_AI_UA {
             // Mistral
             'MistralBot'          => 'https://mistral.ai/mistralai-index-ips.json',
             'MistralAIUser'       => 'https://mistral.ai/mistralai-user-ips.json',
+            'MistralIndex'        => 'https://mistral.ai/mistralai-index-ips.json',
+            'MistralUser'         => 'https://mistral.ai/mistralai-user-ips.json',
             // DuckDuckGo
-            'DuckAssistBot'       => 'https://duckduckgo.com/duckduckbot.json',
+            'DuckAssistBot'       => 'https://duckduckgo.com/duckassistbot.json',
             // Microsoft / Bing
             'Bingbot'             => 'https://www.bing.com/toolbox/bingbot.json',
             // Common Crawl
             'CCBot'               => 'https://index.commoncrawl.org/ccbot.json',
             // Amazon
             'AmazonBot'           => 'https://developer.amazon.com/amazonbot/ip-addresses/',
+            'AmazonbotTraining'   => 'https://developer.amazon.com/amazonbot/ip-addresses/',
+            'AmazonbotSearch'     => 'https://developer.amazon.com/amazonbot/searchbot-ip-addresses/',
+            'AmazonbotLive'       => 'https://developer.amazon.com/amazonbot/live-ip-addresses/',
         ];
 
         // Stale-while-revalidate: keep existing data for any source that fails.

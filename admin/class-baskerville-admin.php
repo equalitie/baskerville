@@ -747,25 +747,9 @@ class Baskerville_Admin {
 		// ai_bot_control_enabled - now rendered manually at top of form
 
 		add_settings_field(
-			'ai_bot_blocking_mode',
-			esc_html__('AI Bot Access Mode', 'baskerville-ai-security'),
-			array($this, 'render_ai_bot_mode_field'),
-			'baskerville-ai-bot-control',
-			'baskerville_ai_bot_control_section'
-		);
-
-		add_settings_field(
-			'blacklist_ai_companies',
-			esc_html__('Block List Companies', 'baskerville-ai-security'),
-			array($this, 'render_blacklist_ai_companies_field'),
-			'baskerville-ai-bot-control',
-			'baskerville_ai_bot_control_section'
-		);
-
-		add_settings_field(
-			'whitelist_ai_companies',
-			esc_html__('Allow List Companies', 'baskerville-ai-security'),
-			array($this, 'render_whitelist_ai_companies_field'),
+			'ai_bot_companies',
+			esc_html__('AI Bot Access', 'baskerville-ai-security'),
+			array($this, 'render_ai_bot_companies_field'),
 			'baskerville-ai-bot-control',
 			'baskerville_ai_bot_control_section'
 		);
@@ -886,32 +870,33 @@ class Baskerville_Admin {
 			$sanitized['banned_countries'] = $countries;
 		}
 
-		// AI Bot blocking mode
+		// AI Bot blocking mode (kept for backward compat during migration)
 		if (isset($input['ai_bot_blocking_mode'])) {
 			$mode = sanitize_text_field($input['ai_bot_blocking_mode']);
 			$sanitized['ai_bot_blocking_mode'] = in_array($mode, array('blacklist', 'whitelist', 'allow_all', 'block_all')) ? $mode : 'allow_all';
 		}
 
-		// Blacklist AI companies
-		if (isset($input['blacklist_ai_companies'])) {
-			if (is_array($input['blacklist_ai_companies'])) {
-				$companies = array_map('sanitize_text_field', $input['blacklist_ai_companies']);
-				$sanitized['blacklist_ai_companies'] = implode(',', $companies);
-			} else {
-				$companies = sanitize_text_field($input['blacklist_ai_companies']);
-				$sanitized['blacklist_ai_companies'] = trim($companies);
-			}
+		// Blacklist AI companies (kept for backward compat during migration)
+		if (isset($input['blacklist_ai_companies']) && !is_array($input['blacklist_ai_companies'])) {
+			$companies = sanitize_text_field($input['blacklist_ai_companies']);
+			$sanitized['blacklist_ai_companies'] = trim($companies);
 		}
 
-		// Whitelist AI companies
-		if (isset($input['whitelist_ai_companies'])) {
-			if (is_array($input['whitelist_ai_companies'])) {
-				$companies = array_map('sanitize_text_field', $input['whitelist_ai_companies']);
-				$sanitized['whitelist_ai_companies'] = implode(',', $companies);
+		// Whitelist AI companies (kept for backward compat during migration)
+		if (isset($input['whitelist_ai_companies']) && !is_array($input['whitelist_ai_companies'])) {
+			$companies = sanitize_text_field($input['whitelist_ai_companies']);
+			$sanitized['whitelist_ai_companies'] = trim($companies);
+		}
+
+		// Per-company blocking (new system)
+		if (isset($input['ai_blocked_companies']) || isset($input['ai_bot_control_tab'])) {
+			if (isset($input['ai_blocked_companies']) && is_array($input['ai_blocked_companies'])) {
+				$keys = array_map('sanitize_key', $input['ai_blocked_companies']);
+				$sanitized['ai_blocked_companies'] = implode(',', array_filter($keys));
 			} else {
-				$companies = sanitize_text_field($input['whitelist_ai_companies']);
-				$sanitized['whitelist_ai_companies'] = trim($companies);
+				$sanitized['ai_blocked_companies'] = isset($existing['ai_blocked_companies']) ? $existing['ai_blocked_companies'] : '';
 			}
+			$sanitized['ai_block_unknown'] = isset($input['ai_block_unknown']) ? (bool)$input['ai_block_unknown'] : (isset($existing['ai_block_unknown']) ? $existing['ai_block_unknown'] : true);
 		}
 
 		// Honeypot settings - if AI bot control tab submitted, unchecked = false; otherwise preserve existing
@@ -1429,121 +1414,171 @@ class Baskerville_Admin {
 		<?php
 	}
 
-	public function render_ai_bot_mode_field() {
-		$options = get_option('baskerville_settings', array());
-		$mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
-		?>
-		<fieldset>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="allow_all"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'allow_all'); ?> />
-				<strong><?php esc_html_e('Allow All AI Bots', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('No AI bot restrictions (allow all companies)', 'baskerville-ai-security'); ?>
-			</label>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="block_all"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'block_all'); ?> />
-				<strong class="baskerville-text-danger"><?php esc_html_e('Block All AI Bots', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('Block all AI bot crawlers (no exceptions)', 'baskerville-ai-security'); ?>
-			</label>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="blacklist"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'blacklist'); ?> />
-				<strong><?php esc_html_e('Block List', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('Block access from specified companies', 'baskerville-ai-security'); ?>
-			</label>
-			<label class="baskerville-label-block">
-				<input type="radio"
-					   name="baskerville_settings[ai_bot_blocking_mode]"
-					   value="whitelist"
-					   class="baskerville-aibot-mode-radio"
-					   <?php checked($mode, 'whitelist'); ?> />
-				<strong><?php esc_html_e('Allow List', 'baskerville-ai-security'); ?></strong> -
-				<?php esc_html_e('Allow access ONLY from specified companies', 'baskerville-ai-security'); ?>
-			</label>
-		</fieldset>
-		<p class="description">
-			<?php esc_html_e('Choose whether to allow all AI bots, block all AI bots, block specific companies, or allow only specific companies.', 'baskerville-ai-security'); ?>
-		</p>
-
-		<?php
+	private function get_ai_bot_companies_data(): array {
+		return [
+			'training' => [
+				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'GPTBot',                    'verified' => true],
+				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'ClaudeBot',                 'verified' => true],
+				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalagent',        'verified' => true],
+				['key' => 'google',      'name' => 'Google AI',     'uas' => 'Google-Extended',           'verified' => true],
+				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot',                 'verified' => true],
+				['key' => 'commoncrawl', 'name' => 'Common Crawl',  'uas' => 'CCBot',                     'verified' => true],
+				['key' => 'bytedance',   'name' => 'ByteDance',     'uas' => 'Bytespider',                'verified' => false],
+				['key' => 'diffbot',     'name' => 'Diffbot',       'uas' => 'Diffbot',                   'verified' => false],
+				['key' => 'xai',         'name' => 'xAI',           'uas' => 'xAI-Bot, Grok',             'verified' => false],
+				['key' => 'huawei',      'name' => 'Huawei',        'uas' => 'PetalBot',                  'verified' => false],
+				['key' => 'cohere',      'name' => 'Cohere',        'uas' => 'cohere-ai',                 'verified' => false],
+			],
+			'search' => [
+				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'OAI-SearchBot',             'verified' => true],
+				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-SearchBot',          'verified' => true],
+				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'PerplexityBot',             'verified' => true],
+				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (search)',        'verified' => true],
+				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-Index',           'verified' => true],
+				['key' => 'xai',         'name' => 'xAI',           'uas' => 'xAI-SearchBot',             'verified' => false],
+			],
+			'assistant' => [
+				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'ChatGPT-User',              'verified' => true],
+				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-User',               'verified' => true],
+				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalfetcher',      'verified' => true],
+				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'Perplexity-User',           'verified' => true],
+				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (live)',          'verified' => true],
+				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-User',            'verified' => true],
+				['key' => 'duckduckgo',  'name' => 'DuckDuckGo',    'uas' => 'DuckAssistBot',             'verified' => true],
+			],
+		];
 	}
 
-	public function render_blacklist_ai_companies_field() {
-		$options = get_option('baskerville_settings', array());
-		$blacklist_companies = isset($options['blacklist_ai_companies']) ? $options['blacklist_ai_companies'] : '';
+	public function render_ai_bot_companies_field() {
+		$options = get_option('baskerville_settings', []);
+		$blocked_raw  = isset($options['ai_blocked_companies']) ? $options['ai_blocked_companies'] : '';
+		$block_unknown = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
+		$blocked_keys = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
 
-		// Parse selected companies from comma-separated string
-		$selected_companies = array();
-		if (!empty($blacklist_companies)) {
-			$selected_companies = array_map('trim', explode(',', $blacklist_companies));
+		// Default: all companies blocked
+		$all_keys = ['openai','anthropic','meta','google','amazon','commoncrawl','bytedance','diffbot','xai','huawei','cohere','perplexity','mistral','duckduckgo'];
+		if (empty($blocked_raw) && !isset($options['ai_blocked_companies'])) {
+			$blocked_keys = $all_keys;
 		}
 
-		// Get list of known AI bot companies
-		$companies = $this->get_ai_companies_list();
+		$companies_data = $this->get_ai_bot_companies_data();
+		$category_labels = [
+			'training'  => __('AI Training', 'baskerville-ai-security'),
+			'search'    => __('AI Search', 'baskerville-ai-security'),
+			'assistant' => __('AI Assistant', 'baskerville-ai-security'),
+		];
+		$category_descs = [
+			'training'  => __('Bots that scrape your content for AI model training.', 'baskerville-ai-security'),
+			'search'    => __('Bots that index your content to answer user questions.', 'baskerville-ai-security'),
+			'assistant' => __('Bots acting in real-time on behalf of a user (AI agents).', 'baskerville-ai-security'),
+		];
+
+		// Collect unique keys per category for Block All / Allow All
+		$cat_keys = [];
+		foreach ($companies_data as $cat => $rows) {
+			$cat_keys[$cat] = array_unique(array_column($rows, 'key'));
+		}
 		?>
-		<div>
-			<select name="baskerville_settings[blacklist_ai_companies][]"
-					id="baskerville_blacklist_ai_companies"
-					class="baskerville-aibot-select baskerville-input-full"
-					multiple="multiple">
-				<?php foreach ($companies as $company): ?>
-					<option value="<?php echo esc_attr($company); ?>"
-							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
-						<?php echo esc_html($company); ?>
-					</option>
+		<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
+
+		<?php foreach ($companies_data as $cat => $rows): ?>
+		<div class="baskerville-aibot-category" style="margin-bottom: 28px;">
+			<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+				<div>
+					<strong><?php echo esc_html($category_labels[$cat]); ?></strong>
+					<span class="description" style="margin-left:8px;"><?php echo esc_html($category_descs[$cat]); ?></span>
+				</div>
+				<div>
+					<button type="button" class="button button-small baskerville-cat-block-all"
+							data-cat="<?php echo esc_attr($cat); ?>"
+							data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
+						<?php esc_html_e('Block All', 'baskerville-ai-security'); ?>
+					</button>
+					<button type="button" class="button button-small baskerville-cat-allow-all"
+							data-cat="<?php echo esc_attr($cat); ?>"
+							data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
+						<?php esc_html_e('Allow All', 'baskerville-ai-security'); ?>
+					</button>
+				</div>
+			</div>
+			<table class="wp-list-table widefat fixed striped" style="table-layout:fixed;">
+				<thead>
+					<tr>
+						<th style="width:36px;"><?php esc_html_e('Block', 'baskerville-ai-security'); ?></th>
+						<th style="width:130px;"><?php esc_html_e('Company', 'baskerville-ai-security'); ?></th>
+						<th><?php esc_html_e('User Agent', 'baskerville-ai-security'); ?></th>
+						<th style="width:110px;"><?php esc_html_e('Verification', 'baskerville-ai-security'); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+				<?php
+				$shown_keys = [];
+				foreach ($rows as $row):
+					// deduplicate within category (same company appears once per category)
+					$row_id = $cat . '_' . $row['key'];
+					if (in_array($row_id, $shown_keys, true)) continue;
+					$shown_keys[] = $row_id;
+					$is_blocked = in_array($row['key'], $blocked_keys, true);
+				?>
+					<tr>
+						<td>
+							<input type="checkbox"
+								   name="baskerville_settings[ai_blocked_companies][]"
+								   value="<?php echo esc_attr($row['key']); ?>"
+								   class="baskerville-company-checkbox"
+								   data-cat="<?php echo esc_attr($cat); ?>"
+								   <?php checked($is_blocked); ?>>
+						</td>
+						<td><strong><?php echo esc_html($row['name']); ?></strong></td>
+						<td><code style="font-size:11px;"><?php echo esc_html($row['uas']); ?></code></td>
+						<td>
+							<?php if ($row['verified']): ?>
+								<span style="color:#16a34a;">&#10003; <?php esc_html_e('verified', 'baskerville-ai-security'); ?></span>
+							<?php else: ?>
+								<span style="color:#9ca3af;"><?php esc_html_e('unverified', 'baskerville-ai-security'); ?></span>
+							<?php endif; ?>
+						</td>
+					</tr>
 				<?php endforeach; ?>
-			</select>
-			<p class="description">
-				<strong class="baskerville-text-danger"><?php esc_html_e('Block access from these AI bot companies', 'baskerville-ai-security'); ?></strong><br>
-				<?php esc_html_e('Search and select companies to block. You can select multiple companies.', 'baskerville-ai-security'); ?><br>
-				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Block List" mode is selected above.', 'baskerville-ai-security'); ?></em>
+				</tbody>
+			</table>
+		</div>
+		<?php endforeach; ?>
+
+		<!-- Unknown AI Bots -->
+		<div style="margin-top:20px; padding:16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
+			<label>
+				<input type="checkbox"
+					   name="baskerville_settings[ai_block_unknown]"
+					   value="1"
+					   <?php checked($block_unknown); ?>>
+				<strong><?php esc_html_e('Block Unknown AI Bots', 'baskerville-ai-security'); ?></strong>
+			</label>
+			<p class="description" style="margin-top:4px;">
+				<?php esc_html_e('Block AI bots not in the list above, matched by User-Agent string only (no IP verification).', 'baskerville-ai-security'); ?>
 			</p>
 		</div>
 
-		<?php
-	}
-
-	public function render_whitelist_ai_companies_field() {
-		$options = get_option('baskerville_settings', array());
-		$whitelist_companies = isset($options['whitelist_ai_companies']) ? $options['whitelist_ai_companies'] : '';
-
-		// Parse selected companies from comma-separated string
-		$selected_companies = array();
-		if (!empty($whitelist_companies)) {
-			$selected_companies = array_map('trim', explode(',', $whitelist_companies));
-		}
-
-		// Get list of known AI bot companies
-		$companies = $this->get_ai_companies_list();
-		?>
-		<div>
-			<select name="baskerville_settings[whitelist_ai_companies][]"
-					id="baskerville_whitelist_ai_companies"
-					class="baskerville-aibot-select baskerville-input-full"
-					multiple="multiple">
-				<?php foreach ($companies as $company): ?>
-					<option value="<?php echo esc_attr($company); ?>"
-							<?php echo in_array($company, $selected_companies) ? 'selected' : ''; ?>>
-						<?php echo esc_html($company); ?>
-					</option>
-				<?php endforeach; ?>
-			</select>
-			<p class="description">
-				<strong class="baskerville-text-primary"><?php esc_html_e('Allow access ONLY from these AI bot companies', 'baskerville-ai-security'); ?></strong><br>
-				<?php esc_html_e('Search and select companies to allow. You can select multiple companies.', 'baskerville-ai-security'); ?><br>
-				<em class="baskerville-text-muted"><?php esc_html_e('This field is only active when "Allow List" mode is selected above.', 'baskerville-ai-security'); ?></em>
-			</p>
-		</div>
+		<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			document.querySelectorAll('.baskerville-cat-block-all').forEach(function(btn) {
+				btn.addEventListener('click', function() {
+					var keys = this.dataset.keys.split(',');
+					document.querySelectorAll('.baskerville-company-checkbox').forEach(function(cb) {
+						if (keys.indexOf(cb.value) !== -1) cb.checked = true;
+					});
+				});
+			});
+			document.querySelectorAll('.baskerville-cat-allow-all').forEach(function(btn) {
+				btn.addEventListener('click', function() {
+					var keys = this.dataset.keys.split(',');
+					document.querySelectorAll('.baskerville-company-checkbox').forEach(function(cb) {
+						if (keys.indexOf(cb.value) !== -1) cb.checked = false;
+					});
+				});
+			});
+		});
+		</script>
 		<?php
 	}
 
@@ -1563,25 +1598,6 @@ class Baskerville_Admin {
 			); ?>
 		</p>
 		<?php
-	}
-
-	private function get_ai_companies_list() {
-		return array(
-			'OpenAI',
-			'Anthropic',
-			'Google',
-			'Meta',
-			'ByteDance',
-			'Amazon',
-			'Baidu',
-			'Perplexity',
-			'Cohere',
-			'Common Crawl',
-			'Huawei',
-			'NetEase',
-			'Generic',
-			'Unknown',
-		);
 	}
 
 	private function get_geoip_source_name() {
@@ -2902,11 +2918,6 @@ class Baskerville_Admin {
 			<!-- AI Bots by Company (verified) -->
 			<div class="chart-container">
 				<canvas id="aiBotsChart"></canvas>
-			</div>
-
-			<!-- AI Bots — Unverified / Spoofers -->
-			<div class="chart-container" style="margin-top: 24px;">
-				<canvas id="aiBotsUnverifiedChart"></canvas>
 			</div>
 
 			<?php
@@ -4755,13 +4766,6 @@ class Baskerville_Admin {
 			<div class="baskerville-charts-container">
 				<div class="baskerville-chart-card" style="flex: 1 1 100%; max-width: 100%;">
 					<canvas id="aiBotsChart"></canvas>
-				</div>
-			</div>
-
-			<!-- AI Bots — Unverified / Spoofers -->
-			<div class="baskerville-charts-container">
-				<div class="baskerville-chart-card" style="flex: 1 1 100%; max-width: 100%;">
-					<canvas id="aiBotsUnverifiedChart"></canvas>
 				</div>
 			</div>
 

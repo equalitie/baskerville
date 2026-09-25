@@ -435,30 +435,25 @@ class Baskerville_Firewall
 				// block_ai_bot_unverified is off → fall through to main mode below
 			}
 
-			// ── Main mode block (allow_all / block_all / blacklist / whitelist) ─
-			$ai_bot_mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
+			// ── Per-company blocking (replaces 4-mode system) ──────────────────────
 			$ai_classifications = ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'];
-			if ($ai_bot_mode !== 'allow_all' && in_array($cls, $ai_classifications, true)) {
-				$should_block = false;
+			if (in_array($cls, $ai_classifications, true)) {
+				$blocked_raw    = isset($options['ai_blocked_companies']) ? $options['ai_blocked_companies'] : '';
+				$block_unknown  = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
+				$blocked_keys   = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
+
+				$company_key = $this->aiua->get_company_key($company);
+				$is_known    = $company_key !== '';
+
+				$should_block  = false;
 				$reason_prefix = '';
 
-				if ($ai_bot_mode === 'block_all') {
+				if ($is_known && !empty($blocked_keys) && in_array($company_key, $blocked_keys, true)) {
 					$should_block  = true;
-					$reason_prefix = 'ai-bot-block-all';
-				} elseif ($ai_bot_mode === 'whitelist') {
-					$company_list_str = isset($options['whitelist_ai_companies']) ? $options['whitelist_ai_companies'] : '';
-					if (!empty($company_list_str)) {
-						$whitelist_companies = array_map('trim', explode(',', $company_list_str));
-						$should_block  = !in_array($company, $whitelist_companies, true);
-						$reason_prefix = 'ai-bot-whitelist-blocked';
-					}
-				} elseif ($ai_bot_mode === 'blacklist') {
-					$company_list_str = isset($options['blacklist_ai_companies']) ? $options['blacklist_ai_companies'] : '';
-					if (!empty($company_list_str)) {
-						$blacklist_companies = array_map('trim', explode(',', $company_list_str));
-						$should_block  = in_array($company, $blacklist_companies, true);
-						$reason_prefix = 'ai-bot-blacklist-blocked';
-					}
+					$reason_prefix = 'ai-bot-company-blocked';
+				} elseif (!$is_known && $block_unknown) {
+					$should_block  = true;
+					$reason_prefix = 'ai-bot-unknown-blocked';
 				}
 
 				if ($should_block) {

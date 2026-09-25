@@ -235,6 +235,35 @@ class Baskerville_Stats
                 $wpdb->query( "DROP INDEX `{$idx}` ON `{$table_name}`" ); // phpcs:ignore WordPress.DB
             }
         }
+
+        // Migrate from 4-mode AI bot system to per-company blocking
+        $options = get_option( 'baskerville_settings', [] );
+        if ( isset( $options['ai_bot_blocking_mode'] ) && ! isset( $options['ai_blocked_companies'] ) ) {
+            $all_keys = 'openai,anthropic,meta,google,amazon,commoncrawl,bytedance,diffbot,xai,huawei,cohere,perplexity,mistral,duckduckgo';
+            $old_mode = $options['ai_bot_blocking_mode'];
+            if ( $old_mode === 'allow_all' ) {
+                $options['ai_blocked_companies'] = '';
+                $options['ai_block_unknown']     = false;
+            } elseif ( $old_mode === 'block_all' ) {
+                $options['ai_blocked_companies'] = $all_keys;
+                $options['ai_block_unknown']     = true;
+            } elseif ( $old_mode === 'blacklist' ) {
+                $options['ai_blocked_companies'] = isset( $options['blacklist_ai_companies'] ) ? $options['blacklist_ai_companies'] : '';
+                $options['ai_block_unknown']     = false;
+            } elseif ( $old_mode === 'whitelist' ) {
+                $all_arr     = explode( ',', $all_keys );
+                $allowed_str = isset( $options['whitelist_ai_companies'] ) ? $options['whitelist_ai_companies'] : '';
+                $allowed     = array_filter( array_map( 'trim', explode( ',', $allowed_str ) ) );
+                // company names to keys mapping
+                $name_to_key = [ 'OpenAI' => 'openai', 'Anthropic' => 'anthropic', 'Google' => 'google', 'Meta' => 'meta', 'Amazon' => 'amazon', 'ByteDance' => 'bytedance', 'Perplexity' => 'perplexity', 'Common Crawl' => 'commoncrawl', 'Huawei' => 'huawei', 'Cohere' => 'cohere' ];
+                $allowed_keys = array_map( function ( $n ) use ( $name_to_key ) { return $name_to_key[ $n ] ?? strtolower( $n ); }, $allowed );
+                $blocked      = array_diff( $all_arr, $allowed_keys );
+                $options['ai_blocked_companies'] = implode( ',', $blocked );
+                $options['ai_block_unknown']     = true;
+            }
+            unset( $options['ai_bot_blocking_mode'], $options['blacklist_ai_companies'], $options['whitelist_ai_companies'] );
+            update_option( 'baskerville_settings', $options );
+        }
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 
