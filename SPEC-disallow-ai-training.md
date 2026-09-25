@@ -1,347 +1,267 @@
-# Spec: Disallow AI Training
+# Spec: AI Bot Access Redesign
 
 **Status:** Draft  
 **Priority:** Post-1.0.6  
-**Context:** Cloudflare announced "Disallow AI Training" on 2026-09-15 — a setting that lets site owners signal no-training preference via robots.txt while staying indexed for search. Apple, Google, and Microsoft committed to honoring it. We already block training crawlers; this adds the robots.txt signal layer and surfacing in the UI.
+**Context:** Cloudflare moved to a 3-category model (Search / Training / Agent) on 2026-09-15.
+We can't do ML-based classification like they can, but we verify enough companies via rDNS and
+published IP ranges to make a meaningful per-company UI. This spec replaces the current
+4-mode system (allow_all / block_all / whitelist / blacklist) with a model that maps to how
+site owners actually think about AI bots.
 
 ---
 
 ## Problem
 
-Site owners who use Baskerville's AI bot blocking today face the same tradeoff Cloudflare identified:
+The current 4-mode system is abstract and doesn't help users understand what they're allowing
+or blocking. Users think in terms of companies and purposes, not access-control modes.
 
-- Blocking `Googlebot` stops both search indexing AND training. Most owners don't want that.
-- NOT blocking `Googlebot` means accepting training. Many owners don't want that either.
-- Mixed-use crawlers (Googlebot, Bingbot, Applebot) serve both purposes from the same IP ranges and UA strings. You can't distinguish them at the network level.
-
-The solution: Google, Apple, and Microsoft publish **separate training-specific user-agents** (`Google-Extended`, `Applebot-Extended`) that they've committed to honor in robots.txt. Block those → training stops. Main crawler keeps going → search continues.
-
-For training-only crawlers (OpenAI GPTBot, Anthropic, Meta, Amazon) the situation is simpler — blocking them has zero search impact.
-
----
-
-## Proposed Solution
-
-Two complementary layers:
-
-1. **robots.txt signal** — `Disallow: /` for training-specific UAs, written once, honored by compliant operators without needing active blocking
-2. **Active blocking** — already exists in AI Bot Control; needs to be linked to the new UI concept so the user understands the full picture
+Additionally:
+- No distinction between Training bots (scrape content for model training) and Agent bots
+  (act in real-time on behalf of a user) — these are different threat models
+- Mixed-use crawlers (Googlebot/Google-Extended) create confusion — blocking "Google" breaks search
+- No robots.txt signal for compliant operators who honor it
 
 ---
 
-## Crawler Classification
+## Verification Coverage
 
-### Mixed-use crawlers — search + training from same bot
+We verify bots from these companies — blocking only applies to verified IPs:
 
-| Operator | Search UA | Training UA | robots.txt key |
-|----------|-----------|-------------|----------------|
-| Google   | `Googlebot` | `Google-Extended` | `Google-Extended` |
-| Apple    | `Applebot` | `Applebot-Extended` | `Applebot-Extended` |
-| Microsoft | `Bingbot` | (in progress, ETA early 2027) | not yet |
+| Company | Method | IP range source | UAs covered |
+|---------|--------|-----------------|-------------|
+| Google (Search) | rDNS `.googlebot.com` / `.google.com` | — | `Googlebot` |
+| Google (AI) | IP ranges JSON | developers.google.com/static/crawling/ipranges/ | `Google-Extended`, `GoogleSpecial`, `GoogleUserTriggered` |
+| Microsoft | rDNS `.search.msn.com` | — | `Bingbot` |
+| Apple | rDNS + IP ranges JSON | search.developer.apple.com/applebot.json | `Applebot` |
+| DuckDuckGo | rDNS + IP ranges JSON | duckduckgo.com/duckassistbot.json | `DuckDuckBot`, `DuckAssistBot` |
+| Meta | rDNS `.facebook.com` / `.fbscan.com` + static CIDRs | facebook.com/peering/geofeed | `meta-externalagent`, `meta-externalfetcher` |
+| OpenAI | IP ranges JSON | openai.com/gptbot.json, searchbot.json, chatgpt-user.json | `GPTBot`, `OAISearchBot`, `ChatGPT-User` |
+| Anthropic | IP ranges JSON | claude.com/crawling/bots.json | `ClaudeBot`, `Claude-SearchBot`, `Claude-User` |
+| Amazon | IP ranges JSON | developer.amazon.com/amazonbot/*.json (3 JSONs) | `Amazonbot` (training/search/live) |
+| Perplexity | IP ranges JSON | perplexity.ai/perplexitybot.json, perplexity-user.json | `PerplexityBot`, `Perplexity-User` |
+| Mistral | IP ranges JSON | mistral.ai/mistralai-index-ips.json, mistralai-user-ips.json | `MistralAI-Index`, `MistralAI-User` |
+| Common Crawl | IP ranges JSON | index.commoncrawl.org/ccbot.json | `CCBot` |
 
-For these: disallow the `*-Extended` UA in robots.txt, leave the main UA alone.
+**Unverified companies** — UA-only matching, no IP verification. Treated as a single group.
 
-### Training-only crawlers — no search function
+### xAI / Grok — special case
 
-| Operator | UA | Block impact on search |
-|----------|----|------------------------|
-| OpenAI   | `GPTBot` | none |
-| Anthropic | `anthropic-ai`, `ClaudeBot` | none |
-| Meta | `meta-externalagent` | none |
-| Amazon | `Amazonbot` | none |
-| Bytedance | `Bytespider` | none |
-| Diffbot | `Diffbot` | none |
-| Common Crawl | `CCBot` | none |
+xAI publishes no official IP ranges and no crawler documentation. The UA tokens `xAI-Bot`,
+`xAI-SearchBot`, `Grok`, `Grok-DeepSearch` only catch honest declarations — there is no
+way to verify them against IP ranges.
 
-For these: disallow in robots.txt AND block by IP (already have IP ranges in `Baskerville_AI_UA`).
+In practice, Grok relies primarily on X/Twitter posts, Common Crawl, and Wikipedia rather
+than active web crawling, so actual xAI-originated traffic in server logs appears to be
+minimal. Webmasters checking their logs typically find nothing identifiable as Grok.
+
+If xAI does crawl directly in the future, **ASN-level blocking** (X/Twitter ASNs) would be
+the only reliable mitigation beyond UA matching. Track as future addition.
 
 ---
 
-## UI Changes
+## Bot Categories
 
-### Where does this live?
+Three categories matching Cloudflare's model. "AI Training" replaces Cloudflare's "AI Crawler"
+label — more descriptive of actual purpose.
 
-**Option A:** New top-level toggle in AI Bot Control tab — "Disallow AI Training"
-- Sits above the per-provider table
-- One click covers all training UAs
-- Per-provider overrides still possible below
+### AI Training — scrape content to develop or refine AI models
+| Company | UA | Verified |
+|---------|----|----------|
+| OpenAI | `GPTBot` | ✓ IP ranges |
+| Anthropic | `ClaudeBot`, `anthropic-ai` | ✓ IP ranges |
+| Meta | `meta-externalagent`, `meta-webindexer` | ✓ rDNS + CIDRs |
+| Google AI | `Google-Extended` | ✓ IP ranges |
+| Amazon | `Amazonbot` (training) | ✓ IP ranges |
+| Common Crawl | `CCBot` | ✓ IP ranges |
+| Bytedance | `Bytespider`, `TikTok Spider` | ✗ |
+| Diffbot | `Diffbot` | ✗ |
+| xAI | `xAI-Bot`, `Grok`, `Grok-DeepSearch`, `xAI-Web-Crawler` | ✗ (see note) |
+| Huawei | `PetalBot` | ✗ |
+| Manus | `Manus Bot` | ✗ |
+| Novellum | `Novellum AI Crawl` | ✗ |
+| ProRata.ai | `ProRataInc` | ✗ |
+| Timpi | `Timpibot` | ✗ |
 
-**Option B:** New dedicated tab "AI Training"
-- Cleaner separation from "AI Bot Access" (which is about access control, not training preference)
-- More room to explain the nuance (robots.txt vs blocking)
-- Easier to add AI Summary controls later (Cloudflare's next step)
+### AI Search — answer user questions using indexed content
+| Company | UA | Verified |
+|---------|----|----------|
+| OpenAI | `OAI-SearchBot` | ✓ IP ranges |
+| Anthropic | `Claude-SearchBot` | ✓ IP ranges |
+| Perplexity | `PerplexityBot` | ✓ IP ranges |
+| Amazon | `Amazonbot` (search) | ✓ IP ranges |
+| Mistral | `MistralAI-Index` | ✓ IP ranges |
+| Apple | `Applebot` (AI search mode) | ✓ rDNS + IP ranges |
+| xAI | `xAI-SearchBot` | ✗ (see note) |
 
-**Recommendation: Option B** — separate tab. The audience for "I want to block scrapers" vs "I want to control AI training" is subtly different. Option B also leaves room for the summary/snippet controls that will matter next.
+### AI Assistant — act in real-time on behalf of a user
+| Company | UA | Verified |
+|---------|----|----------|
+| OpenAI | `ChatGPT-User` | ✓ IP ranges |
+| Anthropic | `Claude-User` | ✓ IP ranges |
+| Meta | `meta-externalfetcher` | ✓ rDNS + CIDRs |
+| DuckDuckGo | `DuckAssistBot` | ✓ rDNS + IP ranges |
+| Amazon | `Amazonbot` (live) | ✓ IP ranges |
+| Perplexity | `Perplexity-User` | ✓ IP ranges |
+| Mistral | `MistralAI-User` | ✓ IP ranges |
+| Anchor | `Anchor Browser` | ✗ |
 
-### Tab: "AI Training"
+### Search bots — index content for search engines (never blocked, not in UI)
+| Company | UA | Verified |
+|---------|----|----------|
+| Google | `Googlebot` | ✓ rDNS |
+| Microsoft | `Bingbot` | ✓ rDNS |
+| DuckDuckGo | `DuckDuckBot` | ✓ rDNS |
+| Baidu | `Baiduspider` | ✗ |
+| Internet Archive | `archive.org_bot` | ✗ |
+
+Search bots are always allowed — verified ones confirmed safe, blocking breaks search indexing.
+They do not appear in the blocking UI.
+
+---
+
+## Proposed UI
+
+Replace the current 4-mode dropdown with per-company toggles grouped by category.
 
 ```
-[ AI Training ]
+[ AI Bot Control ]
 
-Disallow AI Training                                    [ON/OFF toggle]
+AI Training                                           [Block All / Allow All]
+──────────────────────────────────────────────────────────────────────────────
+☑ OpenAI          GPTBot                        verified ✓
+☑ Anthropic       ClaudeBot                     verified ✓
+☑ Meta            meta-externalagent            verified ✓
+☑ Google AI       Google-Extended               verified ✓
+☑ Amazon          Amazonbot                     verified ✓
+☑ Common Crawl    CCBot                         verified ✓
+☑ Bytedance       Bytespider                    unverified
+☑ Diffbot         Diffbot                       unverified
+☑ xAI             xAI-Bot, Grok                 unverified ⚠
+☑ Huawei          PetalBot                      unverified
+...
 
-When ON, Baskerville adds Disallow directives to your robots.txt for
-training-specific crawlers. Compliant operators (Google, Apple) will stop
-using your content for model training while continuing to index you for search.
-Non-compliant crawlers are blocked regardless.
+AI Search                                             [Block All / Allow All]
+──────────────────────────────────────────────────────────────────────────────
+☑ OpenAI          OAI-SearchBot                 verified ✓
+☑ Anthropic       Claude-SearchBot              verified ✓
+☑ Perplexity      PerplexityBot                 verified ✓
+☑ Amazon          Amazonbot (search)            verified ✓
+☑ Mistral         MistralAI-Index               verified ✓
+☑ xAI             xAI-SearchBot                 unverified ⚠
 
-───────────────────────────────────────────────────────────────────────
-robots.txt signal            Active blocking
-───────────────────────────────────────────────────────────────────────
-Google-Extended      ✓ Disallow    —
-Applebot-Extended    ✓ Disallow    —
-Bingbot              (pending — Microsoft ETA 2027)
-GPTBot               ✓ Disallow    ✓ Blocked
-anthropic-ai         ✓ Disallow    ✓ Blocked
-ClaudeBot            ✓ Disallow    ✓ Blocked
-meta-externalagent   ✓ Disallow    ✓ Blocked
-Amazonbot            ✓ Disallow    ✓ Blocked
-Bytespider           ✓ Disallow    ✓ Blocked
-CCBot                ✓ Disallow    ✓ Blocked
-───────────────────────────────────────────────────────────────────────
+AI Assistant                                          [Block All / Allow All]
+──────────────────────────────────────────────────────────────────────────────
+☑ OpenAI          ChatGPT-User                  verified ✓
+☑ Anthropic       Claude-User                   verified ✓
+☑ Meta            meta-externalfetcher          verified ✓
+☑ DuckDuckGo      DuckAssistBot                 verified ✓
+☑ Perplexity      Perplexity-User               verified ✓
+☑ Amazon          Amazonbot (live)              verified ✓
+☑ Mistral         MistralAI-User                verified ✓
 
-Note: Active blocking follows your AI Bot Control settings. Training
-crawlers that ignore robots.txt are blocked by IP range verification.
+Unknown AI Bots (unverified companies)
+──────────────────────────────────────────────────────────────────────────────
+● Block  ○ Allow
+Bots not in the list above, matched by User-Agent only.
 ```
 
+- Default: all checkboxes ON (block), Unknown = Block
+- "verified ✓" — IP confirmed via rDNS or published IP ranges before blocking
+- "unverified" — UA-match only, blocked on UA claim alone
+
+### Removed charts
+
+Two charts currently on the AI Bot Control tab should be removed — redundant given the
+per-company toggle table above:
+
+- **AI Bots Hits by Country** — country breakdown belongs in the GeoIP tab, not here
+- **Unverified Bot UAs (Spoofers)** — redundant with the "unverified" labels in the table
+  and the Unknown AI Bots toggle; adds noise without actionable value
+
 ---
+
 
 ## Technical Implementation
 
-### 1. Setting
+### 1. Settings schema
+
+Replace `ai_bot_blocking_mode` / `whitelist_ai_companies` / `blacklist_ai_companies` with:
 
 ```php
-// baskerville_settings['disallow_ai_training'] = bool (default: false)
+// baskerville_settings['ai_blocked_companies'] = comma-separated list of company keys
+// e.g. 'openai,anthropic,meta,google_ai,amazon,bytedance,ccbot,diffbot,xai'
+
+// baskerville_settings['ai_block_unknown'] = bool (default: true)
 ```
 
-In `sanitize_settings()`:
-```php
-$sanitized['disallow_ai_training'] = isset($input['disallow_ai_training'])
-    ? (bool) $input['disallow_ai_training']
-    : (isset($existing['disallow_ai_training']) ? $existing['disallow_ai_training'] : false);
-```
+Company keys map to UA lists in `Baskerville_AI_UA`.
 
-### 2. robots.txt — write a physical file (primary approach)
-
-When the setting is enabled, Baskerville writes a physical `robots.txt` to the webroot using
-`WP_Filesystem`. This is better than the WordPress `robots_txt` filter because:
-
-- nginx/Apache serves the file directly — no PHP overhead per request
-- Works correctly behind Deflect and other CDNs that cache static files
-- No dependency on whether the request reaches WordPress
-
-**Write on settings save** (hook on `update_option`):
+### 2. Firewall logic
 
 ```php
-add_action('update_option_baskerville_settings', function($old, $new) {
-    $manager = new Baskerville_Robots_Manager();
-    if (!empty($new['disallow_ai_training'])) {
-        $manager->write_robots_txt();
-    } else {
-        $manager->remove_baskerville_block();
-    }
-}, 10, 2);
-```
+// In pre_db_firewall(), replace the 4-mode block with:
 
-**`Baskerville_Robots_Manager` class** (new file `includes/class-baskerville-robots.php`):
+$blocked_companies = array_filter(explode(',', $options['ai_blocked_companies'] ?? ''));
+$block_unknown     = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
 
-```php
-class Baskerville_Robots_Manager {
+if (in_array($cls, ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'], true)) {
+    $company_key = $this->aiua->get_ai_bot_company_key($company); // e.g. 'openai'
+    $is_known    = $company_key !== '';
 
-    const MARKER_BEGIN = '# BEGIN Baskerville AI Training';
-    const MARKER_END   = '# END Baskerville AI Training';
-
-    private static function training_uas(): array {
-        return [
-            // Mixed-use: training-specific sub-agents (search UA unaffected)
-            'Google-Extended',
-            'Applebot-Extended',
-            // Training-only (no search impact)
-            'GPTBot',
-            'anthropic-ai',
-            'ClaudeBot',
-            'meta-externalagent',
-            'Amazonbot',
-            'Bytespider',
-            'Diffbot',
-            'CCBot',
-            'omgili',
-            'Omgilibot',
-            'xAI-Bot',
-            'JinaBot',
-            'DeepSeekBot',
-        ];
-    }
-
-    private function build_block(): string {
-        $lines = [ self::MARKER_BEGIN ];
-        foreach (self::training_uas() as $ua) {
-            $lines[] = "User-agent: {$ua}";
-        }
-        $lines[] = 'Disallow: /';
-        $lines[] = '';
-        $lines[] = self::MARKER_END;
-        return implode("\n", $lines) . "\n";
-    }
-
-    public function write_robots_txt(): bool {
-        global $wp_filesystem;
-        if (!function_exists('WP_Filesystem')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-        }
-        WP_Filesystem();
-
-        $path    = ABSPATH . 'robots.txt';
-        $current = $wp_filesystem->exists($path) ? $wp_filesystem->get_contents($path) : '';
-
-        // Remove any existing Baskerville block, then append fresh one
-        $stripped = $this->strip_block($current);
-        $updated  = rtrim($stripped) . "\n\n" . $this->build_block();
-
-        return $wp_filesystem->put_contents($path, $updated, FS_CHMOD_FILE);
-    }
-
-    public function remove_baskerville_block(): bool {
-        global $wp_filesystem;
-        if (!function_exists('WP_Filesystem')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-        }
-        WP_Filesystem();
-
-        $path = ABSPATH . 'robots.txt';
-        if (!$wp_filesystem->exists($path)) return true;
-
-        $current = $wp_filesystem->get_contents($path);
-        $stripped = $this->strip_block($current);
-
-        // If nothing left but whitespace, delete the file entirely
-        if (trim($stripped) === '') {
-            return $wp_filesystem->delete($path);
-        }
-        return $wp_filesystem->put_contents($path, $stripped, FS_CHMOD_FILE);
-    }
-
-    private function strip_block(string $content): string {
-        $pattern = '/' . preg_quote(self::MARKER_BEGIN, '/') . '.*?' . preg_quote(self::MARKER_END, '/') . '\n?/s';
-        return preg_replace($pattern, '', $content);
-    }
-
-    public function can_write(): bool {
-        global $wp_filesystem;
-        if (!function_exists('WP_Filesystem')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-        }
-        WP_Filesystem();
-        $path = ABSPATH . 'robots.txt';
-        // Can write if file doesn't exist yet (directory writable) or file is writable
-        return $wp_filesystem->is_writable(ABSPATH) || $wp_filesystem->is_writable($path);
+    if ($is_known && in_array($company_key, $blocked_companies, true)) {
+        $should_block = true;
+        $reason = 'ai-bot-company-blocked';
+    } elseif (!$is_known && $block_unknown) {
+        $should_block = true;
+        $reason = 'ai-bot-unknown-blocked';
     }
 }
 ```
 
-**On plugin deactivation** — remove the Baskerville block from robots.txt (or delete the file if
-it only contained our block).
+### 3. Migration from 4-mode system
 
-### 3. Fallback: `robots_txt` WordPress filter
-
-If `WP_Filesystem` cannot write to ABSPATH (hardened server, incorrect permissions), fall back to
-the WordPress dynamic filter. Show an admin notice explaining the limitation.
+On first load after upgrade, `maybe_upgrade_schema()` converts existing settings:
 
 ```php
-// In write_robots_txt() — if put_contents() fails:
-// fall back to filter, set transient 'baskerville_robots_write_failed'
-
-add_filter('robots_txt', function($output, $public) {
-    if (!$public) return $output;
-    $options = get_option('baskerville_settings', []);
-    if (empty($options['disallow_ai_training'])) return $output;
-    // Only used as fallback when physical file write failed
-    if (!get_transient('baskerville_robots_write_failed')) return $output;
-
-    $output .= "\n" . (new Baskerville_Robots_Manager())->build_block_string();
-    return $output;
-}, 10, 2);
+$old_mode = $options['ai_bot_blocking_mode'] ?? 'allow_all';
+if ($old_mode === 'allow_all') {
+    $options['ai_blocked_companies'] = '';
+    $options['ai_block_unknown']     = false;
+} elseif ($old_mode === 'block_all') {
+    $options['ai_blocked_companies'] = implode(',', ALL_COMPANY_KEYS);
+    $options['ai_block_unknown']     = true;
+} elseif ($old_mode === 'blacklist') {
+    $options['ai_blocked_companies'] = $options['blacklist_ai_companies'] ?? '';
+    $options['ai_block_unknown']     = false;
+} elseif ($old_mode === 'whitelist') {
+    // invert: block everything NOT in the whitelist
+    $allowed  = array_filter(explode(',', $options['whitelist_ai_companies'] ?? ''));
+    $options['ai_blocked_companies'] = implode(',', array_diff(ALL_COMPANY_KEYS, $allowed));
+    $options['ai_block_unknown']     = true;
+}
+unset($options['ai_bot_blocking_mode'], $options['whitelist_ai_companies'], $options['blacklist_ai_companies']);
 ```
-
-**Fallback limitation:** WordPress only calls `robots_txt` filter when `blog_public = 1` and there
-is no physical `robots.txt` at the webroot. On cached Deflect/nginx sites, the dynamically
-generated robots.txt may itself be cached, so the filter runs only on cache miss. For production
-deployments behind a CDN, the physical file approach is strongly preferred.
-
-### 4. AI Bot Control integration
-
-The AI Bot Control per-provider table already handles blocking for training-only crawlers. The new tab needs to:
-- Read the current block state for each training crawler from the existing AI bot settings
-- Show it as "Active blocking: ✓ / ✗" in the table (read-only in this tab)
-- Link to AI Bot Control tab for changes
-
-No duplication of settings. The AI Training tab is a **view + robots.txt toggle**, not a second blocking control.
-
-### 5. New user-agents to add to `Baskerville_AI_UA`
-
-Check which of these are missing from `$this->known_ai_bots` in `class-baskerville-ai-ua.php`:
-- `Google-Extended` (training variant of Googlebot — should be handled separately from Googlebot)
-- `Applebot-Extended` (training variant of Applebot)
-- `OAI-SearchBot` (OpenAI's search agent, separate from GPTBot)
-- `DataForSeoBot`
-- `ImagesiftBot`
-
----
-
-## Edge Cases
-
-### What if user blocks Googlebot entirely in AI Bot Control?
-`Disallow AI Training` adds a disallow for `Google-Extended`. The user's block on `Googlebot` is a separate, stronger action that's their explicit choice. Don't override it, don't warn about it — they know what they're doing.
-
-### What if user enables "Disallow AI Training" but NOT blocking?
-That's a valid choice. Some users prefer the soft signal (robots.txt) without hard blocking. Especially for Google-Extended and Applebot-Extended where the operator has committed to honoring it. The UI should make it clear this is the distinction.
-
-### What if filesystem write fails?
-Fall back to `robots_txt` WordPress filter (see §3 above). Show admin notice:
-"Could not write robots.txt — using WordPress filter as fallback. This may not work correctly
-behind a CDN cache. Check file permissions on ABSPATH."
-
-### What if a physical robots.txt already exists with custom content?
-`strip_block()` + re-append preserves existing content. Only the `# BEGIN/END Baskerville` block
-is replaced. Manual entries above/below our block are untouched.
-
-### What about the `X-Robots-Tag` header?
-robots.txt is per-domain. `X-Robots-Tag: noai, noimageai` can be per-page. Future addition —
-see AI Summaries section below. Not in scope for this spec.
-
-### What if `blog_public` = 0 (Search engine visibility OFF)?
-The physical file approach works regardless of `blog_public`. However, if a site is hiding from
-search engines, writing training disallows is moot — add a notice: "Your site has Search Engine
-Visibility disabled. Disallow AI Training has no effect while search indexing is off."
-
----
-
-## AI Summary Controls (Future — not in scope now)
-
-Cloudflare's stated next step: let site owners control **how much** content appears in AI summaries, not just yes/no. This will involve:
-- `X-Robots-Tag: nosnippet` / `max-snippet` per page
-- Possibly new directives as `ai-prefs` IETF standard matures
-- Per-page controls (not just domain-level)
-
-Baskerville could add this as a second section in the AI Training tab. Placeholder for now.
 
 ---
 
 ## Open Questions
 
-1. **Should blocking follow robots.txt automatically?** If user enables "Disallow AI Training", should we also auto-enable blocking for training-only crawlers (GPTBot, etc.)? Or keep them decoupled?
-   - Argument for auto-block: robots.txt alone is not enforcement; completes the intent
-   - Argument against: user may want signal-only; AI Bot Control is the explicit blocking UI
-   - **Lean toward:** show a notice "For training-only crawlers that may ignore robots.txt, enable blocking in AI Bot Control" — let user decide
+1. **Bingbot training UA** — Microsoft ETA 2027. Add to AI Search or AI Training when announced.
 
-2. **Bingbot:** Microsoft committed to honoring a robots.txt directive by early 2027. We don't know the UA yet. Do we add a placeholder entry now or wait until it's confirmed?
-   - **Lean toward:** wait; wrong UA in robots.txt is noise
+2. **OAI-SearchBot default** — block by default or allow? It's a search agent, not training.
+   Lean toward: block by default, user can allow.
 
-3. **OAI-SearchBot:** OpenAI's new search agent is separate from GPTBot and may be legitimate (search, not training). Should it be in the disallow list?
-   - **Lean toward:** exclude from AI Training disallow; it's in a different category
-   - Track separately in AI Bot Control
+3. **Applebot in AI Search** — Applebot serves both traditional search and AI search
+   (Siri/Spotlight). Block by default or allow? Lean toward: allow (verified, search function).
 
-4. **Tab name:** "AI Training" vs "Training Controls" vs "Content Use"?
+4. **xAI ASN blocking** — xAI publishes no IP ranges and no crawler docs. UA matching only
+   catches honest declarations. In practice xAI traffic in server logs is minimal (they rely
+   on Common Crawl and X/Twitter data). If they start active crawling, ASN-level blocking
+   would be the only reliable mitigation. Track as future addition.
+
+5. **Amazon three-variant UA** — Amazon publishes separate IP range JSONs for training,
+   search, and live/retrieval. Their UA string `Amazonbot` appears the same across all three
+   variants in practice. Need to confirm if they use distinct UAs per variant or shared UA.
 
 ---
 
@@ -349,12 +269,9 @@ Baskerville could add this as a second section in the AI Training tab. Placehold
 
 ```
 = 1.0.7 =
-* New: Disallow AI Training — one-click setting writes Disallow directives to robots.txt
-  for Google-Extended, Applebot-Extended, GPTBot, Anthropic, Meta, Amazon, xAI, Jina,
-  and other training crawlers; keeps search indexing (Googlebot, Bingbot, Applebot) intact
-* New: AI Training tab in Baskerville settings with per-crawler status table showing
-  robots.txt signal and active blocking status side by side
-* New: Physical robots.txt written via WP_Filesystem for CDN/cache compatibility;
-  falls back to WordPress robots_txt filter with admin notice if file write fails
-* New: Baskerville block cleanly removed from robots.txt on plugin deactivation
+* New: AI Bot Control redesigned — per-company toggles grouped by AI Training / AI Search /
+  AI Assistant categories, replacing the abstract 4-mode access system
+* New: Verified badge for companies confirmed via rDNS or published IP ranges (OpenAI,
+  Anthropic, Meta, Google AI) — no false positives for these
+* New: "Unknown AI Bots" global toggle for unverified companies matched by User-Agent only
 ```
