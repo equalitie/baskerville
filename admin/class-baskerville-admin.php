@@ -1480,8 +1480,10 @@ class Baskerville_Admin {
 
 		<?php foreach ($companies_data as $cat => $rows): ?>
 		<div class="baskerville-aibot-category" style="margin-bottom: 32px;">
-			<h2 style="margin:0 0 4px 0; font-size:1.2em;"><?php echo esc_html($category_labels[$cat]); ?></h2>
-			<p class="description" style="margin:0 0 8px 0;"><?php echo esc_html($category_descs[$cat]); ?></p>
+			<div style="background:var(--bsk-color-success-bg-light); border-left:4px solid var(--bsk-color-success); padding:10px 14px; margin-bottom:8px; border-radius:0 4px 4px 0;">
+				<h2 style="margin:0 0 2px 0; font-size:1.2em;"><?php echo esc_html($category_labels[$cat]); ?></h2>
+				<p class="description" style="margin:0;"><?php echo esc_html($category_descs[$cat]); ?></p>
+			</div>
 			<div style="margin-bottom:8px;">
 				<button type="button" class="button button-small baskerville-cat-block-all"
 						data-cat="<?php echo esc_attr($cat); ?>"
@@ -1556,17 +1558,17 @@ class Baskerville_Admin {
 		document.addEventListener('DOMContentLoaded', function() {
 			document.querySelectorAll('.baskerville-cat-block-all').forEach(function(btn) {
 				btn.addEventListener('click', function() {
-					var keys = this.dataset.keys.split(',');
-					document.querySelectorAll('.baskerville-company-checkbox').forEach(function(cb) {
-						if (keys.indexOf(cb.value) !== -1) cb.checked = true;
+					var cat = this.dataset.cat;
+					document.querySelectorAll('.baskerville-company-checkbox[data-cat="' + cat + '"]').forEach(function(cb) {
+						cb.checked = true;
 					});
 				});
 			});
 			document.querySelectorAll('.baskerville-cat-allow-all').forEach(function(btn) {
 				btn.addEventListener('click', function() {
-					var keys = this.dataset.keys.split(',');
-					document.querySelectorAll('.baskerville-company-checkbox').forEach(function(cb) {
-						if (keys.indexOf(cb.value) !== -1) cb.checked = false;
+					var cat = this.dataset.cat;
+					document.querySelectorAll('.baskerville-company-checkbox[data-cat="' + cat + '"]').forEach(function(cb) {
+						cb.checked = false;
 					});
 				});
 			});
