@@ -5738,7 +5738,7 @@ done
 		$options     = get_option('baskerville_settings', array());
 		$ban_enabled = !isset($options['honeypot_ban']) || $options['honeypot_ban'];
 		?>
-		<div style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
+		<div id="bsk-honeypot-ban-card" style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
 			<div style="display:flex; align-items:center; gap:12px;">
 				<?php $this->render_inline_toggle('baskerville_settings[honeypot_ban]', $ban_enabled, 'bsk-card-toggle'); ?>
 				<strong><?php esc_html_e('Ban IPs that trigger honeypot', 'baskerville-ai-security'); ?></strong>
@@ -5748,6 +5748,24 @@ done
 				<?php esc_html_e('When disabled, the visit is still logged as AI bot.', 'baskerville-ai-security'); ?>
 			</p>
 		</div>
+		<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			var honeypotCb = document.querySelector('input[name="baskerville_settings[honeypot_enabled]"]');
+			var banCard    = document.getElementById('bsk-honeypot-ban-card');
+			if (!honeypotCb || !banCard) return;
+			var banCb = banCard.querySelector('input[type="checkbox"]');
+
+			function syncBanCard() {
+				var on = honeypotCb.checked;
+				banCard.style.opacity       = on ? '1' : '0.45';
+				banCard.style.pointerEvents = on ? '' : 'none';
+				if (banCb) banCb.disabled   = !on;
+			}
+
+			honeypotCb.addEventListener('change', syncBanCard);
+			syncBanCard();
+		});
+		</script>
 		<?php
 	}
 
