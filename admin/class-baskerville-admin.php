@@ -3815,7 +3815,7 @@ class Baskerville_Admin {
 						</table>
 						<?php
 						submit_button();
-
+						?>
 						<style>#baskerville-ai-bot-control .form-table th { display:none; } #baskerville-ai-bot-control .form-table td { padding-left:0; }</style>
 						<div id="baskerville-ai-bot-control">
 						<?php do_settings_sections('baskerville-ai-bot-control'); ?>
