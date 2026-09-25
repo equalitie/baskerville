@@ -1434,7 +1434,7 @@ class Baskerville_Admin {
 				'assistant' => ['key' => 'meta_assistant',       'ua' => 'meta-externalfetcher'],
 			],
 			['name' => 'Google AI',
-				'training'  => ['key' => 'google_training',      'ua' => 'Google-Extended'],
+				'training'  => ['key' => 'google_training',      'ua' => 'Google-Extended, Google-CloudVertexBot'],
 				'search'    => null,
 				'assistant' => null,
 			],
