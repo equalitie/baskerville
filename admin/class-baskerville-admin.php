@@ -739,7 +739,7 @@ class Baskerville_Admin {
 		// ===== AI Bot Control Tab =====
 		add_settings_section(
 			'baskerville_ai_bot_control_section',
-			esc_html__('AI Bot Access Control', 'baskerville-ai-security'),
+			'',
 			array($this, 'render_ai_bot_control_section'),
 			'baskerville-ai-bot-control'
 		);
@@ -748,7 +748,7 @@ class Baskerville_Admin {
 
 		add_settings_field(
 			'ai_bot_companies',
-			esc_html__('AI Bot Access', 'baskerville-ai-security'),
+			'',
 			array($this, 'render_ai_bot_companies_field'),
 			'baskerville-ai-bot-control',
 			'baskerville_ai_bot_control_section'
@@ -1409,9 +1409,6 @@ class Baskerville_Admin {
 	}
 
 	public function render_ai_bot_control_section() {
-		?>
-		<p><?php esc_html_e('Control access from AI bot crawlers based on their company ownership.', 'baskerville-ai-security'); ?></p>
-		<?php
 	}
 
 	private function get_ai_bot_companies_data(): array {
@@ -1482,24 +1479,20 @@ class Baskerville_Admin {
 		<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
 
 		<?php foreach ($companies_data as $cat => $rows): ?>
-		<div class="baskerville-aibot-category" style="margin-bottom: 28px;">
-			<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-				<div>
-					<strong><?php echo esc_html($category_labels[$cat]); ?></strong>
-					<span class="description" style="margin-left:8px;"><?php echo esc_html($category_descs[$cat]); ?></span>
-				</div>
-				<div>
-					<button type="button" class="button button-small baskerville-cat-block-all"
-							data-cat="<?php echo esc_attr($cat); ?>"
-							data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
-						<?php esc_html_e('Block All', 'baskerville-ai-security'); ?>
-					</button>
-					<button type="button" class="button button-small baskerville-cat-allow-all"
-							data-cat="<?php echo esc_attr($cat); ?>"
-							data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
-						<?php esc_html_e('Allow All', 'baskerville-ai-security'); ?>
-					</button>
-				</div>
+		<div class="baskerville-aibot-category" style="margin-bottom: 32px;">
+			<h2 style="margin:0 0 4px 0; font-size:1.2em;"><?php echo esc_html($category_labels[$cat]); ?></h2>
+			<p class="description" style="margin:0 0 8px 0;"><?php echo esc_html($category_descs[$cat]); ?></p>
+			<div style="margin-bottom:8px;">
+				<button type="button" class="button button-small baskerville-cat-block-all"
+						data-cat="<?php echo esc_attr($cat); ?>"
+						data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
+					<?php esc_html_e('Block All', 'baskerville-ai-security'); ?>
+				</button>
+				<button type="button" class="button button-small baskerville-cat-allow-all"
+						data-cat="<?php echo esc_attr($cat); ?>"
+						data-keys="<?php echo esc_attr(implode(',', $cat_keys[$cat])); ?>">
+					<?php esc_html_e('Allow All', 'baskerville-ai-security'); ?>
+				</button>
 			</div>
 			<table class="wp-list-table widefat fixed striped" style="table-layout:fixed;">
 				<thead>
@@ -3823,11 +3816,10 @@ class Baskerville_Admin {
 						<?php
 						submit_button();
 
-						// Display AI bot statistics
-						$this->render_ai_bots_tab();
-
-						do_settings_sections('baskerville-ai-bot-control');
-						?>
+						<style>#baskerville-ai-bot-control .form-table th { display:none; } #baskerville-ai-bot-control .form-table td { padding-left:0; }</style>
+						<div id="baskerville-ai-bot-control">
+						<?php do_settings_sections('baskerville-ai-bot-control'); ?>
+						</div>
 						<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
 						<?php
 						submit_button();
