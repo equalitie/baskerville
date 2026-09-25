@@ -1558,14 +1558,14 @@ class Baskerville_Admin {
 					?>
 					<td style="text-align:center;">
 						<?php if ($slot): ?>
-							<label style="display:block;">
+							<label>
 								<input type="checkbox"
 									   name="baskerville_settings[ai_blocked_companies][]"
 									   value="<?php echo esc_attr($slot['key']); ?>"
 									   class="baskerville-company-checkbox"
 									   data-cat="<?php echo esc_attr($cat); ?>"
 									   <?php checked(in_array($slot['key'], $blocked_keys, true)); ?>>
-								<span style="font-size:11px; color:#555; display:block;"><?php echo esc_html($slot['ua']); ?></span>
+								<span style="font-size:11px; color:#555;"><?php echo esc_html($slot['ua']); ?></span>
 							</label>
 						<?php else: ?>
 							<span style="color:#ccc;">—</span>
@@ -3855,7 +3855,7 @@ class Baskerville_Admin {
 						<?php
 						submit_button();
 						?>
-						<style>#baskerville-ai-bot-control .form-table th { display:none; } #baskerville-ai-bot-control .form-table td { padding-left:0; }</style>
+						<style>#baskerville-ai-bot-control .form-table > tbody > tr > th { display:none; } #baskerville-ai-bot-control .form-table > tbody > tr > td { padding-left:0; }</style>
 						<div id="baskerville-ai-bot-control">
 						<?php do_settings_sections('baskerville-ai-bot-control'); ?>
 						</div>
