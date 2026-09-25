@@ -1517,7 +1517,7 @@ class Baskerville_Admin {
 			}
 		}
 
-		$th_green = 'background:var(--bsk-color-success-bg-light); border-bottom:2px solid var(--bsk-color-success); padding:8px 10px; text-align:center; white-space:nowrap;';
+		$th_green = 'background:var(--bsk-color-success-bg-light); border-bottom:2px solid var(--bsk-color-success); padding:8px 10px; text-align:left; white-space:nowrap;';
 		?>
 		<input type="hidden" name="baskerville_settings[ai_bot_control_tab]" value="1">
 
@@ -1535,7 +1535,7 @@ class Baskerville_Admin {
 					<th style="<?php echo esc_attr($th_green); ?>">
 						<div style="font-weight:600;"><?php echo esc_html($cat_labels[$cat]); ?></div>
 						<div style="font-size:11px; font-weight:400; color:#555; margin-top:2px;"><?php echo esc_html($cat_descs[$cat]); ?></div>
-						<div style="margin-top:6px; display:flex; gap:4px; justify-content:center;">
+						<div style="margin-top:6px; display:flex; gap:4px;">
 							<button type="button" class="button button-small baskerville-cat-block-all"
 									data-cat="<?php echo esc_attr($cat); ?>">
 								<?php esc_html_e('All', 'baskerville-ai-security'); ?>
@@ -1556,7 +1556,7 @@ class Baskerville_Admin {
 					<?php foreach ($categories as $cat):
 						$slot = $row[$cat] ?? null;
 					?>
-					<td style="text-align:center;">
+					<td>
 						<?php if ($slot): ?>
 							<label>
 								<input type="checkbox"
