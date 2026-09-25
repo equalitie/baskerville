@@ -1538,7 +1538,7 @@ class Baskerville_Admin {
 						<div style="margin-top:6px; display:flex; gap:4px;">
 							<button type="button" class="button button-small baskerville-cat-block-all"
 									data-cat="<?php echo esc_attr($cat); ?>">
-								<?php esc_html_e('All', 'baskerville-ai-security'); ?>
+								<?php esc_html_e('Block All', 'baskerville-ai-security'); ?>
 							</button>
 							<button type="button" class="button button-small baskerville-cat-allow-all"
 									data-cat="<?php echo esc_attr($cat); ?>">
