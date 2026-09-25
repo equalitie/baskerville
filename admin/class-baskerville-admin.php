@@ -5741,10 +5741,10 @@ done
 		<div id="bsk-honeypot-ban-card" style="padding:14px 16px; border:1px solid #e5e7eb; border-radius:6px; background:#fafafa;">
 			<div style="display:flex; align-items:center; gap:12px;">
 				<?php $this->render_inline_toggle('baskerville_settings[honeypot_ban]', $ban_enabled, 'bsk-card-toggle'); ?>
-				<strong><?php esc_html_e('Ban IPs that trigger honeypot', 'baskerville-ai-security'); ?></strong>
+				<strong><?php esc_html_e('Block IPs that trigger honeypot', 'baskerville-ai-security'); ?></strong>
 			</div>
 			<p class="description" style="margin:6px 0 0 0;">
-				<?php esc_html_e('When enabled, IPs accessing the honeypot will be banned for 24 hours.', 'baskerville-ai-security'); ?><br>
+				<?php esc_html_e('When enabled, IPs accessing the honeypot will be blocked for 24 hours.', 'baskerville-ai-security'); ?><br>
 				<?php esc_html_e('When disabled, the visit is still logged as AI bot.', 'baskerville-ai-security'); ?>
 			</p>
 		</div>
