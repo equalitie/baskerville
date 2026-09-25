@@ -1576,7 +1576,7 @@ class Baskerville_Admin {
 									<?php echo $is_blocked ? esc_html__('Blocked', 'baskerville-ai-security') : esc_html__('Allowed', 'baskerville-ai-security'); ?>
 								</span>
 							</div>
-							<div style="font-size:10px; color:#888; margin-top:3px;"><?php echo esc_html($slot['ua']); ?></div>
+							<div style="font-size:12px; color:#1d2327; margin-top:3px;"><?php echo esc_html($slot['ua']); ?></div>
 						<?php else: ?>
 							<span style="color:#ddd;">—</span>
 						<?php endif; ?>
