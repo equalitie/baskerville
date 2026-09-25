@@ -1414,28 +1414,28 @@ class Baskerville_Admin {
 	private function get_ai_bot_companies_data(): array {
 		return [
 			'training' => [
-				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'GPTBot'],
-				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'ClaudeBot'],
-				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalagent'],
-				['key' => 'google',      'name' => 'Google AI',     'uas' => 'Google-Extended'],
-				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot'],
-				['key' => 'commoncrawl', 'name' => 'Common Crawl',  'uas' => 'CCBot'],
+				['key' => 'openai_training',      'name' => 'OpenAI',        'uas' => 'GPTBot'],
+				['key' => 'anthropic_training',   'name' => 'Anthropic',     'uas' => 'ClaudeBot'],
+				['key' => 'meta_training',        'name' => 'Meta',          'uas' => 'meta-externalagent'],
+				['key' => 'google_training',      'name' => 'Google AI',     'uas' => 'Google-Extended'],
+				['key' => 'amazon_training',      'name' => 'Amazon',        'uas' => 'Amazonbot'],
+				['key' => 'commoncrawl_training', 'name' => 'Common Crawl',  'uas' => 'CCBot'],
 			],
 			'search' => [
-				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'OAI-SearchBot'],
-				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-SearchBot'],
-				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'PerplexityBot'],
-				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (search)'],
-				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-Index'],
+				['key' => 'openai_search',      'name' => 'OpenAI',       'uas' => 'OAI-SearchBot'],
+				['key' => 'anthropic_search',   'name' => 'Anthropic',    'uas' => 'Claude-SearchBot'],
+				['key' => 'perplexity_search',  'name' => 'Perplexity',   'uas' => 'PerplexityBot'],
+				['key' => 'amazon_search',      'name' => 'Amazon',       'uas' => 'Amazonbot (search)'],
+				['key' => 'mistral_search',     'name' => 'Mistral',      'uas' => 'MistralAI-Index'],
 			],
 			'assistant' => [
-				['key' => 'openai',      'name' => 'OpenAI',        'uas' => 'ChatGPT-User'],
-				['key' => 'anthropic',   'name' => 'Anthropic',     'uas' => 'Claude-User'],
-				['key' => 'meta',        'name' => 'Meta',          'uas' => 'meta-externalfetcher'],
-				['key' => 'perplexity',  'name' => 'Perplexity',    'uas' => 'Perplexity-User'],
-				['key' => 'amazon',      'name' => 'Amazon',        'uas' => 'Amazonbot (live)'],
-				['key' => 'mistral',     'name' => 'Mistral',       'uas' => 'MistralAI-User'],
-				['key' => 'duckduckgo',  'name' => 'DuckDuckGo',    'uas' => 'DuckAssistBot'],
+				['key' => 'openai_assistant',      'name' => 'OpenAI',       'uas' => 'ChatGPT-User'],
+				['key' => 'anthropic_assistant',   'name' => 'Anthropic',    'uas' => 'Claude-User'],
+				['key' => 'meta_assistant',        'name' => 'Meta',         'uas' => 'meta-externalfetcher'],
+				['key' => 'perplexity_assistant',  'name' => 'Perplexity',   'uas' => 'Perplexity-User'],
+				['key' => 'amazon_assistant',      'name' => 'Amazon',       'uas' => 'Amazonbot (live)'],
+				['key' => 'mistral_assistant',     'name' => 'Mistral',      'uas' => 'MistralAI-User'],
+				['key' => 'duckduckgo_assistant',  'name' => 'DuckDuckGo',   'uas' => 'DuckAssistBot'],
 			],
 		];
 	}
@@ -1446,8 +1446,18 @@ class Baskerville_Admin {
 		$block_unknown = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
 		$blocked_keys = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
 
-		// Default: all verified companies blocked
-		$all_keys = ['openai','anthropic','meta','google','amazon','commoncrawl','perplexity','mistral','duckduckgo'];
+		// Default: all verified companies blocked (all categories)
+		$all_keys = [
+			'openai_training','openai_search','openai_assistant',
+			'anthropic_training','anthropic_search','anthropic_assistant',
+			'meta_training','meta_assistant',
+			'google_training',
+			'amazon_training','amazon_search','amazon_assistant',
+			'commoncrawl_training',
+			'perplexity_search','perplexity_assistant',
+			'mistral_search','mistral_assistant',
+			'duckduckgo_assistant',
+		];
 		if (empty($blocked_raw) && !isset($options['ai_blocked_companies'])) {
 			$blocked_keys = $all_keys;
 		}

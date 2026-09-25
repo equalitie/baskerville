@@ -448,10 +448,15 @@ class Baskerville_Firewall
 				$should_block  = false;
 				$reason_prefix = '';
 
-				if ($is_known && !empty($blocked_keys) && in_array($company_key, $blocked_keys, true)) {
-					$should_block  = true;
-					$reason_prefix = 'ai-bot-company-blocked';
-				} elseif (!$is_known && $block_unknown) {
+				if ($is_known && !empty($blocked_keys)) {
+					$category     = $this->aiua->get_ai_bot_category($ua);
+					$compound_key = $company_key . '_' . $category;
+					if (in_array($compound_key, $blocked_keys, true)) {
+						$should_block  = true;
+						$reason_prefix = 'ai-bot-company-blocked';
+					}
+				}
+				if (!$should_block && !$is_known && $block_unknown) {
 					$should_block  = true;
 					$reason_prefix = 'ai-bot-unknown-blocked';
 				}

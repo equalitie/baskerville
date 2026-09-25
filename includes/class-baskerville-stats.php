@@ -236,28 +236,69 @@ class Baskerville_Stats
             }
         }
 
-        // Migrate from 4-mode AI bot system to per-company blocking
+        // Migrate from 4-mode AI bot system to per-company-per-category blocking
         $options = get_option( 'baskerville_settings', [] );
         if ( isset( $options['ai_bot_blocking_mode'] ) && ! isset( $options['ai_blocked_companies'] ) ) {
-            $all_keys = 'openai,anthropic,meta,google,amazon,commoncrawl,bytedance,diffbot,xai,huawei,cohere,perplexity,mistral,duckduckgo';
+            $all_keys = [
+                'openai_training','openai_search','openai_assistant',
+                'anthropic_training','anthropic_search','anthropic_assistant',
+                'meta_training','meta_assistant',
+                'google_training',
+                'amazon_training','amazon_search','amazon_assistant',
+                'commoncrawl_training',
+                'perplexity_search','perplexity_assistant',
+                'mistral_search','mistral_assistant',
+                'duckduckgo_assistant',
+            ];
             $old_mode = $options['ai_bot_blocking_mode'];
             if ( $old_mode === 'allow_all' ) {
                 $options['ai_blocked_companies'] = '';
                 $options['ai_block_unknown']     = false;
             } elseif ( $old_mode === 'block_all' ) {
-                $options['ai_blocked_companies'] = $all_keys;
+                $options['ai_blocked_companies'] = implode( ',', $all_keys );
                 $options['ai_block_unknown']     = true;
             } elseif ( $old_mode === 'blacklist' ) {
-                $options['ai_blocked_companies'] = isset( $options['blacklist_ai_companies'] ) ? $options['blacklist_ai_companies'] : '';
+                // Old blacklist stored company names; expand each to all its category keys
+                $blacklist_str = isset( $options['blacklist_ai_companies'] ) ? $options['blacklist_ai_companies'] : '';
+                $blacklisted   = array_filter( array_map( 'trim', explode( ',', $blacklist_str ) ) );
+                $name_to_keys  = [
+                    'OpenAI'       => ['openai_training','openai_search','openai_assistant'],
+                    'Anthropic'    => ['anthropic_training','anthropic_search','anthropic_assistant'],
+                    'Google'       => ['google_training'],
+                    'Meta'         => ['meta_training','meta_assistant'],
+                    'Amazon'       => ['amazon_training','amazon_search','amazon_assistant'],
+                    'Common Crawl' => ['commoncrawl_training'],
+                    'Perplexity'   => ['perplexity_search','perplexity_assistant'],
+                    'Mistral'      => ['mistral_search','mistral_assistant'],
+                    'DuckDuckGo'   => ['duckduckgo_assistant'],
+                ];
+                $blocked = [];
+                foreach ( $blacklisted as $name ) {
+                    $keys    = $name_to_keys[ $name ] ?? [];
+                    $blocked = array_merge( $blocked, $keys );
+                }
+                $options['ai_blocked_companies'] = implode( ',', array_unique( $blocked ) );
                 $options['ai_block_unknown']     = false;
             } elseif ( $old_mode === 'whitelist' ) {
-                $all_arr     = explode( ',', $all_keys );
-                $allowed_str = isset( $options['whitelist_ai_companies'] ) ? $options['whitelist_ai_companies'] : '';
-                $allowed     = array_filter( array_map( 'trim', explode( ',', $allowed_str ) ) );
-                // company names to keys mapping
-                $name_to_key = [ 'OpenAI' => 'openai', 'Anthropic' => 'anthropic', 'Google' => 'google', 'Meta' => 'meta', 'Amazon' => 'amazon', 'ByteDance' => 'bytedance', 'Perplexity' => 'perplexity', 'Common Crawl' => 'commoncrawl', 'Huawei' => 'huawei', 'Cohere' => 'cohere' ];
-                $allowed_keys = array_map( function ( $n ) use ( $name_to_key ) { return $name_to_key[ $n ] ?? strtolower( $n ); }, $allowed );
-                $blocked      = array_diff( $all_arr, $allowed_keys );
+                // Invert: block everything NOT in the whitelist (across all categories)
+                $whitelist_str = isset( $options['whitelist_ai_companies'] ) ? $options['whitelist_ai_companies'] : '';
+                $whitelisted   = array_filter( array_map( 'trim', explode( ',', $whitelist_str ) ) );
+                $name_to_keys  = [
+                    'OpenAI'       => ['openai_training','openai_search','openai_assistant'],
+                    'Anthropic'    => ['anthropic_training','anthropic_search','anthropic_assistant'],
+                    'Google'       => ['google_training'],
+                    'Meta'         => ['meta_training','meta_assistant'],
+                    'Amazon'       => ['amazon_training','amazon_search','amazon_assistant'],
+                    'Common Crawl' => ['commoncrawl_training'],
+                    'Perplexity'   => ['perplexity_search','perplexity_assistant'],
+                    'Mistral'      => ['mistral_search','mistral_assistant'],
+                    'DuckDuckGo'   => ['duckduckgo_assistant'],
+                ];
+                $allowed = [];
+                foreach ( $whitelisted as $name ) {
+                    $allowed = array_merge( $allowed, $name_to_keys[ $name ] ?? [] );
+                }
+                $blocked = array_diff( $all_keys, $allowed );
                 $options['ai_blocked_companies'] = implode( ',', $blocked );
                 $options['ai_block_unknown']     = true;
             }
