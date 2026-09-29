@@ -35,8 +35,8 @@ class Baskerville_Altcha {
 	public function __construct($core = null, $stats = null) {
 		$options = get_option('baskerville_settings', array());
 
-		$master_enabled             = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-		$this->enabled              = $master_enabled && (!isset($options['altcha_enabled']) || $options['altcha_enabled']);
+		$ddos_enabled               = !isset($options['ddos_protection_enabled']) || $options['ddos_protection_enabled'];
+		$this->enabled              = $ddos_enabled && (!isset($options['altcha_enabled']) || $options['altcha_enabled']);
 		// These settings are shared between Altcha and Turnstile providers — stored under
 		// 'turnstile_*' keys in the DB for historical reasons (Turnstile was the first provider).
 		// Both providers read the same keys so admin settings apply regardless of active provider.

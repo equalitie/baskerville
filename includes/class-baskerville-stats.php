@@ -293,6 +293,16 @@ class Baskerville_Stats
             unset( $options['ai_bot_blocking_mode'], $options['blacklist_ai_companies'], $options['whitelist_ai_companies'] );
             update_option( 'baskerville_settings', $options );
         }
+
+        // Migrate legacy master_protection_enabled → two-layer flags
+        $options = get_option( 'baskerville_settings', [] );
+        if ( isset( $options['master_protection_enabled'] ) && ! isset( $options['bot_access_control_enabled'] ) ) {
+            $was_on = (bool) $options['master_protection_enabled'];
+            $options['bot_access_control_enabled'] = $was_on;
+            $options['ddos_protection_enabled']    = $was_on;
+            unset( $options['master_protection_enabled'] );
+            update_option( 'baskerville_settings', $options );
+        }
     }
     // @phpcs:enable WordPress.DB.DirectDatabaseQuery
 

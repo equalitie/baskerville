@@ -133,10 +133,10 @@ class Baskerville_Honeypot {
 
 		// Get ban settings to determine block_reason
 		$options = get_option('baskerville_settings', array());
-		$master_enabled         = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+		$bot_control_enabled    = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
 		$bot_protection_enabled = !isset($options['bot_protection_enabled']) || $options['bot_protection_enabled'];
 		$honeypot_ban_enabled   = isset($options['honeypot_ban']) ? (bool)$options['honeypot_ban'] : true;
-		$block_reason = ($master_enabled && $bot_protection_enabled && $honeypot_ban_enabled) ? 'honeypot-triggered' : null;
+		$block_reason = ($bot_control_enabled && $bot_protection_enabled && $honeypot_ban_enabled) ? 'honeypot-triggered' : null;
 
 		// Log as AI bot
 		$cookie_id = $this->core->get_cookie_id();

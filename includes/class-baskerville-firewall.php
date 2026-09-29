@@ -217,10 +217,16 @@ class Baskerville_Firewall
 		// Get options once
 		$options = get_option('baskerville_settings', array());
 
-		// Check Master Switch - if disabled, all blocking is off (only logging)
-		$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-		if (!$master_enabled) {
-			return; // Master switch OFF - no blocking, only logging
+		// Two-layer protection mode switches
+		// Layer 1: Bot & Access Control — identity-based (AI bots, GeoIP, cloud blocks)
+		// Layer 2: DDoS Protection — pattern-based (burst detection, scoring, CAPTCHA challenge)
+		// Legacy: master_protection_enabled → both layers on/off (migrated in maybe_upgrade_schema)
+		$bot_control_enabled = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+		$ddos_enabled        = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+
+		// If both layers are off, skip all processing
+		if (!$bot_control_enabled && !$ddos_enabled) {
+			return;
 		}
 
 		// IP whitelist — allow through
@@ -228,30 +234,32 @@ class Baskerville_Firewall
 			return;
 		}
 
-		// Cloud AI blocks — temporary pattern blocks from LLM agent (country/ASN/UA).
+		// Cloud AI blocks — identity-based, under Bot & Access Control layer.
 		// Only enforced when the operator has explicitly opted in via Settings → Cloud.
-		$options_s    = get_option('baskerville_settings', []);
-		$cloud_blocks = (!isset($options_s['cloud_remote_blocks']) || $options_s['cloud_remote_blocks']) ? get_transient('baskerville_cloud_blocks') : false;
-		if (!empty($cloud_blocks)) {
-			$ua      = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
-			$country = null;
-			$now     = time();
-			foreach ($cloud_blocks as $block) {
-				if ($block['expires'] <= $now) continue;
-				$target = $block['target'];
-				switch ($block['type']) {
-					case 'block_country':
-						if ($country === null) $country = $this->core->get_country_by_ip($ip);
-						if ($country && strtoupper($country) === $target) {
-							$this->send_403_geo_and_exit(['reason' => 'cloud:block_country:' . $target, 'cls' => 'cloud-block']);
-						}
-						break;
-					case 'block_useragent':
-						if ($ua && stripos($ua, $target) !== false) {
-							$this->send_403_and_exit(['reason' => 'cloud:block_useragent:' . $target, 'cls' => 'cloud-block', 'score' => 100]);
-						}
-						break;
-					// block_asn: stored but not yet enforced (no ASN lookup in firewall path)
+		if ($bot_control_enabled) {
+			$options_s    = get_option('baskerville_settings', []);
+			$cloud_blocks = (!isset($options_s['cloud_remote_blocks']) || $options_s['cloud_remote_blocks']) ? get_transient('baskerville_cloud_blocks') : false;
+			if (!empty($cloud_blocks)) {
+				$ua      = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
+				$country = null;
+				$now     = time();
+				foreach ($cloud_blocks as $block) {
+					if ($block['expires'] <= $now) continue;
+					$target = $block['target'];
+					switch ($block['type']) {
+						case 'block_country':
+							if ($country === null) $country = $this->core->get_country_by_ip($ip);
+							if ($country && strtoupper($country) === $target) {
+								$this->send_403_geo_and_exit(['reason' => 'cloud:block_country:' . $target, 'cls' => 'cloud-block']);
+							}
+							break;
+						case 'block_useragent':
+							if ($ua && stripos($ua, $target) !== false) {
+								$this->send_403_and_exit(['reason' => 'cloud:block_useragent:' . $target, 'cls' => 'cloud-block', 'score' => 100]);
+							}
+							break;
+						// block_asn: stored but not yet enforced (no ASN lookup in firewall path)
+					}
 				}
 			}
 		}
@@ -332,8 +340,9 @@ class Baskerville_Firewall
 			return;
 		}
 
-		// GeoIP country ban check (applies to frontend requests only, NOT wp-admin)
-		$geoip_enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
+		// GeoIP country ban check — identity-based, under Bot & Access Control layer.
+		// (applies to frontend requests only, NOT wp-admin)
+		$geoip_enabled = $bot_control_enabled && (isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false);
 		$mode = isset($options['geoip_mode']) ? $options['geoip_mode'] : 'allow_all';
 
 		// Only process GeoIP checks if enabled AND not in "allow_all" mode
@@ -395,8 +404,8 @@ class Baskerville_Firewall
 			}
 		}
 
-		// AI Bot Company Blocking Check
-		$ai_bot_control_enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
+		// AI Bot Company Blocking Check — identity-based, under Bot & Access Control layer.
+		$ai_bot_control_enabled = $bot_control_enabled && (isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true);
 		if ($ai_bot_control_enabled) {
 			$ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
 			$headers = [
@@ -490,6 +499,16 @@ class Baskerville_Firewall
 		// Check if this is a public HTML page (GET/HEAD with HTML Accept header)
 		// Burst protection and bot detection only apply to public HTML pages
 		if (!$this->core->is_public_html_request()) {
+			return;
+		}
+
+		// DDoS Protection gate — pattern-based checks (burst, scoring, challenge).
+		// When disabled: shadow-log what would happen but take no blocking action.
+		if (!$ddos_enabled) {
+			if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+				$shadow_ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
+				wpsec_log('[DDoS Protection OFF] shadow mode — skipping burst/score/challenge for ' . $ip . ' ua=' . substr($shadow_ua, 0, 80));
+			}
 			return;
 		}
 

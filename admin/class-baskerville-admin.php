@@ -785,8 +785,13 @@ class Baskerville_Admin {
 		$existing = get_option('baskerville_settings', array());
 		$sanitized = array();
 
-		// Master protection switch
-		$sanitized['master_protection_enabled'] = isset($input['master_protection_enabled']) ? (bool) $input['master_protection_enabled'] : false;
+		// Protection layer switches (replaces legacy master_protection_enabled)
+		$sanitized['bot_access_control_enabled'] = isset($input['bot_access_control_enabled'])
+			? (bool) $input['bot_access_control_enabled']
+			: (isset($existing['bot_access_control_enabled']) ? $existing['bot_access_control_enabled'] : true);
+		$sanitized['ddos_protection_enabled'] = isset($input['ddos_protection_enabled'])
+			? (bool) $input['ddos_protection_enabled']
+			: (isset($existing['ddos_protection_enabled']) ? $existing['ddos_protection_enabled'] : true);
 
 		// Tab enable/disable switches - preserve existing values if not in input
 		$sanitized['bot_protection_enabled'] = isset($input['bot_protection_enabled'])
@@ -3681,43 +3686,108 @@ class Baskerville_Admin {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verification not required for read-only tab navigation parameter
 		$current_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : 'live-feed';
 
-		// Get master switch status
+		// Get protection layer switch statuses
 		$options = get_option('baskerville_settings', array());
-		$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+		$bot_control_on = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+		$ddos_on        = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
 		?>
 		<div class="wrap">
 			<h1><?php echo esc_html(get_admin_page_title()); ?></h1>
 
-			<!-- Master Switch -->
-			<div class="baskerville-master-switch <?php echo $master_enabled ? 'baskerville-master-switch-on' : 'baskerville-master-switch-off'; ?>">
+			<!-- Protection Mode Switches -->
+			<div class="baskerville-master-switch baskerville-master-switch-on" style="padding:10px 16px;">
 				<form method="post" action="options.php" id="master-switch-form">
 					<?php settings_fields('baskerville_settings_group'); ?>
-					<div class="baskerville-master-switch-header">
-						<div>
-							<h2 class="baskerville-master-switch-title <?php echo $master_enabled ? 'baskerville-master-switch-title-on' : 'baskerville-master-switch-title-off'; ?>">
-								<?php echo $master_enabled ? '🟢' : '🟡'; ?>
-								<?php esc_html_e('MASTER SWITCH', 'baskerville-ai-security'); ?>
-							</h2>
-						</div>
-						<div>
-							<div class="baskerville-toggle-label">
-								<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="0">
-								<label class="baskerville-toggle-switch">
+					<?php
+					// Preserve all settings not in this form
+					$all_opts = get_option('baskerville_settings', []);
+					unset($all_opts['bot_access_control_enabled'], $all_opts['ddos_protection_enabled']);
+					foreach ($all_opts as $k => $v) {
+						if (is_array($v)) continue;
+						echo '<input type="hidden" name="baskerville_settings[' . esc_attr($k) . ']" value="' . esc_attr($v) . '">';
+					}
+					?>
+					<div style="display:flex; align-items:center; gap:32px; flex-wrap:wrap;">
+						<!-- Bot & Access Control -->
+						<div style="display:flex; align-items:center; gap:10px;">
+							<div>
+								<div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:#555; margin-bottom:2px;">
+									<?php esc_html_e('Bot & Access Control', 'baskerville-ai-security'); ?>
+								</div>
+								<div style="font-size:11px; color:#777; max-width:220px;">
+									<?php esc_html_e('AI bots, GeoIP, honeypot, cloud blocks', 'baskerville-ai-security'); ?>
+								</div>
+							</div>
+							<div style="display:flex; align-items:center; gap:6px;">
+								<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="0">
+								<label class="bsk-aib-toggle" style="position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0;">
 									<input type="checkbox"
-										   name="baskerville_settings[master_protection_enabled]"
+										   name="baskerville_settings[bot_access_control_enabled]"
 										   value="1"
-										   <?php checked($master_enabled, true); ?>
-										   onchange="this.form.submit()">
-									<span class="baskerville-toggle-slider"></span>
+										   <?php checked($bot_control_on, true); ?>
+										   class="bsk-layer-toggle"
+										   style="opacity:0; width:0; height:0; position:absolute;">
+									<span class="bsk-aib-slider" style="position:absolute; cursor:pointer; inset:0; border-radius:20px; transition:.3s; background:<?php echo $bot_control_on ? '#2E7D32' : '#bbb'; ?>;"></span>
+									<span class="bsk-aib-knob" style="position:absolute; height:14px; width:14px; left:<?php echo $bot_control_on ? '19px' : '3px'; ?>; bottom:3px; background:#fff; border-radius:50%; transition:.3s;"></span>
 								</label>
-								<span class="baskerville-toggle-text">
-									<?php echo $master_enabled ? esc_html__('ON', 'baskerville-ai-security') : esc_html__('OFF', 'baskerville-ai-security'); ?>
+								<span class="bsk-aib-label" style="font-size:12px; font-weight:600; color:<?php echo $bot_control_on ? '#2E7D32' : '#999'; ?>; min-width:40px;">
+									<?php echo $bot_control_on ? esc_html__('On', 'baskerville-ai-security') : esc_html__('Off', 'baskerville-ai-security'); ?>
+								</span>
+							</div>
+						</div>
+
+						<div style="width:1px; height:36px; background:#ddd; flex-shrink:0;"></div>
+
+						<!-- DDoS Protection -->
+						<div style="display:flex; align-items:center; gap:10px;">
+							<div>
+								<div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:#555; margin-bottom:2px;">
+									<?php esc_html_e('DDoS Protection', 'baskerville-ai-security'); ?>
+								</div>
+								<div style="font-size:11px; color:#777; max-width:220px;">
+									<?php esc_html_e('Burst detection, scoring, CAPTCHA challenge', 'baskerville-ai-security'); ?>
+								</div>
+							</div>
+							<div style="display:flex; align-items:center; gap:6px;">
+								<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="0">
+								<label class="bsk-aib-toggle" style="position:relative; display:inline-block; width:36px; height:20px; flex-shrink:0;">
+									<input type="checkbox"
+										   name="baskerville_settings[ddos_protection_enabled]"
+										   value="1"
+										   <?php checked($ddos_on, true); ?>
+										   class="bsk-layer-toggle"
+										   style="opacity:0; width:0; height:0; position:absolute;">
+									<span class="bsk-aib-slider" style="position:absolute; cursor:pointer; inset:0; border-radius:20px; transition:.3s; background:<?php echo $ddos_on ? '#2E7D32' : '#bbb'; ?>;"></span>
+									<span class="bsk-aib-knob" style="position:absolute; height:14px; width:14px; left:<?php echo $ddos_on ? '19px' : '3px'; ?>; bottom:3px; background:#fff; border-radius:50%; transition:.3s;"></span>
+								</label>
+								<span class="bsk-aib-label" style="font-size:12px; font-weight:600; color:<?php echo $ddos_on ? '#2E7D32' : '#999'; ?>; min-width:40px;">
+									<?php echo $ddos_on ? esc_html__('On', 'baskerville-ai-security') : esc_html__('Off', 'baskerville-ai-security'); ?>
 								</span>
 							</div>
 						</div>
 					</div>
 				</form>
 			</div>
+			<script>
+			document.querySelectorAll('.bsk-layer-toggle').forEach(function(cb) {
+				cb.addEventListener('change', function() {
+					var label = cb.closest('label').parentElement;
+					var slider = cb.closest('label').querySelector('.bsk-aib-slider');
+					var knob   = cb.closest('label').querySelector('.bsk-aib-knob');
+					var lbl    = label.querySelector('.bsk-aib-label');
+					if (cb.checked) {
+						slider.style.background = '#2E7D32';
+						knob.style.left = '19px';
+						if (lbl) { lbl.textContent = '<?php echo esc_js(__('On', 'baskerville-ai-security')); ?>'; lbl.style.color = '#2E7D32'; }
+					} else {
+						slider.style.background = '#bbb';
+						knob.style.left = '3px';
+						if (lbl) { lbl.textContent = '<?php echo esc_js(__('Off', 'baskerville-ai-security')); ?>'; lbl.style.color = '#999'; }
+					}
+					cb.closest('form').submit();
+				});
+			});
+			</script>
 
 			<!-- AI Panel (always visible) -->
 			<?php $this->render_ai_panel_inline(); ?>
@@ -3801,9 +3871,11 @@ class Baskerville_Admin {
 						<form method="post" action="options.php">
 						<?php
 						settings_fields('baskerville_settings_group');
-						// Preserve master switch state
-						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						// Preserve protection layer switches
+						$bot_ctrl_h = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+						$ddos_h     = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="' . ($bot_ctrl_h ? '1' : '0') . '">';
+						echo '<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="' . ($ddos_h ? '1' : '0') . '">';
 						?>
 						<table class="form-table" role="presentation">
 							<tr>
@@ -3890,9 +3962,11 @@ class Baskerville_Admin {
 						<form method="post" action="options.php">
 						<?php
 						settings_fields('baskerville_settings_group');
-						// Preserve master switch state
-						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						// Preserve protection layer switches
+						$bot_ctrl_h = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+						$ddos_h     = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="' . ($bot_ctrl_h ? '1' : '0') . '">';
+						echo '<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="' . ($ddos_h ? '1' : '0') . '">';
 						?>
 						<table class="form-table" role="presentation">
 							<tr>
@@ -3973,9 +4047,11 @@ class Baskerville_Admin {
 						<form method="post" action="options.php">
 						<?php
 						settings_fields('baskerville_settings_group');
-						// Preserve master switch state
-						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						// Preserve protection layer switches
+						$bot_ctrl_h = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+						$ddos_h     = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="' . ($bot_ctrl_h ? '1' : '0') . '">';
+						echo '<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="' . ($ddos_h ? '1' : '0') . '">';
 						?>
 						<table class="form-table" role="presentation">
 							<tr>
@@ -4020,9 +4096,11 @@ class Baskerville_Admin {
 						<form method="post" action="options.php">
 						<?php
 						settings_fields('baskerville_settings_group');
-						// Preserve master switch state
-						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						// Preserve protection layer switches
+						$bot_ctrl_h = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+						$ddos_h     = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="' . ($bot_ctrl_h ? '1' : '0') . '">';
+						echo '<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="' . ($ddos_h ? '1' : '0') . '">';
 						?>
 						<table class="form-table" role="presentation">
 							<tr>
@@ -4064,9 +4142,11 @@ class Baskerville_Admin {
 						<form method="post" action="options.php">
 						<?php
 						settings_fields('baskerville_settings_group');
-						// Preserve master switch state
-						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						// Preserve protection layer switches
+						$bot_ctrl_h = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+						$ddos_h     = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="' . ($bot_ctrl_h ? '1' : '0') . '">';
+						echo '<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="' . ($ddos_h ? '1' : '0') . '">';
 						?>
 						<table class="form-table" role="presentation">
 							<tr>
@@ -4183,9 +4263,11 @@ class Baskerville_Admin {
 						break;
 
 					case 'settings':
-						// Preserve master switch state
-						$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-						echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+						// Preserve protection layer switches
+						$bot_ctrl_h = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+						$ddos_h     = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+						echo '<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="' . ($bot_ctrl_h ? '1' : '0') . '">';
+						echo '<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="' . ($ddos_h ? '1' : '0') . '">';
 						submit_button();
 						do_settings_sections('baskerville-settings');
 						submit_button();
@@ -4304,8 +4386,11 @@ class Baskerville_Admin {
 		<form method="post" action="options.php">
 			<?php
 			settings_fields('baskerville_settings_group');
-			$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-			echo '<input type="hidden" name="baskerville_settings[master_protection_enabled]" value="' . ($master_enabled ? '1' : '0') . '">';
+			// Preserve protection layer switches
+			$bot_ctrl_h = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+			$ddos_h     = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+			echo '<input type="hidden" name="baskerville_settings[bot_access_control_enabled]" value="' . ($bot_ctrl_h ? '1' : '0') . '">';
+			echo '<input type="hidden" name="baskerville_settings[ddos_protection_enabled]" value="' . ($ddos_h ? '1' : '0') . '">';
 			submit_button();
 			?>
 

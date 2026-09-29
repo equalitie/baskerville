@@ -27,8 +27,8 @@ class Baskerville_Turnstile {
 
 	public function __construct($core = null, $stats = null) {
 		$options = get_option('baskerville_settings', array());
-		$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-		$this->enabled = $master_enabled && (isset($options['turnstile_enabled']) ? (bool) $options['turnstile_enabled'] : false);
+		$ddos_enabled  = !isset($options['ddos_protection_enabled']) || $options['ddos_protection_enabled'];
+		$this->enabled = $ddos_enabled && (isset($options['turnstile_enabled']) ? (bool) $options['turnstile_enabled'] : false);
 		$this->site_key = isset($options['turnstile_site_key']) ? $options['turnstile_site_key'] : '';
 		$this->secret_key = isset($options['turnstile_secret_key']) ? $options['turnstile_secret_key'] : '';
 		$this->challenge_borderline = isset($options['turnstile_challenge_borderline']) ? (bool) $options['turnstile_challenge_borderline'] : false;
