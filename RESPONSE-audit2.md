@@ -97,39 +97,52 @@ incorrect. The installer writes it at `class-baskerville-installer.php:224-225` 
 
 ## Two new features in response to architectural feedback
 
-### 1. AI Bot Control redesign (SPEC-disallow-ai-training.md)
+### 1. AI Bot Control redesign — shipped
 
 Your feedback highlighted that the current 4-mode system (allow_all / block_all / whitelist
-/ blacklist) is abstract. Replacing it with per-company toggles grouped by three categories
+/ blacklist) is abstract. Replaced with a flat per-company table grouped by three categories
 matching Cloudflare's September 2026 model:
 
 - **AI Training** — bots that scrape content for model development (GPTBot, ClaudeBot, etc.)
 - **AI Search** — bots that answer user questions (OAI-SearchBot, PerplexityBot, etc.)
 - **AI Assistant** — real-time agents acting on behalf of a user (ChatGPT-User, Claude-User, etc.)
 
-Verified companies (OpenAI, Anthropic, Meta, Google AI) show a "verified ✓" badge — IP
-confirmed via rDNS or published IP ranges before blocking. Unverified companies are grouped
-under a single "Unknown AI Bots" toggle. Search bots (Googlebot, Bingbot, Applebot) are
-always allowed and not shown in the blocking UI.
+Each cell in the table is an independent toggle slider — a company can be blocked for
+Training but allowed for Search (e.g. block GPTBot, allow OAI-SearchBot). This maps to
+compound setting keys: `openai_training`, `openai_search`, `openai_assistant`.
 
-### 2. DDoS Protection mode switch (SPEC-ddos-protection-mode.md)
+Verified companies (OpenAI, Anthropic, Meta, Google AI, Amazon, Apple, Perplexity, Mistral,
+DuckDuckGo, Common Crawl) are confirmed via rDNS or published IP ranges before blocking —
+no false positives. Unverified companies (ByteDance, Diffbot, etc.) are handled by a single
+"Block Unknown AI Bots" toggle. Search bots (Googlebot, Bingbot, DuckDuckBot) are always
+allowed and not shown in the blocking UI.
+
+Settings migration: the old `ai_bot_blocking_mode` / `whitelist_ai_companies` /
+`blacklist_ai_companies` keys are automatically converted to compound keys on upgrade.
+
+### 2. DDoS Protection mode switch — shipped
 
 Directly addresses the EQPress deployment concern about duplicate blocking functionality
 with Banjax/Deflect.
 
-Replaces the current "Master Protection" toggle with two separate switches:
+Replaces the single "Master Protection" toggle with two separate slider switches shown at
+the top of every admin page:
 
-**Bot & Access Control** (identity-based, always available):
-AI Bot Control, GeoIP blocking, Honeypot, Fingerprint collection and scoring.
+**Bot & Access Control** (identity-based — AI bots, GeoIP, cloud blocks, honeypot):
+Always available. Blocks based on *who* the request is: known AI bot, blocked country,
+banned IP. Disabling this removes identity-based blocking only.
 
-**DDoS Protection** (pattern-based, switchable):
-Burst rate limiting, session score → challenge enforcement, CAPTCHA, Under Attack mode.
+**DDoS Protection** (pattern-based — burst detection, scoring, CAPTCHA challenge):
+Switchable. Blocks based on *how* the request behaves: too many requests without a cookie,
+no JavaScript execution, suspicious header profile. Disabling this puts Baskerville into
+shadow mode — burst and score events are still logged (visible in Live Feed as
+`[DDoS Protection OFF]`) but no blocking action is taken.
 
-When Deflect is detected (`X-Deflect-Country-Code` header present on activation),
-DDoS Protection is automatically disabled and the admin is notified. Baskerville continues
-to fingerprint and classify all traffic in **shadow mode** — high-score requests are logged
-as "would challenge" / "would block" in Live Feed and Stats, giving operators full visibility
-without active blocking.
+Settings migration: existing `master_protection_enabled` is automatically converted to
+both new flags on upgrade, preserving the previous on/off state.
+
+Challenge providers (Turnstile, Altcha/Gatekeeper), API rate limiting, and honeypot banning
+are each gated on the appropriate layer — CAPTCHA on DDoS, honeypot ban on Bot & Access Control.
 
 ---
 
@@ -144,5 +157,5 @@ without active blocking.
 | Issue 4 | Object cache inert without Redis | ⚠️ Open — no Redis on EQPress |
 | New | Stats table growth cap | ✅ Fixed |
 | New | Duplicate firewall condition | ✅ Fixed |
-| Architectural | 4-mode AI bot system too abstract | 🔧 Redesign planned (1.0.7) |
-| Architectural | Duplicate DDoS blocking with Banjax | 🔧 DDoS mode switch planned (1.0.7) |
+| Architectural | 4-mode AI bot system too abstract | ✅ Redesigned — per-company-per-category table |
+| Architectural | Duplicate DDoS blocking with Banjax | ✅ DDoS mode switch implemented |
