@@ -223,6 +223,15 @@ class Baskerville_Installer {
 		$settings = get_option('baskerville_settings', array());
 		$settings['trust_cf_ipcountry']    = $cdn['cloudflare'];
 		$settings['trust_deflect_country'] = $cdn['deflect'];
+
+		// When Deflect is in front, disable DDoS Protection automatically.
+		// Deflect/Banjax already handles burst detection and rate limiting at the edge —
+		// running Baskerville's DDoS layer on top causes double-blocking and false positives.
+		// Bot & Access Control (AI bots, GeoIP, honeypot) is left enabled.
+		if ($cdn['deflect']) {
+			$settings['ddos_protection_enabled'] = false;
+		}
+
 		update_option('baskerville_settings', $settings);
 	}
 

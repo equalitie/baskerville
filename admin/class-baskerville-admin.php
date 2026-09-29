@@ -300,10 +300,12 @@ class Baskerville_Admin {
 				if ( in_array( 'cloudflare', $cdn_pending, true ) ) $cdn_labels[] = '<strong>Cloudflare</strong>';
 				if ( in_array( 'deflect',    $cdn_pending, true ) ) $cdn_labels[] = '<strong>Deflect CDN</strong>';
 				$cdn_string = wp_kses( implode( ' and ', $cdn_labels ), array( 'strong' => array() ) );
+				$deflect_detected = in_array( 'deflect', $cdn_pending, true );
+				$notice_text = $deflect_detected
+					? /* translators: %s: CDN name(s) */ esc_html__( 'Detected %s — enabled country detection from CDN headers and disabled DDoS Protection (Deflect/Banjax handles burst detection at the edge). Bot & Access Control remains active. Adjust in Settings if needed.', 'baskerville-ai-security' )
+					: /* translators: %s: CDN name(s) */ esc_html__( 'Detected %s — automatically enabled country detection from its header. If this is incorrect, disable the setting in Country Control.', 'baskerville-ai-security' );
 				printf(
-					'<div class="notice notice-info is-dismissible baskerville-cdn-notice"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> ' .
-					/* translators: %s: CDN name(s) */
-					esc_html__( 'Detected %s — automatically enabled country detection from its header. If this is incorrect, disable the setting in Country Control.', 'baskerville-ai-security' ) . '</p></div>',
+					'<div class="notice notice-info is-dismissible baskerville-cdn-notice"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> ' . $notice_text . '</p></div>',
 					$cdn_string
 				);
 				?>
