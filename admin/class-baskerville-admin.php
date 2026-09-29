@@ -5835,7 +5835,7 @@ done
 		</div>
 		<script>
 		document.addEventListener('DOMContentLoaded', function() {
-			var honeypotCb = document.querySelector('input[name="baskerville_settings[honeypot_enabled]"]');
+			var honeypotCb = document.querySelector('input[name="baskerville_settings[honeypot_enabled]"][type="checkbox"]');
 			var banCard    = document.getElementById('bsk-honeypot-ban-card');
 			if (!honeypotCb || !banCard) return;
 			var banCb = banCard.querySelector('input[type="checkbox"]');
