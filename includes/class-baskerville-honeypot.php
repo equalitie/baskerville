@@ -155,7 +155,7 @@ class Baskerville_Honeypot {
 		$this->core->fc_set("honeypot_caught:{$ip}", 1, 86400);
 
 		// Ban if enabled (default: 24 hours)
-		if ($master_enabled && $bot_protection_enabled && $honeypot_ban_enabled) {
+		if ($bot_control_enabled && $bot_protection_enabled && $honeypot_ban_enabled) {
 			$ban_ttl = (int)get_option('baskerville_honeypot_ban_ttl', 86400); // 24 hours default
 			$this->core->fc_set("ban:{$ip}", [
 				'reason' => 'honeypot',
