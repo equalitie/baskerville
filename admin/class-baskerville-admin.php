@@ -3717,7 +3717,7 @@ class Baskerville_Admin {
 									<?php esc_html_e('Bot & Access Control', 'baskerville-ai-security'); ?>
 								</div>
 								<div style="font-size:11px; color:#777; max-width:220px;">
-									<?php esc_html_e('AI bots, GeoIP, honeypot, cloud blocks', 'baskerville-ai-security'); ?>
+									<?php esc_html_e('AI bots, GeoIP, honeypot', 'baskerville-ai-security'); ?>
 								</div>
 							</div>
 							<div style="display:flex; align-items:center; gap:6px;">
