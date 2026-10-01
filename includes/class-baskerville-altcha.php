@@ -35,8 +35,10 @@ class Baskerville_Altcha {
 	public function __construct($core = null, $stats = null) {
 		$options = get_option('baskerville_settings', array());
 
-		$ddos_enabled               = !isset($options['ddos_protection_enabled']) || $options['ddos_protection_enabled'];
-		$this->enabled              = $ddos_enabled && (!isset($options['altcha_enabled']) || $options['altcha_enabled']);
+		// Note: ddos_protection_enabled does NOT gate form widgets (login/comment/register) —
+		// those are Bot & Access Control, not DDoS. The firewall already gates challenge
+		// redirects via its own ddos_enabled check before calling should_challenge().
+		$this->enabled              = !isset($options['altcha_enabled']) || $options['altcha_enabled'];
 		// These settings are shared between Altcha and Turnstile providers — stored under
 		// 'turnstile_*' keys in the DB for historical reasons (Turnstile was the first provider).
 		// Both providers read the same keys so admin settings apply regardless of active provider.
