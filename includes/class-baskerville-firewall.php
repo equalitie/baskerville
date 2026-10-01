@@ -71,7 +71,7 @@ class Baskerville_Firewall
 				'country_code'          => $country,
 				'baskerville_id'        => $cookie_id,
 				'timestamp_utc'         => current_time('mysql', true),
-				'score'                 => 0,
+				'score'                 => -1, // -1 = no score available (detected by IP/CIDR, no browser fingerprint)
 				'classification'        => (string)($classification['classification'] ?? 'ai_bot'),
 				'user_agent'            => $ua,
 				'evaluation_json'       => '{}',
@@ -151,6 +151,7 @@ class Baskerville_Firewall
 		if (!headers_sent()) {
 			status_header(403);
 			nocache_headers();
+			header('X-Accel-Expires: 0');
 			header('Content-Type: text/plain; charset=UTF-8');
 			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
 			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
@@ -169,7 +170,7 @@ class Baskerville_Firewall
 			esc_html_e( 'Forbidden - Too many requests without session cookie', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'nojs-burst') === 0) {
 			esc_html_e( 'Forbidden - Too many requests without JavaScript', 'baskerville-ai-security' );
-		} elseif (strpos($reason, 'nojs-burst') === 0) {
+		} elseif (strpos($reason, 'nonbrowser-ua-burst') === 0) {
 			esc_html_e( 'Forbidden - Non-browser client rate limit exceeded', 'baskerville-ai-security' );
 		} elseif (strpos($reason, 'ai-bot') === 0) {
 			esc_html_e( 'Forbidden - AI bot detected', 'baskerville-ai-security' );
@@ -187,6 +188,7 @@ class Baskerville_Firewall
 		if (!headers_sent()) {
 			status_header(403);
 			nocache_headers();
+			header('X-Accel-Expires: 0');
 			header('Content-Type: text/plain; charset=UTF-8');
 			if (!empty($meta['reason'])) header('X-Baskerville-Reason: ' . $meta['reason']);
 			if (isset($meta['score']))   header('X-Baskerville-Score: ' . (int)$meta['score']);
@@ -215,10 +217,16 @@ class Baskerville_Firewall
 		// Get options once
 		$options = get_option('baskerville_settings', array());
 
-		// Check Master Switch - if disabled, all blocking is off (only logging)
-		$master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
-		if (!$master_enabled) {
-			return; // Master switch OFF - no blocking, only logging
+		// Two-layer protection mode switches
+		// Layer 1: Bot & Access Control — identity-based (AI bots, GeoIP, cloud blocks)
+		// Layer 2: DDoS Protection — pattern-based (burst detection, scoring, CAPTCHA challenge)
+		// Legacy: master_protection_enabled → both layers on/off (migrated in maybe_upgrade_schema)
+		$bot_control_enabled = !isset($options['bot_access_control_enabled']) || $options['bot_access_control_enabled'];
+		$ddos_enabled        = !isset($options['ddos_protection_enabled'])    || $options['ddos_protection_enabled'];
+
+		// If both layers are off, skip all processing
+		if (!$bot_control_enabled && !$ddos_enabled) {
+			return;
 		}
 
 		// IP whitelist — allow through
@@ -226,28 +234,32 @@ class Baskerville_Firewall
 			return;
 		}
 
-		// Cloud AI blocks — temporary pattern blocks from LLM agent (country/ASN/UA).
-		$cloud_blocks = get_transient('baskerville_cloud_blocks');
-		if (!empty($cloud_blocks)) {
-			$ua      = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
-			$country = null;
-			$now     = time();
-			foreach ($cloud_blocks as $block) {
-				if ($block['expires'] <= $now) continue;
-				$target = $block['target'];
-				switch ($block['type']) {
-					case 'block_country':
-						if ($country === null) $country = $this->core->get_country_by_ip($ip);
-						if ($country && strtoupper($country) === $target) {
-							$this->send_403_geo_and_exit(['reason' => 'cloud:block_country:' . $target, 'cls' => 'cloud-block']);
-						}
-						break;
-					case 'block_useragent':
-						if ($ua && stripos($ua, $target) !== false) {
-							$this->send_403_and_exit(['reason' => 'cloud:block_useragent:' . $target, 'cls' => 'cloud-block', 'score' => 100]);
-						}
-						break;
-					// block_asn: stored but not yet enforced (no ASN lookup in firewall path)
+		// Cloud AI blocks — identity-based, under Bot & Access Control layer.
+		// Only enforced when the operator has explicitly opted in via Settings → Cloud.
+		if ($bot_control_enabled) {
+			$options_s    = get_option('baskerville_settings', []);
+			$cloud_blocks = (!isset($options_s['cloud_remote_blocks']) || $options_s['cloud_remote_blocks']) ? get_transient('baskerville_cloud_blocks') : false;
+			if (!empty($cloud_blocks)) {
+				$ua      = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
+				$country = null;
+				$now     = time();
+				foreach ($cloud_blocks as $block) {
+					if ($block['expires'] <= $now) continue;
+					$target = $block['target'];
+					switch ($block['type']) {
+						case 'block_country':
+							if ($country === null) $country = $this->core->get_country_by_ip($ip);
+							if ($country && strtoupper($country) === $target) {
+								$this->send_403_geo_and_exit(['reason' => 'cloud:block_country:' . $target, 'cls' => 'cloud-block']);
+							}
+							break;
+						case 'block_useragent':
+							if ($ua && stripos($ua, $target) !== false) {
+								$this->send_403_and_exit(['reason' => 'cloud:block_useragent:' . $target, 'cls' => 'cloud-block', 'score' => 100]);
+							}
+							break;
+						// block_asn: stored but not yet enforced (no ASN lookup in firewall path)
+					}
 				}
 			}
 		}
@@ -262,21 +274,29 @@ class Baskerville_Firewall
 			return;
 		}
 
+		// Reject already-banned IPs before the turnstile bypass check.
+		// Without this, a banned IP can flood /?baskerville_verify=1&r=RAND: each request
+		// bypasses the firewall AND misses the nginx page cache (query string ≠ ""),
+		// forcing a full WP bootstrap every time — a trivial FPM pool saturation attack.
+		// verified_bot bans are exempt so Googlebot/Bingbot are never blocked here.
+		if ($ban = $this->get_ban($ip)) {
+			if (($ban['cls'] ?? '') !== 'verified_bot') {
+				$this->send_403_and_exit([
+					'reason' => 'cached-ban:' . ($ban['reason'] ?? ''),
+					'score'  => $ban['score'] ?? 100,
+					'cls'    => $ban['cls'] ?? 'banned',
+					'until'  => $ban['until'] ?? 0,
+				]);
+			}
+		}
+
 		// Skip firewall for Turnstile challenge/verify pages to prevent redirect loops
 		// Support both rewrite rules (/baskerville-challenge/) and query params (?baskerville_challenge=1)
-		// Also check query string directly in case $_GET is not populated
+		// Use path-only for path checks to prevent /?foo=baskerville_challenge from bypassing firewall.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
-		$query_string = isset($_SERVER['QUERY_STRING']) ? sanitize_text_field(wp_unslash($_SERVER['QUERY_STRING'])) : '';
+		$request_path  = parse_url($request_uri, PHP_URL_PATH) ?? $request_uri;
 		$is_turnstile_page = (
-			strpos($request_uri, '/baskerville-challenge') !== false ||
-			strpos($request_uri, '/baskerville-verify') !== false ||
-			strpos($request_uri, '/baskerville-altcha-challenge') !== false ||
-			strpos($request_uri, 'baskerville_challenge') !== false ||
-			strpos($request_uri, 'baskerville_verify') !== false ||
-			strpos($request_uri, 'baskerville_altcha_challenge') !== false ||
-			strpos($query_string, 'baskerville_challenge') !== false ||
-			strpos($query_string, 'baskerville_verify') !== false ||
-			strpos($query_string, 'baskerville_altcha_challenge') !== false ||
+			preg_match( '~^/baskerville-(challenge|verify|altcha-challenge)/?$~', $request_path ) ||
 			filter_has_var(INPUT_GET, 'baskerville_challenge') ||
 			filter_has_var(INPUT_GET, 'baskerville_verify') ||
 			filter_has_var(INPUT_GET, 'baskerville_altcha_challenge') ||
@@ -320,8 +340,9 @@ class Baskerville_Firewall
 			return;
 		}
 
-		// GeoIP country ban check (applies to frontend requests only, NOT wp-admin)
-		$geoip_enabled = isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false;
+		// GeoIP country ban check — identity-based, under Bot & Access Control layer.
+		// (applies to frontend requests only, NOT wp-admin)
+		$geoip_enabled = $bot_control_enabled && (isset($options['geoip_enabled']) ? $options['geoip_enabled'] : false);
 		$mode = isset($options['geoip_mode']) ? $options['geoip_mode'] : 'allow_all';
 
 		// Only process GeoIP checks if enabled AND not in "allow_all" mode
@@ -383,8 +404,8 @@ class Baskerville_Firewall
 			}
 		}
 
-		// AI Bot Company Blocking Check
-		$ai_bot_control_enabled = isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true;
+		// AI Bot Company Blocking Check — identity-based, under Bot & Access Control layer.
+		$ai_bot_control_enabled = $bot_control_enabled && (isset($options['ai_bot_control_enabled']) ? $options['ai_bot_control_enabled'] : true);
 		if ($ai_bot_control_enabled) {
 			$ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
 			$headers = [
@@ -423,30 +444,30 @@ class Baskerville_Firewall
 				// block_ai_bot_unverified is off → fall through to main mode below
 			}
 
-			// ── Main mode block (allow_all / block_all / blacklist / whitelist) ─
-			$ai_bot_mode = isset($options['ai_bot_blocking_mode']) ? $options['ai_bot_blocking_mode'] : 'allow_all';
+			// ── Per-company blocking (replaces 4-mode system) ──────────────────────
 			$ai_classifications = ['ai_bot', 'verified_ai_bot', 'ai_bot_unverified'];
-			if ($ai_bot_mode !== 'allow_all' && in_array($cls, $ai_classifications, true)) {
-				$should_block = false;
+			if (in_array($cls, $ai_classifications, true)) {
+				$blocked_raw    = isset($options['ai_blocked_companies']) ? $options['ai_blocked_companies'] : '';
+				$block_unknown  = !isset($options['ai_block_unknown']) || $options['ai_block_unknown'];
+				$blocked_keys   = !empty($blocked_raw) ? array_map('trim', explode(',', $blocked_raw)) : [];
+
+				$company_key = $this->aiua->get_company_key($company);
+				$is_known    = $company_key !== '';
+
+				$should_block  = false;
 				$reason_prefix = '';
 
-				if ($ai_bot_mode === 'block_all') {
+				if ($is_known && !empty($blocked_keys)) {
+					$category     = $this->aiua->get_ai_bot_category($ua);
+					$compound_key = $company_key . '_' . $category;
+					if (in_array($compound_key, $blocked_keys, true)) {
+						$should_block  = true;
+						$reason_prefix = 'ai-bot-company-blocked';
+					}
+				}
+				if (!$should_block && !$is_known && $block_unknown) {
 					$should_block  = true;
-					$reason_prefix = 'ai-bot-block-all';
-				} elseif ($ai_bot_mode === 'whitelist') {
-					$company_list_str = isset($options['whitelist_ai_companies']) ? $options['whitelist_ai_companies'] : '';
-					if (!empty($company_list_str)) {
-						$whitelist_companies = array_map('trim', explode(',', $company_list_str));
-						$should_block  = !in_array($company, $whitelist_companies, true);
-						$reason_prefix = 'ai-bot-whitelist-blocked';
-					}
-				} elseif ($ai_bot_mode === 'blacklist') {
-					$company_list_str = isset($options['blacklist_ai_companies']) ? $options['blacklist_ai_companies'] : '';
-					if (!empty($company_list_str)) {
-						$blacklist_companies = array_map('trim', explode(',', $company_list_str));
-						$should_block  = in_array($company, $blacklist_companies, true);
-						$reason_prefix = 'ai-bot-blacklist-blocked';
-					}
+					$reason_prefix = 'ai-bot-unknown-blocked';
 				}
 
 				if ($should_block) {
@@ -478,6 +499,16 @@ class Baskerville_Firewall
 		// Check if this is a public HTML page (GET/HEAD with HTML Accept header)
 		// Burst protection and bot detection only apply to public HTML pages
 		if (!$this->core->is_public_html_request()) {
+			return;
+		}
+
+		// DDoS Protection gate — pattern-based checks (burst, scoring, challenge).
+		// When disabled: shadow-log what would happen but take no blocking action.
+		if (!$ddos_enabled) {
+			if (defined('BASKERVILLE_DEBUG') && BASKERVILLE_DEBUG) {
+				$shadow_ua = sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'] ?? ''));
+				wpsec_log('[DDoS Protection OFF] shadow mode — skipping burst/score/challenge for ' . $ip . ' ua=' . substr($shadow_ua, 0, 80));
+			}
 			return;
 		}
 

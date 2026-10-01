@@ -23,6 +23,19 @@ class Baskerville_REST {
             'callback'            => [$this, 'handle_fp'],
             'permission_callback' => '__return_true', // Intentionally public: collects browser fingerprints from all visitors
         ]);
+
+        // Nonce refresh endpoint: returns a fresh wp_rest nonce.
+        // Needed because the nonce is baked into cached pages — at nonce-tick
+        // boundaries (every 12h) the cached nonce may be stale and the /fp POST
+        // returns 403. The JS retries with a fresh nonce from here.
+        // No auth required — wp_create_nonce('wp_rest') is not a secret.
+        register_rest_route('baskerville/v1', '/nonce', [
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => function() {
+                return new WP_REST_Response(['nonce' => wp_create_nonce('wp_rest')], 200);
+            },
+            'permission_callback' => '__return_true',
+        ]);
     }
 
     /**
@@ -31,11 +44,11 @@ class Baskerville_REST {
      */
     private function check_api_rate_limit() {
         $options = get_option('baskerville_settings', array());
-        $master_enabled = !isset($options['master_protection_enabled']) || $options['master_protection_enabled'];
+        $ddos_enabled = !isset($options['ddos_protection_enabled']) || $options['ddos_protection_enabled'];
         $rate_limit_enabled = isset($options['api_rate_limit_enabled']) ? $options['api_rate_limit_enabled'] : true;
 
-        if (!$master_enabled || !$rate_limit_enabled) {
-            return null; // Master switch or rate limiting disabled
+        if (!$ddos_enabled || !$rate_limit_enabled) {
+            return null; // DDoS protection or rate limiting disabled
         }
 
         $ip = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'] ?? ''));
