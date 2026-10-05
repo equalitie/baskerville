@@ -650,6 +650,7 @@ class Baskerville_AI_UA {
         elseif (strpos($ua,'bingbot') !== false)       $expect = ['.search.msn.com'];
         elseif (strpos($ua,'applebot') !== false)      $expect = ['.applebot.apple.com'];
         elseif (strpos($ua,'duckduckbot') !== false)   $expect = ['.duckduckgo.com'];
+        elseif (strpos($ua,'yandexbot') !== false)     $expect = ['.yandex.ru','.yandex.net'];
         else return ['claimed'=>false,'verified'=>false,'host'=>null];
 
         // cache key
