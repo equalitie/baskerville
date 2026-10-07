@@ -178,6 +178,16 @@ class Baskerville_Cloud {
 			return;
 		}
 
+		// Cheap early exit: if no rows exist for this window, skip the 6 aggregate
+		// queries below. On idle or low-traffic sites this fires every cron tick.
+		$has_traffic = $wpdb->get_var( $wpdb->prepare(
+			"SELECT 1 FROM {$table} WHERE timestamp_utc >= %s AND timestamp_utc < %s LIMIT 1",
+			$ts_start, $ts_end
+		) );
+		if ( ! $has_traffic ) {
+			return;
+		}
+
 		// Core counts.
 		$counts = $wpdb->get_row( $wpdb->prepare(
 			"SELECT
