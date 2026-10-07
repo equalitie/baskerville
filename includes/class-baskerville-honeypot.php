@@ -151,9 +151,6 @@ class Baskerville_Honeypot {
 			$block_reason
 		);
 
-		// Mark IP with long-term cache flag (24 hours)
-		$this->core->fc_set("honeypot_caught:{$ip}", 1, 86400);
-
 		// Ban if enabled (default: 24 hours)
 		if ($bot_control_enabled && $bot_protection_enabled && $honeypot_ban_enabled) {
 			$ban_ttl = (int)get_option('baskerville_honeypot_ban_ttl', 86400); // 24 hours default
@@ -242,10 +239,4 @@ class Baskerville_Honeypot {
 		echo "\n<!-- /Baskerville Honeypot -->\n";
 	}
 
-	/**
-	 * Check if IP has triggered honeypot before
-	 */
-	public function has_triggered_honeypot(string $ip): bool {
-		return (bool) $this->core->fc_get("honeypot_caught:{$ip}");
-	}
 }

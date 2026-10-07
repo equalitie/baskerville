@@ -238,25 +238,29 @@ class Baskerville_Stats
 
         // Migrate from 4-mode AI bot system to per-company-per-category blocking
         $options = get_option( 'baskerville_settings', [] );
+        // Canonical set of valid compound keys (no amazon_search — no such UA exists).
+        $all_valid_keys = [
+            'openai_training','openai_search','openai_assistant',
+            'anthropic_training','anthropic_search','anthropic_assistant',
+            'meta_training','meta_assistant',
+            'google_training',
+            'amazon_training','amazon_assistant',
+            'commoncrawl_training',
+            'apple_search',
+            'perplexity_search','perplexity_assistant',
+            'mistral_search','mistral_assistant',
+            'duckduckgo_assistant',
+        ];
+
+        // Migrate legacy ai_bot_blocking_mode → per-company compound keys.
         if ( isset( $options['ai_bot_blocking_mode'] ) && ! isset( $options['ai_blocked_companies'] ) ) {
-            $all_keys = [
-                'openai_training','openai_search','openai_assistant',
-                'anthropic_training','anthropic_search','anthropic_assistant',
-                'meta_training','meta_assistant',
-                'google_training',
-                'amazon_training','amazon_search','amazon_assistant',
-                'commoncrawl_training',
-                'apple_search',
-                'perplexity_search','perplexity_assistant',
-                'mistral_search','mistral_assistant',
-                'duckduckgo_assistant',
-            ];
+            $all_keys = $all_valid_keys;
             $name_to_keys = [
                 'OpenAI'       => ['openai_training','openai_search','openai_assistant'],
                 'Anthropic'    => ['anthropic_training','anthropic_search','anthropic_assistant'],
                 'Google'       => ['google_training'],
                 'Meta'         => ['meta_training','meta_assistant'],
-                'Amazon'       => ['amazon_training','amazon_search','amazon_assistant'],
+                'Amazon'       => ['amazon_training','amazon_assistant'],
                 'Common Crawl' => ['commoncrawl_training'],
                 'Apple'        => ['apple_search'],
                 'Perplexity'   => ['perplexity_search','perplexity_assistant'],
@@ -291,6 +295,15 @@ class Baskerville_Stats
                 $options['ai_block_unknown']     = true;
             }
             unset( $options['ai_bot_blocking_mode'], $options['blacklist_ai_companies'], $options['whitelist_ai_companies'] );
+            update_option( 'baskerville_settings', $options );
+        }
+
+        // Fresh-install default: if ai_blocked_companies was never saved (no old mode to migrate
+        // from either), pre-populate with all valid keys so the firewall matches what the UI shows.
+        $options = get_option( 'baskerville_settings', [] );
+        if ( ! isset( $options['ai_bot_blocking_mode'] ) && ! isset( $options['ai_blocked_companies'] ) ) {
+            $options['ai_blocked_companies'] = implode( ',', $all_valid_keys );
+            $options['ai_block_unknown']     = true;
             update_option( 'baskerville_settings', $options );
         }
 
@@ -529,14 +542,11 @@ class Baskerville_Stats
         $visit_key = $this->make_visit_key($ip, $cookie_id);
         $this->current_visit_key = $visit_key;
 
-        // short-lived cookie for linking with fetch/beacon
-        setcookie('baskerville_visit_key', $visit_key, [
-            'expires'  => time() + 300,
-            'path'     => '/',
-            'secure'   => function_exists('wp_is_using_https') ? wp_is_using_https() : is_ssl(),
-            'httponly' => false,
-            'samesite' => 'Lax',
-        ]);
+        // Pass visit_key to the fingerprinting script as an inline JS variable
+        // instead of a Set-Cookie header. A Set-Cookie header would be stored by
+        // nginx fastcgi_cache and replayed to different visitors, causing all their
+        // /fp POSTs to update the same stats row (data corruption).
+        $this->core->pending_visit_key = $visit_key;
 
         // Log according to selected mode
         if ($log_mode === 'file') {

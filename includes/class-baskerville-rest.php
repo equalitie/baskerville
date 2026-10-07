@@ -111,6 +111,12 @@ class Baskerville_REST {
             'sec_ch_ua'       => sanitize_text_field(wp_unslash($_SERVER['HTTP_SEC_CH_UA'] ?? '')),
             'server_protocol' => sanitize_text_field(wp_unslash($_SERVER['SERVER_PROTOCOL'] ?? '')),
         ];
+
+        // send_headers does not fire on REST requests, so ensure_baskerville_cookie() is
+        // not called automatically. Issue baskerville_id here — this POST is never cached
+        // by nginx, so Set-Cookie in this response is safe and won't be replayed.
+        $this->core->ensure_baskerville_cookie();
+
         $cookie_id = $this->core->get_cookie_id();
 
         // calculate

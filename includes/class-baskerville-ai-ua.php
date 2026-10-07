@@ -344,7 +344,7 @@ class Baskerville_AI_UA {
     public function get_ai_bot_category(string $user_agent): string {
         $ua = strtolower($user_agent);
         // AI Search
-        $search_patterns = ['oai-searchbot', 'claude-searchbot', 'perplexitybot', 'mistralai-index', 'xai-searchbot', 'google-extended', 'applebot'];
+        $search_patterns = ['oai-searchbot', 'claude-searchbot', 'perplexitybot', 'mistralai-index', 'xai-searchbot', 'applebot'];
         foreach ($search_patterns as $p) {
             if (strpos($ua, $p) !== false) return 'search';
         }
@@ -361,14 +361,22 @@ class Baskerville_AI_UA {
      * Map a company name to a slug key.
      */
     public function get_company_key(string $company): string {
+        // Only companies that have UI toggles get a key. Everything else — including
+        // 'Unknown', ByteDance, xAI, Cohere, Jina.ai etc. — returns '' so the
+        // firewall routes them through the "Block Unknown AI Bots" toggle instead.
         $map = [
-            'OpenAI' => 'openai', 'Anthropic' => 'anthropic', 'Google' => 'google',
-            'Meta' => 'meta', 'Amazon' => 'amazon', 'Perplexity' => 'perplexity',
-            'Mistral' => 'mistral', 'ByteDance' => 'bytedance', 'Common Crawl' => 'commoncrawl',
-            'Diffbot' => 'diffbot', 'xAI' => 'xai', 'Huawei' => 'huawei',
-            'Cohere' => 'cohere', 'Baidu' => 'baidu', 'Apple' => 'apple',
+            'OpenAI'       => 'openai',
+            'Anthropic'    => 'anthropic',
+            'Google'       => 'google',
+            'Meta'         => 'meta',
+            'Amazon'       => 'amazon',
+            'Perplexity'   => 'perplexity',
+            'Mistral'      => 'mistral',
+            'Common Crawl' => 'commoncrawl',
+            'Apple'        => 'apple',
+            'DuckDuckGo'   => 'duckduckgo',
         ];
-        return $map[$company] ?? strtolower(preg_replace('/[^a-z0-9]/i', '', $company));
+        return $map[$company] ?? '';
     }
 
     /**
