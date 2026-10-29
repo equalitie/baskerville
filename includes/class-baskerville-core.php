@@ -509,8 +509,8 @@ class Baskerville_Core {
         }
 
         // Check URL patterns — use path only to prevent /?utm_source=/v1/ from matching.
-        $raw_uri  = wp_unslash($_SERVER['REQUEST_URI'] ?? '');
-        $uri_path = strtolower(sanitize_text_field(parse_url($raw_uri, PHP_URL_PATH) ?? $raw_uri));
+        $raw_uri  = sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'] ?? ''));
+        $uri_path = strtolower(wp_parse_url($raw_uri, PHP_URL_PATH) ?? $raw_uri);
 
         $rest_prefix = '/' . strtolower(rest_get_url_prefix()) . '/';
         $api_paths = [

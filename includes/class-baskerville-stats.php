@@ -232,7 +232,9 @@ class Baskerville_Stats
                 )
             );
             if ( $exists ) {
-                $wpdb->query( "DROP INDEX `{$idx}` ON `{$table_name}`" ); // phpcs:ignore WordPress.DB
+                $wpdb->query(
+                    $wpdb->prepare( 'DROP INDEX %i ON %i', $idx, $table_name )
+                );
             }
         }
 

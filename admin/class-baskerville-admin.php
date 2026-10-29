@@ -274,7 +274,7 @@ class Baskerville_Admin {
 		// CDN auto-detection notice.
 		// On plugins.php?activate=true: store CF/Deflect detection in an option and reset per-user dismissed flag.
 		// On any subsequent admin page: show once per user, mark as seen immediately (no AJAX needed).
-		if ( ! empty( $_GET['activate'] ) ) {
+		if ( ! empty( $_GET['activate'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- set by WP core after plugin activation; presence check only.
 			$opts       = get_option( 'baskerville_settings', array() );
 			$cf_active  = ! empty( $opts['trust_cf_ipcountry'] ) && (
 				! empty( $_SERVER['HTTP_CF_RAY'] ) ||
@@ -299,14 +299,14 @@ class Baskerville_Admin {
 				$cdn_labels = array();
 				if ( in_array( 'cloudflare', $cdn_pending, true ) ) $cdn_labels[] = '<strong>Cloudflare</strong>';
 				if ( in_array( 'deflect',    $cdn_pending, true ) ) $cdn_labels[] = '<strong>Deflect CDN</strong>';
-				$cdn_string = wp_kses( implode( ' and ', $cdn_labels ), array( 'strong' => array() ) );
+				$cdn_string = implode( ' and ', $cdn_labels );
 				$deflect_detected = in_array( 'deflect', $cdn_pending, true );
 				$notice_text = $deflect_detected
 					? /* translators: %s: CDN name(s) */ esc_html__( 'Detected %s — enabled country detection from CDN headers and disabled DDoS Protection (Deflect/Banjax handles burst detection at the edge). Bot & Access Control remains active. Adjust in Settings if needed.', 'baskerville-ai-security' )
 					: /* translators: %s: CDN name(s) */ esc_html__( 'Detected %s — automatically enabled country detection from its header. If this is incorrect, disable the setting in Country Control.', 'baskerville-ai-security' );
 				printf(
-					'<div class="notice notice-info is-dismissible baskerville-cdn-notice"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> ' . $notice_text . '</p></div>',
-					$cdn_string
+					'<div class="notice notice-info is-dismissible baskerville-cdn-notice"><p><strong>' . esc_html__( 'Baskerville:', 'baskerville-ai-security' ) . '</strong> ' . wp_kses_post( $notice_text ) . '</p></div>',
+					wp_kses( $cdn_string, array( 'strong' => array() ) )
 				);
 				?>
 				<script>
