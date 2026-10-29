@@ -294,7 +294,7 @@ class Baskerville_Firewall
 		// Support both rewrite rules (/baskerville-challenge/) and query params (?baskerville_challenge=1)
 		// Use path-only for path checks to prevent /?foo=baskerville_challenge from bypassing firewall.
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
-		$request_path  = parse_url($request_uri, PHP_URL_PATH) ?? $request_uri;
+		$request_path  = wp_parse_url($request_uri, PHP_URL_PATH) ?? $request_uri;
 		$is_turnstile_page = (
 			preg_match( '~^/baskerville-(challenge|verify|altcha-challenge)/?$~', $request_path ) ||
 			filter_has_var(INPUT_GET, 'baskerville_challenge') ||
